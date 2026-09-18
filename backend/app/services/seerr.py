@@ -7,6 +7,7 @@ from .http import json_get, json_request, tidy_url
 # Overseerr / Jellyseerr media + request status enums.
 MEDIA_AVAILABLE = {4, 5}
 MEDIA_IN_FLIGHT = {2, 3}
+MEDIA_BLOCKED = {6}  # blacklisted / blocklisted in Seerr and Jellyseerr
 REQUEST_PENDING = {1}
 REQUEST_APPROVED = {2}
 REQUEST_OPEN = REQUEST_PENDING | REQUEST_APPROVED
@@ -29,6 +30,11 @@ def _status_num(value: Any) -> int | None:
         "partially-available": 4,
         "partial": 4,
         "available": 5,
+        "blacklisted": 6,
+        "blocklisted": 6,
+        "blacklist": 6,
+        "blocklist": 6,
+        "deleted": 7,
         "approved": 2,
         "declined": 3,
         "failed": 4,
@@ -37,9 +43,26 @@ def _status_num(value: Any) -> int | None:
     return names.get(text.replace(" ", ""))
 
 
+def media_blocked(media: dict[str, Any] | None) -> bool:
+    """True when Seerr has blocklisted the title so it should not be treated as stale."""
+    media = media or {}
+    for field in ("status", "status4k"):
+        if _status_num(media.get(field)) in MEDIA_BLOCKED:
+            return True
+    if media.get("isBlacklisted") or media.get("isBlocklisted"):
+        return True
+    for field in ("blacklist", "blocklist"):
+        value = media.get(field)
+        if value not in (None, False, "", [], {}):
+            return True
+    return False
+
+
 def media_claimed(media: dict[str, Any] | None) -> bool:
     """True when Seerr still treats the title as present in the *arr library."""
     media = media or {}
+    if media_blocked(media):
+        return False
     for field in ("status", "status4k"):
         if _status_num(media.get(field)) in MEDIA_AVAILABLE:
             return True
@@ -128,6 +151,19 @@ class Seerr:
 
     def users(self) -> list[dict[str, Any]]:
         return self._paged("/api/v1/user")
+
+    def blocklist(self) -> list[dict[str, Any]]:
+        last_error: Exception | None = None
+        for path in ("/api/v1/blocklist", "/api/v1/blacklist"):
+            try:
+                return self._paged(path)
+            except Exception as exc:
+                last_error = exc
+                if getattr(exc, "status", None) in {404, 405}:
+                    continue
+        if last_error and getattr(last_error, "status", None) not in {404, 405}:
+            raise last_error
+        return []
 
     def delete_media(self, media_id: int) -> None:
         json_request("DELETE", f"{self.url}/api/v1/media/{media_id}", headers=self.headers)

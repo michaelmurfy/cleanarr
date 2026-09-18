@@ -14,7 +14,7 @@ from .logs import add_log
 from .match import CatalogIndex, parse_year
 from .services.arr import movie_availability, pick_rating, poster_from, series_availability
 from .services.clients import radarr, seerr, sonarr, tautulli, tracearr
-from .services.seerr import media_claimed, media_in_flight, request_is_open, request_was_made
+from .services.seerr import media_blocked, media_claimed, media_in_flight, request_is_open, request_was_made
 from .services.tautulli import parse_ids
 
 UNKNOWN_LABELS = {"unknown", "unknown title", "unknown request", "n/a", "none", "null"}
@@ -394,6 +394,7 @@ def _run_sync() -> None:
                         "requests": [],
                         "claimed": False,
                         "in_flight": False,
+                        "blocked": False,
                         "catalog_key": None,
                     },
                 )
@@ -403,6 +404,7 @@ def _run_sync() -> None:
                     row["seerr_media_id"] = media.get("id")
                 row["claimed"] = row["claimed"] or media_claimed(media)
                 row["in_flight"] = row.get("in_flight") or media_in_flight(media)
+                row["blocked"] = row.get("blocked") or media_blocked(media)
                 if req:
                     req_id = req.get("id")
                     seen_ids = {item.get("id") for item in row["requests"] if isinstance(item, dict)}
@@ -453,6 +455,20 @@ def _run_sync() -> None:
 
             requests = client.requests()
             seerr_total = len(requests)
+            blocked_keys: set[tuple[str, int]] = set()
+            try:
+                for item in client.blocklist():
+                    media = item.get("media") if isinstance(item.get("media"), dict) else {}
+                    tmdb_id = int(item.get("tmdbId") or item.get("tmdb_id") or media.get("tmdbId") or 0)
+                    if not tmdb_id:
+                        continue
+                    media_type = _media_type(
+                        item.get("mediaType") or item.get("media_type") or media.get("mediaType"),
+                        "movie",
+                    )
+                    blocked_keys.add((media_type, tmdb_id))
+            except Exception as exc:
+                add_log(f"Seerr blocklist failed: {exc}", level="warn", category="sync", action="seerr")
             _progress(f"Matching Seerr requests… 0/{seerr_total}", step="seerr", current=0, total=seerr_total or 0)
             for i, req in enumerate(requests, 1):
                 if attach_requester(req):
@@ -491,8 +507,13 @@ def _run_sync() -> None:
                     item["availability"] = "requested"
 
             stale = 0
+            blocked = 0
             for bucket in seerr_seen.values():
                 if bucket.get("catalog_key"):
+                    continue
+                key = (bucket.get("media_type") or "movie", int(bucket.get("tmdb_id") or 0))
+                if bucket.get("blocked") or (key[1] and key in blocked_keys):
+                    blocked += 1
                     continue
                 claimed = bucket.get("claimed")
                 requested = request_was_made(bucket.get("requests"))
@@ -568,6 +589,7 @@ def _run_sync() -> None:
                     "matched": seerr_matched,
                     "requests": seerr_total,
                     "seerr_missing": stale,
+                    "seerr_blocked": blocked,
                     "library_no_seerr": missing_seerr,
                 },
             )
