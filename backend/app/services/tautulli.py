@@ -59,7 +59,7 @@ class Tautulli:
             start += length
         return rows
 
-    def history(self) -> list[dict[str, Any]]:
+    def history(self, on_progress=None) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         start = 0
         length = 1000
@@ -68,6 +68,8 @@ class Tautulli:
             chunk = data.get("data") if isinstance(data, dict) else data
             chunk = chunk or []
             rows.extend(chunk)
+            if on_progress:
+                on_progress(len(rows))
             if len(chunk) < length:
                 break
             start += length

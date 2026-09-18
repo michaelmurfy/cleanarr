@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from .art import remove_art
 from .auth import current_user
 from .db import connect
+from .logs import add_log
 from .services.clients import radarr, seerr, sonarr
 
 router = APIRouter()
@@ -56,7 +57,7 @@ def list_whitelist(request: Request):
 
 @router.post("/whitelist")
 def add_whitelist(payload: WhitelistIn, request: Request):
-    current_user(request)
+    user = current_user(request)
     pattern = payload.pattern.strip()
     if not pattern:
         raise HTTPException(400, "Pattern is required")
@@ -76,14 +77,28 @@ def add_whitelist(payload: WhitelistIn, request: Request):
             ),
         )
         item_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    add_log(
+        f"Whitelisted {pattern}",
+        category="audit",
+        action="whitelist_add",
+        actor=user,
+        detail={"pattern": pattern, "match_type": payload.match_type, "media_type": payload.media_type},
+    )
     return {"ok": True, "id": item_id}
 
 
 @router.delete("/whitelist/{item_id}")
 def remove_whitelist(item_id: int, request: Request):
-    current_user(request)
+    user = current_user(request)
     with connect() as conn:
+        row = conn.execute("SELECT pattern FROM whitelist WHERE id = ?", (item_id,)).fetchone()
         conn.execute("DELETE FROM whitelist WHERE id = ?", (item_id,))
+    add_log(
+        f"Removed whitelist {row['pattern'] if row else item_id}",
+        category="audit",
+        action="whitelist_remove",
+        actor=user,
+    )
     return {"ok": True}
 
 
@@ -101,7 +116,7 @@ def _load_media(media_type: str, tmdb_id: int, tvdb_id: int = 0) -> dict | None:
 
 @router.post("/cleanup")
 def cleanup(payload: CleanupIn, request: Request):
-    current_user(request)
+    user = current_user(request)
     results = []
     radarr_client = radarr()
     sonarr_client = sonarr()
@@ -148,6 +163,20 @@ def cleanup(payload: CleanupIn, request: Request):
                 conn.execute("DELETE FROM media WHERE id = ?", (item["id"],))
             remove_art(item["media_type"], item.get("tmdb_id") or 0, item.get("tvdb_id") or 0)
             results.append({"title": item["title"], "ok": True})
+            add_log(
+                f"{'Banned and deleted' if payload.blacklist else 'Deleted'} {item['title']}",
+                category="audit",
+                action="ban" if payload.blacklist else "delete",
+                actor=user,
+                detail={"media_type": item["media_type"], "tmdb_id": item.get("tmdb_id")},
+            )
         except Exception as exc:
             results.append({"title": item["title"], "ok": False, "error": str(exc)})
+            add_log(
+                f"Failed to delete {item['title']}: {exc}",
+                level="error",
+                category="audit",
+                action="delete_error",
+                actor=user,
+            )
     return {"results": results}

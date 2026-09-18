@@ -1,8 +1,8 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, MediaItem, WhitelistItem } from "./api";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { api, LogItem, MediaItem, SyncStatus, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
-type Page = "library" | "whitelist" | "settings";
+type Page = "library" | "whitelist" | "logs" | "settings";
 
 const FILTERS_KEY = "cleanarr.library";
 
@@ -137,6 +137,20 @@ function Login({ onDone }: { onDone: (user: string) => void }) {
 
 function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [page, setPage] = useState<Page>("library");
+  const [sync, setSync] = useState<SyncStatus>({ status: "idle", message: "" });
+
+  useEffect(() => {
+    api.syncStatus().then(setSync).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (sync.status !== "running") return;
+    const timer = setInterval(() => {
+      api.syncStatus().then(setSync).catch(() => undefined);
+    }, 800);
+    return () => clearInterval(timer);
+  }, [sync.status]);
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -144,30 +158,50 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
         <nav className="nav">
           <button className={page === "library" ? "active" : ""} onClick={() => setPage("library")}>Library</button>
           <button className={page === "whitelist" ? "active" : ""} onClick={() => setPage("whitelist")}>Whitelist</button>
+          <button className={page === "logs" ? "active" : ""} onClick={() => setPage("logs")}>Logs</button>
           <button className={page === "settings" ? "active" : ""} onClick={() => setPage("settings")}>Settings</button>
         </nav>
         <div className="spacer" />
         <span className="muted">{user}</span>
         <button className="ghost" onClick={async () => { await api.logout(); onLogout(); }}>Sign out</button>
       </header>
-      {page === "library" && <Library />}
+      {sync.status === "running" && <SyncBanner sync={sync} />}
+      {page === "library" && <Library sync={sync} setSync={setSync} />}
       {page === "whitelist" && <Whitelist />}
+      {page === "logs" && <Logs sync={sync} />}
       {page === "settings" && <Settings />}
     </div>
   );
 }
 
-function Library() {
+function SyncBanner({ sync }: { sync: SyncStatus }) {
+  const determinate = sync.percent != null && sync.total;
+  return (
+    <div className="sync-banner">
+      <div className="sync-banner-copy">
+        <span className="spinner" aria-hidden="true" />
+        <strong>Syncing</strong>
+        <span className="muted">{sync.message || "Working…"}</span>
+        {determinate ? <span className="muted">{sync.percent}%</span> : null}
+      </div>
+      <div className={`progress ${determinate ? "" : "indeterminate"}`}>
+        <span style={determinate ? { width: `${sync.percent}%` } : undefined} />
+      </div>
+    </div>
+  );
+}
+
+function Library({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncStatus) => void }) {
   const [filters, setFilters] = useState<Filters>(loadFilters);
   const [qInput, setQInput] = useState(filters.q);
   const [items, setItems] = useState<MediaItem[]>([]);
   const [stats, setStats] = useState<Record<string, number>>({});
-  const [sync, setSync] = useState({ status: "idle", message: "" });
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [pending, setPending] = useState<null | { blacklist: boolean }>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const prevSync = useRef(sync.status);
 
   useEffect(() => {
     sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
@@ -215,14 +249,10 @@ function Library() {
   }, [filters.q, filters.mediaType, filters.watched, filters.sort, filters.page, filters.pageSize, filters.staleDays, filters.maxRating]);
 
   useEffect(() => {
-    if (sync.status !== "running") return;
-    const timer = setInterval(() => {
-      api.syncStatus().then((status) => {
-        setSync(status);
-        if (status.status !== "running") load().catch(() => undefined);
-      });
-    }, 1500);
-    return () => clearInterval(timer);
+    if (prevSync.current === "running" && sync.status !== "running") {
+      load().catch(() => undefined);
+    }
+    prevSync.current = sync.status;
   }, [sync.status]);
 
   const selectedItems = useMemo(() => items.filter((item) => selected.has(item.id)), [items, selected]);
@@ -340,8 +370,17 @@ function Library() {
           <option value="requested">Requested by</option>
         </select>
         <div className="spacer" />
-        <span className="muted">{sync.message || "Idle"}</span>
-        <button className="primary" onClick={async () => { setSync(await api.sync()); }}>Sync now</button>
+        <span className={`sync-status ${sync.status === "running" ? "live" : ""}`}>
+          {sync.status === "running" && <span className="spinner" aria-hidden="true" />}
+          {sync.message || "Idle"}
+        </span>
+        <button
+          className="primary"
+          disabled={sync.status === "running"}
+          onClick={async () => { setSync(await api.sync()); }}
+        >
+          {sync.status === "running" ? "Syncing…" : "Sync now"}
+        </button>
       </div>
       {error && <p className="error">{error}</p>}
       <div className="table-wrap">
@@ -451,6 +490,86 @@ function Library() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Logs({ sync }: { sync: SyncStatus }) {
+  const [items, setItems] = useState<LogItem[]>([]);
+  const [category, setCategory] = useState("");
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
+
+  async function load(nextPage = page) {
+    const data = await api.logs({
+      q,
+      category,
+      page: String(nextPage),
+      page_size: "80",
+    });
+    setItems(data.items);
+    setPages(data.pages || 1);
+    setTotal(data.total || 0);
+    setPage(data.page || nextPage);
+  }
+
+  useEffect(() => {
+    load(1).catch(() => undefined);
+  }, [category, q]);
+
+  useEffect(() => {
+    if (sync.status !== "running") return;
+    const timer = setInterval(() => load(page).catch(() => undefined), 1500);
+    return () => clearInterval(timer);
+  }, [sync.status, page, category, q]);
+
+  return (
+    <div className="page">
+      <h2>Logs</h2>
+      <p className="muted">Sync progress, unmatched watch-history titles, and deletions. Newest first.</p>
+      <div className="filters">
+        <input type="search" placeholder="Search logs" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">All categories</option>
+          <option value="sync">Sync</option>
+          <option value="match">Matching</option>
+          <option value="audit">Audit</option>
+          <option value="system">System</option>
+        </select>
+        <div className="spacer" />
+        <span className="muted">{total} entries</span>
+      </div>
+      <div className="log-list">
+        {items.map((item) => (
+          <div className={`log-row ${item.level}`} key={item.id}>
+            <span className={`log-level ${item.level}`}>{item.level}</span>
+            <div>
+              <div>{item.message}</div>
+              <div className="muted">
+                {new Date(item.created_at * 1000).toLocaleString()}
+                {item.category ? ` · ${item.category}` : ""}
+                {item.action ? ` · ${item.action}` : ""}
+                {item.actor ? ` · ${item.actor}` : ""}
+              </div>
+              {Array.isArray((item.detail as { titles?: string[] } | null)?.titles) && (
+                <ul className="log-titles">
+                  {((item.detail as { titles: string[] }).titles || []).slice(0, 20).map((title) => (
+                    <li key={title}>{title}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        ))}
+        {!items.length && <p className="muted">No log entries yet. Run a sync to populate this.</p>}
+      </div>
+      <div className="pager">
+        <button className="ghost" disabled={page <= 1} onClick={() => load(page - 1)}>Previous</button>
+        <span className="muted">Page {page} of {pages}</span>
+        <button className="ghost" disabled={page >= pages} onClick={() => load(page + 1)}>Next</button>
+      </div>
     </div>
   );
 }

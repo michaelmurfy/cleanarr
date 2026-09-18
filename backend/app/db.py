@@ -72,6 +72,19 @@ def init_db() -> None:
             );
 
             INSERT OR IGNORE INTO sync_state (id, status) VALUES (1, 'idle');
+
+            CREATE TABLE IF NOT EXISTS logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at INTEGER NOT NULL,
+                level TEXT NOT NULL DEFAULT 'info',
+                category TEXT NOT NULL DEFAULT 'system',
+                action TEXT NOT NULL DEFAULT '',
+                message TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                actor TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_logs_category ON logs(category, id DESC);
             """
         )
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(media)").fetchall()}
@@ -83,6 +96,13 @@ def init_db() -> None:
             conn.execute("ALTER TABLE media ADD COLUMN rating_votes INTEGER NOT NULL DEFAULT 0")
         if "rating_source" not in cols:
             conn.execute("ALTER TABLE media ADD COLUMN rating_source TEXT NOT NULL DEFAULT ''")
+        sync_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sync_state)").fetchall()}
+        if "step" not in sync_cols:
+            conn.execute("ALTER TABLE sync_state ADD COLUMN step TEXT NOT NULL DEFAULT ''")
+        if "progress_current" not in sync_cols:
+            conn.execute("ALTER TABLE sync_state ADD COLUMN progress_current INTEGER NOT NULL DEFAULT 0")
+        if "progress_total" not in sync_cols:
+            conn.execute("ALTER TABLE sync_state ADD COLUMN progress_total INTEGER NOT NULL DEFAULT 0")
 
 
 def get_setting(key: str, default: str = "") -> str:

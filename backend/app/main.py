@@ -23,7 +23,8 @@ from .auth import (
 from .config import env_file_present, locked_setting_keys
 from .db import all_settings, connect, init_db, set_setting
 from .services.clients import KEYS, cfg, public_url, radarr, seerr, sonarr, tautulli, tracearr
-from .sync import job_status, start_sync
+from .logs import add_log, list_logs
+from .sync import job_status, restore_job, start_sync
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -40,6 +41,7 @@ def health():
 def startup() -> None:
     init_db()
     bootstrap_auth()
+    restore_job()
 
 
 class LoginIn(BaseModel):
@@ -133,7 +135,7 @@ def put_settings(payload: SettingsIn, request: Request):
 
 @app.post("/api/settings/test")
 def test_service(payload: TestIn, request: Request):
-    current_user(request)
+    user = current_user(request)
     testers = {
         "tautulli": tautulli,
         "tracearr": tracearr,
@@ -149,8 +151,10 @@ def test_service(payload: TestIn, request: Request):
         raise HTTPException(400, f"{payload.service} is not configured")
     try:
         version = client.test()
+        add_log(f"Tested {payload.service}: {version}", category="system", action="test", actor=user)
         return {"ok": True, "message": str(version)}
     except Exception as exc:
+        add_log(f"Test {payload.service} failed: {exc}", level="error", category="system", action="test", actor=user)
         raise HTTPException(400, str(exc)) from exc
 
 
@@ -164,6 +168,19 @@ def sync_status(request: Request):
 def sync_now(request: Request):
     current_user(request)
     return start_sync()
+
+
+@app.get("/api/logs")
+def logs(
+    request: Request,
+    q: str = "",
+    category: str = "",
+    level: str = "",
+    page: int = 1,
+    page_size: int = 100,
+):
+    current_user(request)
+    return list_logs(q=q, category=category, level=level, page=page, page_size=page_size)
 
 
 @app.get("/api/art/{item_id}")

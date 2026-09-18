@@ -30,13 +30,33 @@ export type MediaItem = {
   rating_source: string;
 };
 
+export type SyncStatus = {
+  status: string;
+  message: string;
+  step?: string;
+  current?: number;
+  total?: number;
+  percent?: number | null;
+};
+
+export type LogItem = {
+  id: number;
+  created_at: number;
+  level: string;
+  category: string;
+  action: string;
+  message: string;
+  detail: unknown;
+  actor: string;
+};
+
 export type LibraryResponse = {
   items: MediaItem[];
   stats: Record<string, number>;
   total: number;
   page: number;
   page_size: number;
-  sync: { status: string; message: string };
+  sync: SyncStatus;
 };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -68,8 +88,15 @@ export const api = {
     }
     return request<LibraryResponse>(`/api/library?${query}`);
   },
-  sync: () => request<{ status: string; message: string }>("/api/sync", { method: "POST" }),
-  syncStatus: () => request<{ status: string; message: string }>("/api/sync"),
+  sync: () => request<SyncStatus>("/api/sync", { method: "POST" }),
+  syncStatus: () => request<SyncStatus>("/api/sync"),
+  logs: (params: Record<string, string>) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value) query.set(key, value);
+    }
+    return request<{ items: LogItem[]; total: number; page: number; pages: number }>(`/api/logs?${query}`);
+  },
   cleanup: (items: Partial<MediaItem>[], blacklist: boolean) =>
     request<{ results: { title: string; ok: boolean; error?: string }[] }>("/api/cleanup", {
       method: "POST",

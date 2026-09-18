@@ -241,6 +241,83 @@ tbody tr:hover td { background: var(--bg-hover); }
 }
 .pager { margin-top: 14px; }
 button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+.sync-banner {
+  border-bottom: 1px solid var(--line);
+  background: #1b1813;
+  padding: 10px 28px 0;
+}
+.sync-banner-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  flex-wrap: wrap;
+}
+.sync-status {
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.sync-status.live { color: var(--accent-2); }
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(240, 210, 160, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+  flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress {
+  height: 4px;
+  background: #2b261d;
+  overflow: hidden;
+  border-radius: 999px;
+}
+.progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  width: 0;
+  transition: width 240ms ease;
+}
+.progress.indeterminate > span {
+  width: 32%;
+  animation: slide 1.1s ease-in-out infinite;
+}
+@keyframes slide {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(400%); }
+}
+.log-list { display: grid; gap: 8px; }
+.log-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  animation: fade 180ms ease;
+}
+.log-level {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  height: fit-content;
+  padding: 3px 6px;
+  border-radius: 999px;
+  text-align: center;
+  border: 1px solid var(--line);
+}
+.log-level.warn { color: var(--accent-2); border-color: #4a3b20; background: #2b2418; }
+.log-level.error { color: #f0c0b8; border-color: #5a2a24; background: #2a1614; }
+.log-level.info { color: var(--muted); }
+.log-titles { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
 @media (max-width: 900px) {
   .stats, .form-grid { grid-template-columns: 1fr 1fr; }
   .page, .topbar { padding-left: 16px; padding-right: 16px; }

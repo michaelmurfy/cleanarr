@@ -36,11 +36,12 @@ class Tracearr:
         )
         return "ok" if data is not None else "ok"
 
-    def history(self) -> list[dict[str, Any]]:
+    def history(self, on_progress=None) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         cursor = None
+        page = 1
         for _ in range(200):
-            params: dict[str, Any] = {"page_size": 200, "limit": 200}
+            params: dict[str, Any] = {"page_size": 200, "limit": 200, "page": page}
             if cursor:
                 params["cursor"] = cursor
             data = self._try(
@@ -49,13 +50,16 @@ class Tracearr:
             )
             chunk, next_cursor = _extract_page(data)
             rows.extend(chunk)
+            if on_progress:
+                on_progress(len(rows))
             if not chunk or not next_cursor:
                 if chunk and isinstance(data, dict) and data.get("page") and data.get("page") < data.get("pages", 0):
                     cursor = None
-                    params["page"] = data["page"] + 1
+                    page = data["page"] + 1
                     continue
                 break
             cursor = next_cursor
+            page += 1
         return rows
 
 
