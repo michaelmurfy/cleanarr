@@ -163,6 +163,19 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
           <button className={page === "settings" ? "active" : ""} onClick={() => setPage("settings")}>Settings</button>
         </nav>
         <div className="spacer" />
+        <div className="topbar-sync">
+          <span className={`sync-status ${sync.status === "running" ? "live" : ""}`} title={sync.message || "Idle"}>
+            {sync.status === "running" && <span className="spinner" aria-hidden="true" />}
+            <span className="sync-copy">{sync.status === "running" ? (sync.message || "Syncing…") : (sync.message || "Idle")}</span>
+          </span>
+          <button
+            className="primary"
+            disabled={sync.status === "running"}
+            onClick={async () => { setSync(await api.sync()); }}
+          >
+            {sync.status === "running" ? "Syncing…" : "Sync now"}
+          </button>
+        </div>
         <span className="muted">{user}</span>
         <button className="ghost" onClick={async () => { await api.logout(); onLogout(); }}>Sign out</button>
       </header>
@@ -374,18 +387,6 @@ function Library({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncSta
           <option value="title">Title</option>
           <option value="requested">Requested by</option>
         </select>
-        <div className="spacer" />
-        <span className={`sync-status ${sync.status === "running" ? "live" : ""}`}>
-          {sync.status === "running" && <span className="spinner" aria-hidden="true" />}
-          {sync.message || "Idle"}
-        </span>
-        <button
-          className="primary"
-          disabled={sync.status === "running"}
-          onClick={async () => { setSync(await api.sync()); }}
-        >
-          {sync.status === "running" ? "Syncing…" : "Sync now"}
-        </button>
       </div>
       {error && <p className="error">{error}</p>}
       <div className="table-wrap">

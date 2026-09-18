@@ -55,6 +55,18 @@ a:hover { text-decoration: underline; }
 .wordmark span { color: var(--accent); }
 .brand.compact .wordmark { font-size: 18px; }
 .nav { display: flex; gap: 8px; }
+.topbar-sync {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.topbar-sync .sync-copy {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .nav button, .ghost, .primary, .danger, .chip-btn {
   border: 1px solid var(--line);
   background: transparent;
@@ -318,6 +330,10 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 .log-level.error { color: #f0c0b8; border-color: #5a2a24; background: #2a1614; }
 .log-level.info { color: var(--muted); }
 .log-titles { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+@media (max-width: 1100px) {
+  .topbar { flex-wrap: wrap; gap: 12px 16px; }
+  .topbar-sync .sync-copy { max-width: 160px; }
+}
 @media (max-width: 900px) {
   .stats, .form-grid { grid-template-columns: 1fr 1fr; }
   .page, .topbar { padding-left: 16px; padding-right: 16px; }
