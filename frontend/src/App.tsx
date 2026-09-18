@@ -196,7 +196,10 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
         <div className="topbar-sync">
           <span className={`sync-status ${sync.status === "running" ? "live" : ""}`} title={sync.message || "Idle"}>
             {sync.status === "running" && <span className="spinner" aria-hidden="true" />}
-            <span className="sync-copy">{sync.status === "running" ? (sync.message || "Syncing…") : (sync.message || "Idle")}</span>
+            <span className="sync-copy">
+              {sync.status === "running" ? (sync.message || "Syncing…") : (sync.message || "Idle")}
+              {sync.status === "running" && sync.percent != null && sync.total ? ` · ${sync.percent}%` : ""}
+            </span>
           </span>
           <button
             className="primary"
@@ -209,7 +212,6 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
         <span className="muted">{user}</span>
         <button className="ghost" onClick={async () => { await api.logout(); onLogout(); }}>Sign out</button>
       </header>
-      {sync.status === "running" && <SyncBanner sync={sync} />}
       {page === "library" && <Library sync={sync} setSync={setSync} onOpenUnmatched={() => setPage("unmatched")} />}
       {page === "unmatched" && <Unmatched sync={sync} setSync={setSync} />}
       {page === "users" && <Users onOpenLibrary={(q) => {
@@ -219,23 +221,6 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
       {page === "whitelist" && <Whitelist />}
       {page === "logs" && <Logs sync={sync} />}
       {page === "settings" && <Settings />}
-    </div>
-  );
-}
-
-function SyncBanner({ sync }: { sync: SyncStatus }) {
-  const determinate = sync.percent != null && sync.total;
-  return (
-    <div className="sync-banner">
-      <div className="sync-banner-copy">
-        <span className="spinner" aria-hidden="true" />
-        <strong>Syncing</strong>
-        <span className="muted">{sync.message || "Working…"}</span>
-        {determinate ? <span className="muted">{sync.percent}%</span> : null}
-      </div>
-      <div className={`progress ${determinate ? "" : "indeterminate"}`}>
-        <span style={determinate ? { width: `${sync.percent}%` } : undefined} />
-      </div>
     </div>
   );
 }
