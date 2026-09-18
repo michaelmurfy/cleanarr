@@ -115,6 +115,7 @@ def init_db() -> None:
                 tvdb_id INTEGER NOT NULL DEFAULT 0,
                 seerr_media_id INTEGER,
                 requested_by TEXT NOT NULL DEFAULT '',
+                requested_at TEXT NOT NULL DEFAULT '',
                 kind TEXT NOT NULL DEFAULT ''
             );
             """
@@ -146,6 +147,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE unmatched ADD COLUMN seerr_media_id INTEGER")
         if "requested_by" not in unmatched_cols:
             conn.execute("ALTER TABLE unmatched ADD COLUMN requested_by TEXT NOT NULL DEFAULT ''")
+        if "requested_at" not in unmatched_cols:
+            conn.execute("ALTER TABLE unmatched ADD COLUMN requested_at TEXT NOT NULL DEFAULT ''")
         if "kind" not in unmatched_cols:
             conn.execute("ALTER TABLE unmatched ADD COLUMN kind TEXT NOT NULL DEFAULT ''")
         schema = conn.execute(
@@ -167,6 +170,7 @@ def init_db() -> None:
                     tvdb_id INTEGER NOT NULL DEFAULT 0,
                     seerr_media_id INTEGER,
                     requested_by TEXT NOT NULL DEFAULT '',
+                    requested_at TEXT NOT NULL DEFAULT '',
                     kind TEXT NOT NULL DEFAULT ''
                 )
                 """

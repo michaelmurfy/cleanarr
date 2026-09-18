@@ -175,6 +175,7 @@ export type UnmatchedItem = {
   tvdb_id?: number;
   seerr_media_id?: number | null;
   requested_by: string;
+  requested_at?: string;
   kind: string;
   links: Record<string, string>;
 };

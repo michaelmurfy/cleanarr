@@ -64,6 +64,34 @@ function whenFull(ts: number | null) {
   return ts ? new Date(ts * 1000).toLocaleString() : "Never watched";
 }
 
+function parseStamp(value: string | number | null | undefined): number | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") return value > 1_000_000_000_000 ? Math.floor(value / 1000) : value;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d+$/.test(text)) {
+    const n = Number(text);
+    return n > 1_000_000_000_000 ? Math.floor(n / 1000) : n;
+  }
+  const ms = Date.parse(text);
+  return Number.isNaN(ms) ? null : Math.floor(ms / 1000);
+}
+
+function Requester({ name, at }: { name?: string | null; at?: string | number | null }) {
+  if (!name) return <span className="muted">—</span>;
+  const ts = parseStamp(at);
+  return (
+    <div className="requester">
+      <div className="requester-name">{name}</div>
+      {ts ? (
+        <div className="requester-when" title={new Date(ts * 1000).toLocaleString()}>
+          Requested {when(ts)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function isInteractive(event: MouseEvent) {
   return Boolean((event.target as HTMLElement).closest("a, button, input, label"));
 }
@@ -514,7 +542,7 @@ function Library({
                     ? `${item.watchers.slice(0, 2).map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}${item.watchers.length > 2 ? ` +${item.watchers.length - 2}` : ""}`
                     : "—"}
                 </td>
-                <td>{item.requested_by || "—"}</td>
+                <td><Requester name={item.requested_by} at={item.requested_at} /></td>
                 <td>{bytes(item.size_bytes)}</td>
                 <td>
                   <div className="row-actions">
@@ -759,7 +787,7 @@ function Unmatched({
                   </td>
                   <td className="capitalize">{item.source}</td>
                   <td>{item.media_type === "tv" ? "TV" : "Movie"}</td>
-                  <td>{item.requested_by || "—"}</td>
+                  <td><Requester name={item.requested_by} at={item.requested_at} /></td>
                   <td className="muted">{item.reason}</td>
                   <td>
                     <div className="row-actions">

@@ -469,6 +469,12 @@ input.tick:disabled {
 }
 .error { color: var(--danger); font-size: 14px; }
 .watchers { font-size: 13px; color: var(--muted); max-width: 240px; }
+.requester-name { font-weight: 600; }
+.requester-when {
+  font-size: 12px;
+  color: var(--teal);
+  margin-top: 2px;
+}
 .list { display: grid; gap: 8px; }
 .list-item {
   display: flex;

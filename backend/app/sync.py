@@ -201,6 +201,7 @@ def _run_sync() -> None:
             tvdb_id: int = 0,
             seerr_media_id: Any = None,
             requested_by: str = "",
+            requested_at: str = "",
             kind: str = "",
         ) -> None:
             label = _usable_title(title, tmdb_id)
@@ -224,12 +225,15 @@ def _run_sync() -> None:
                     "tvdb_id": int(tvdb_id or 0),
                     "seerr_media_id": seerr_media_id,
                     "requested_by": requested_by or "",
+                    "requested_at": requested_at or "",
                     "kind": kind,
                 },
             )
             row["plays"] += plays
             if requested_by and not row.get("requested_by"):
                 row["requested_by"] = requested_by
+            if requested_at and not row.get("requested_at"):
+                row["requested_at"] = requested_at
             if seerr_media_id and not row.get("seerr_media_id"):
                 row["seerr_media_id"] = seerr_media_id
 
@@ -485,7 +489,11 @@ def _run_sync() -> None:
                 if not title:
                     continue
                 requester = ""
+                requested_at = ""
                 for req in bucket.get("requests") or []:
+                    created = str(req.get("createdAt") or req.get("created_at") or "")
+                    if created and (not requested_at or created < requested_at):
+                        requested_at = created
                     requested_by = req.get("requestedBy") or req.get("requested_by") or req.get("user") or {}
                     if isinstance(requested_by, (int, float)) or (isinstance(requested_by, str) and requested_by.isdigit()):
                         requested_by = seerr_users_by_id.get(int(requested_by)) or {}
@@ -510,6 +518,7 @@ def _run_sync() -> None:
                     tvdb_id=bucket.get("tvdb_id") or 0,
                     seerr_media_id=bucket.get("seerr_media_id"),
                     requested_by=requester,
+                    requested_at=requested_at,
                     kind="seerr_missing",
                 )
                 stale += 1
@@ -876,11 +885,11 @@ def _run_sync() -> None:
                     """
                     INSERT INTO unmatched (
                         source, media_type, title, year, plays, reason,
-                        tmdb_id, tvdb_id, seerr_media_id, requested_by, kind
+                        tmdb_id, tvdb_id, seerr_media_id, requested_by, requested_at, kind
                     )
                     VALUES (
                         :source, :media_type, :title, :year, :plays, :reason,
-                        :tmdb_id, :tvdb_id, :seerr_media_id, :requested_by, :kind
+                        :tmdb_id, :tvdb_id, :seerr_media_id, :requested_by, :requested_at, :kind
                     )
                     """,
                     list(unmatched_rows.values()),
