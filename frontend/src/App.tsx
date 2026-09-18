@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
@@ -62,6 +62,10 @@ function when(ts: number | null) {
 
 function whenFull(ts: number | null) {
   return ts ? new Date(ts * 1000).toLocaleString() : "Never watched";
+}
+
+function isInteractive(event: MouseEvent) {
+  return Boolean((event.target as HTMLElement).closest("a, button, input, label"));
 }
 
 const SERVICE_META: Record<string, { label: string; className: string }> = {
@@ -167,10 +171,23 @@ function Login({ onDone }: { onDone: (user: string) => void }) {
 function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [page, setPage] = useState<Page>("library");
   const [sync, setSync] = useState<SyncStatus>({ status: "idle", message: "" });
+  const [unmatchedCount, setUnmatchedCount] = useState(0);
+  const prevSync = useRef(sync.status);
+
+  function refreshUnmatched() {
+    api.unmatched({ page_size: "1" }).then((data) => {
+      setUnmatchedCount(data.stats.count || 0);
+    }).catch(() => undefined);
+  }
 
   useEffect(() => {
     api.syncStatus().then(setSync).catch(() => undefined);
+    refreshUnmatched();
   }, []);
+
+  useEffect(() => {
+    if (!unmatchedCount && page === "unmatched") setPage("library");
+  }, [unmatchedCount, page]);
 
   useEffect(() => {
     if (sync.status !== "running") return;
@@ -180,13 +197,22 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
     return () => clearInterval(timer);
   }, [sync.status]);
 
+  useEffect(() => {
+    if (prevSync.current === "running" && sync.status !== "running") refreshUnmatched();
+    prevSync.current = sync.status;
+  }, [sync.status]);
+
   return (
     <div className="shell">
       <header className="topbar">
         <Brand compact />
         <nav className="nav">
           <button className={page === "library" ? "active" : ""} onClick={() => setPage("library")}>Library</button>
-          <button className={page === "unmatched" ? "active" : ""} onClick={() => setPage("unmatched")}>Unmatched</button>
+          {unmatchedCount > 0 && (
+            <button className={`alert ${page === "unmatched" ? "active" : ""}`} onClick={() => setPage("unmatched")}>
+              Unmatched<span className="nav-count">{unmatchedCount}</span>
+            </button>
+          )}
           <button className={page === "users" ? "active" : ""} onClick={() => setPage("users")}>Users</button>
           <button className={page === "whitelist" ? "active" : ""} onClick={() => setPage("whitelist")}>Whitelist</button>
           <button className={page === "logs" ? "active" : ""} onClick={() => setPage("logs")}>Logs</button>
@@ -212,8 +238,13 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
         <span className="muted">{user}</span>
         <button className="ghost" onClick={async () => { await api.logout(); onLogout(); }}>Sign out</button>
       </header>
-      {page === "library" && <Library sync={sync} setSync={setSync} onOpenUnmatched={() => setPage("unmatched")} />}
-      {page === "unmatched" && <Unmatched sync={sync} setSync={setSync} />}
+      {page === "library" && <Library sync={sync} setSync={setSync} unmatchedCount={unmatchedCount} onOpenUnmatched={() => setPage("unmatched")} onUnmatchedCount={setUnmatchedCount} />}
+      {page === "unmatched" && unmatchedCount > 0 && (
+        <Unmatched sync={sync} setSync={setSync} onUnmatchedCount={(count) => {
+          setUnmatchedCount(count);
+          if (!count) setPage("library");
+        }} />
+      )}
       {page === "users" && <Users onOpenLibrary={(q) => {
         sessionStorage.setItem(FILTERS_KEY, JSON.stringify({ ...defaultFilters, q }));
         setPage("library");
@@ -225,7 +256,19 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   );
 }
 
-function Library({ sync, setSync, onOpenUnmatched }: { sync: SyncStatus; setSync: (value: SyncStatus) => void; onOpenUnmatched: () => void }) {
+function Library({
+  sync,
+  setSync,
+  unmatchedCount,
+  onOpenUnmatched,
+  onUnmatchedCount,
+}: {
+  sync: SyncStatus;
+  setSync: (value: SyncStatus) => void;
+  unmatchedCount: number;
+  onOpenUnmatched: () => void;
+  onUnmatchedCount: (count: number) => void;
+}) {
   const [filters, setFilters] = useState<Filters>(loadFilters);
   const [qInput, setQInput] = useState(filters.q);
   const [items, setItems] = useState<MediaItem[]>([]);
@@ -269,6 +312,7 @@ function Library({ sync, setSync, onOpenUnmatched }: { sync: SyncStatus; setSync
       setItems(data.items);
       setStats(data.stats);
       setSync(data.sync);
+      onUnmatchedCount(data.stats.unmatched || 0);
     } finally {
       setLoading(false);
     }
@@ -353,18 +397,20 @@ function Library({ sync, setSync, onOpenUnmatched }: { sync: SyncStatus; setSync
         <button className={`stat ${!filters.watched && !filters.maxRating ? "active" : ""}`} onClick={() => patch({ watched: "", maxRating: "" })}>
           <span className="muted">Matching titles</span><b>{stats.count ?? 0}</b>
         </button>
-        <button className={`stat ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>
+        <button className={`stat never ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>
           <span className="muted">Never watched</span><b>{stats.never_watched ?? 0}</b>
         </button>
-        <button className={`stat ${filters.watched === "stale" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>
+        <button className={`stat stale ${filters.watched === "stale" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>
           <span className="muted">Stale / unwatched</span><b>{stats.stale ?? 0}</b>
         </button>
-        <div className="stat" style={{ cursor: "default" }}>
+        <div className="stat ok" style={{ cursor: "default" }}>
           <span className="muted">Protected</span><b>{stats.whitelisted ?? 0}</b>
         </div>
-        <button className={`stat warn ${stats.unmatched ? "active" : ""}`} onClick={onOpenUnmatched}>
-          <span className="muted">Unmatched</span><b>{stats.unmatched ?? 0}</b>
-        </button>
+        {unmatchedCount > 0 && (
+          <button className="stat warn" onClick={onOpenUnmatched}>
+            <span className="muted">Unmatched</span><b>{unmatchedCount}</b>
+          </button>
+        )}
       </div>
       <div className="filters">
         <button className={`chip-btn ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>Never watched</button>
@@ -412,8 +458,9 @@ function Library({ sync, setSync, onOpenUnmatched }: { sync: SyncStatus; setSync
         <table>
           <thead>
             <tr>
-              <th>
+              <th className="tick-cell">
                 <input
+                  className="tick"
                   type="checkbox"
                   checked={items.length > 0 && items.every((item) => item.whitelisted || selected.has(item.id)) && items.some((item) => !item.whitelisted)}
                   onChange={(e) => setSelected(e.target.checked ? new Set(items.filter((item) => !item.whitelisted).map((item) => item.id)) : new Set())}
@@ -431,17 +478,29 @@ function Library({ sync, setSync, onOpenUnmatched }: { sync: SyncStatus; setSync
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  <input type="checkbox" disabled={item.whitelisted} checked={selected.has(item.id)} onChange={() => toggle(item.id)} />
+              <tr
+                key={item.id}
+                className={`${item.whitelisted ? "is-protected" : "clickable"} ${selected.has(item.id) ? "selected" : ""}`}
+                onClick={(event) => {
+                  if (item.whitelisted || isInteractive(event)) return;
+                  toggle(item.id);
+                }}
+              >
+                <td className="tick-cell">
+                  <input className="tick" type="checkbox" disabled={item.whitelisted} checked={selected.has(item.id)} onChange={() => toggle(item.id)} />
                 </td>
                 <td>
                   <div className="title-cell">
                     {item.art_url ? <img className="poster" src={item.art_url} alt="" /> : <div className="poster placeholder">No art</div>}
                     <div>
                       <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
-                      <div className="muted">{item.media_type === "movie" ? "Movie" : "TV"}{item.sources.length ? ` · ${item.sources.join(" / ")}` : ""}</div>
-                      {item.whitelisted && <span className="chip warn">Protected · {item.whitelist_reason}</span>}
+                      <div className="title-meta">
+                        <span className={`type-chip ${item.media_type}`}>{item.media_type === "movie" ? "Movie" : "TV"}</span>
+                        {item.sources.length ? <span className="muted">{item.sources.join(" / ")}</span> : null}
+                        {item.whitelisted
+                          ? <span className="chip ok">Protected · {item.whitelist_reason}</span>
+                          : <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>}
+                      </div>
                     </div>
                   </div>
                 </td>
@@ -459,7 +518,6 @@ function Library({ sync, setSync, onOpenUnmatched }: { sync: SyncStatus; setSync
                 <td>{bytes(item.size_bytes)}</td>
                 <td>
                   <div className="row-actions">
-                    {!item.whitelisted && <button className="ghost" onClick={() => keep(item)}>Whitelist</button>}
                     <ServiceLinks links={item.links} />
                   </div>
                 </td>
@@ -517,10 +575,18 @@ function Library({ sync, setSync, onOpenUnmatched }: { sync: SyncStatus; setSync
   );
 }
 
-function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncStatus) => void }) {
+function Unmatched({
+  sync,
+  setSync,
+  onUnmatchedCount,
+}: {
+  sync: SyncStatus;
+  setSync: (value: SyncStatus) => void;
+  onUnmatchedCount: (count: number) => void;
+}) {
   const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
-  const [kind, setKind] = useState("");
+  const [kind, setKind] = useState("seerr_missing");
   const [mediaType, setMediaType] = useState("");
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<UnmatchedItem[]>([]);
@@ -528,6 +594,10 @@ function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncS
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<null | { all: boolean; ids: number[] }>(null);
   const prevSync = useRef(sync.status);
 
   useEffect(() => {
@@ -553,6 +623,7 @@ function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncS
       setTotal(data.total);
       setPages(data.pages || 1);
       setSync(data.sync);
+      onUnmatchedCount(data.stats.count || 0);
     } finally {
       setLoading(false);
     }
@@ -563,25 +634,59 @@ function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncS
   }, [q, kind, mediaType, page]);
 
   useEffect(() => {
+    setSelected(new Set());
+  }, [q, kind, mediaType, page]);
+
+  useEffect(() => {
     if (prevSync.current === "running" && sync.status !== "running") {
       load(page).catch(() => undefined);
     }
     prevSync.current = sync.status;
   }, [sync.status]);
 
+  const staleItems = items.filter((item) => item.kind === "seerr_missing");
+  const staleCount = stats.seerr_missing ?? 0;
+
+  function toggle(id: number) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function confirm() {
+    if (!pending) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.clearSeerr(pending.all ? { all_stale: true } : { ids: pending.ids });
+      const failed = result.results.filter((row) => !row.ok);
+      if (failed.length) setError(failed.map((row) => `${row.title}: ${row.error}`).join(" · "));
+      setSelected(new Set());
+      setPending(null);
+      onUnmatchedCount(result.remaining);
+      if (result.remaining) await load(page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not clear Seerr records");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="page">
       <h2>Unmatched</h2>
       <p className="muted">
-        Gaps between Radarr/Sonarr and Seerr. Watch history for deleted titles is ignored.
-        Stale Seerr rows are titles Seerr still thinks are available or requested, so they can be cleared and re-requested.
+        Gaps between Radarr/Sonarr and Seerr. Clear stale Seerr records so those titles can be requested again.
       </p>
       <div className="stats">
         <button className={`stat ${!kind ? "active" : ""}`} onClick={() => { setKind(""); setPage(1); }}>
           <span className="muted">All gaps</span><b>{stats.count ?? total}</b>
         </button>
         <button className={`stat warn ${kind === "seerr_missing" ? "active" : ""}`} onClick={() => { setKind(kind === "seerr_missing" ? "" : "seerr_missing"); setPage(1); }}>
-          <span className="muted">Stale in Seerr</span><b>{stats.seerr_missing ?? stats.seerr_count ?? 0}</b>
+          <span className="muted">Stale in Seerr</span><b>{staleCount}</b>
         </button>
         <button className={`stat ${kind === "no_seerr" ? "active" : ""}`} onClick={() => { setKind(kind === "no_seerr" ? "" : "no_seerr"); setPage(1); }}>
           <span className="muted">Not in Seerr</span><b>{stats.no_seerr ?? 0}</b>
@@ -603,11 +708,25 @@ function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncS
           <option value="movie">Movies</option>
           <option value="tv">TV</option>
         </select>
+        <div className="spacer" />
+        {staleCount > 0 && (
+          <button className="danger" type="button" onClick={() => setPending({ all: true, ids: [] })}>Clear all stale Seerr</button>
+        )}
       </div>
+      {error && <p className="error">{error}</p>}
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
+              <th className="tick-cell">
+                <input
+                  className="tick"
+                  type="checkbox"
+                  checked={staleItems.length > 0 && staleItems.every((item) => selected.has(item.id))}
+                  disabled={!staleItems.length}
+                  onChange={(e) => setSelected(e.target.checked ? new Set(staleItems.map((item) => item.id)) : new Set())}
+                />
+              </th>
               <th>Title</th>
               <th>Where</th>
               <th>Type</th>
@@ -617,24 +736,43 @@ function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncS
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => (
-              <tr key={item.id} className="unmatched-row">
-                <td>
-                  <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
-                  <div>
-                    <span className="chip warn">{item.kind === "no_seerr" ? "Not in Seerr" : "Not in library"}</span>
-                  </div>
-                </td>
-                <td className="capitalize">{item.source}</td>
-                <td>{item.media_type === "tv" ? "TV" : "Movie"}</td>
-                <td>{item.requested_by || "—"}</td>
-                <td className="muted">{item.reason}</td>
-                <td><ServiceLinks links={item.links} /></td>
-              </tr>
-            ))}
+            {items.map((item) => {
+              const stale = item.kind === "seerr_missing";
+              return (
+                <tr
+                  key={item.id}
+                  className={`unmatched-row ${stale ? "clickable" : ""} ${selected.has(item.id) ? "selected" : ""}`}
+                  onClick={(event) => {
+                    if (!stale || isInteractive(event)) return;
+                    toggle(item.id);
+                  }}
+                >
+                  <td className="tick-cell">
+                    <input className="tick" type="checkbox" disabled={!stale} checked={selected.has(item.id)} onChange={() => toggle(item.id)} />
+                  </td>
+                  <td>
+                    <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
+                    <div className="title-meta">
+                      <span className={`type-chip ${item.media_type}`}>{item.media_type === "tv" ? "TV" : "Movie"}</span>
+                      <span className="chip warn">{stale ? "Not in library" : "Not in Seerr"}</span>
+                    </div>
+                  </td>
+                  <td className="capitalize">{item.source}</td>
+                  <td>{item.media_type === "tv" ? "TV" : "Movie"}</td>
+                  <td>{item.requested_by || "—"}</td>
+                  <td className="muted">{item.reason}</td>
+                  <td>
+                    <div className="row-actions">
+                      {stale && <button className="danger-ghost" type="button" onClick={() => setPending({ all: false, ids: [item.id] })}>Clear in Seerr</button>}
+                      <ServiceLinks links={item.links} />
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {!items.length && (
               <tr>
-                <td colSpan={6} className="empty">
+                <td colSpan={7} className="empty">
                   {loading ? "Loading unmatched titles…" : "Radarr, Sonarr, and Seerr agree on the current library."}
                 </td>
               </tr>
@@ -649,6 +787,33 @@ function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncS
         <button className="ghost" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Previous</button>
         <button className="ghost" disabled={page >= pages} onClick={() => setPage((current) => current + 1)}>Next</button>
       </div>
+      {selected.size > 0 && (
+        <div className="bulk">
+          <strong>{selected.size} selected</strong>
+          <span className="muted">Remove stale Seerr media so they can be requested again</span>
+          <div className="spacer" />
+          <button className="danger" onClick={() => setPending({ all: false, ids: [...selected] })}>Clear in Seerr</button>
+        </div>
+      )}
+      {pending && (
+        <div className="modal-back" onClick={() => !busy && setPending(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{pending.all ? "Clear all stale Seerr records" : "Clear in Seerr"}</h2>
+            <p>
+              This deletes the stale media records in Seerr so people can request them again. Radarr and Sonarr are not touched.
+            </p>
+            <ul>
+              {(pending.all ? staleItems : items.filter((item) => pending.ids.includes(item.id))).slice(0, 8).map((item) => <li key={item.id}>{item.title}</li>)}
+              {pending.all && staleCount > staleItems.length && <li>…and {staleCount - staleItems.length} more</li>}
+              {!pending.all && pending.ids.length > 8 && <li>…and {pending.ids.length - 8} more</li>}
+            </ul>
+            <div className="filters">
+              <button className="ghost" disabled={busy} onClick={() => setPending(null)}>Cancel</button>
+              <button className="danger" disabled={busy} onClick={confirm}>{busy ? "Clearing…" : "Confirm"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

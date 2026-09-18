@@ -133,6 +133,11 @@ export const api = {
       `/api/unmatched?${query}`,
     );
   },
+  clearSeerr: (body: { ids?: number[]; all_stale?: boolean }) =>
+    request<{ results: { title: string; ok: boolean; error?: string }[]; remaining: number }>("/api/unmatched/clear-seerr", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   users: (params: Record<string, string>) => {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -167,6 +172,8 @@ export type UnmatchedItem = {
   plays: number;
   reason: string;
   tmdb_id: number;
+  tvdb_id?: number;
+  seerr_media_id?: number | null;
   requested_by: string;
   kind: string;
   links: Record<string, string>;

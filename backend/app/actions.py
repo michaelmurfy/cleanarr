@@ -10,6 +10,7 @@ from .auth import current_user
 from .db import connect
 from .logs import add_log
 from .services.clients import radarr, seerr, sonarr
+from .services.http import ServiceError
 
 router = APIRouter()
 
@@ -26,6 +27,11 @@ class CleanupIn(BaseModel):
     items: list[dict] = Field(default_factory=list)
     delete_files: bool = True
     blacklist: bool = False
+
+
+class ClearSeerrIn(BaseModel):
+    ids: list[int] = Field(default_factory=list)
+    all_stale: bool = False
 
 
 def _whitelist_rows() -> list[dict]:
@@ -180,3 +186,59 @@ def cleanup(payload: CleanupIn, request: Request):
                 actor=user,
             )
     return {"results": results}
+
+
+@router.post("/unmatched/clear-seerr")
+def clear_stale_seerr(payload: ClearSeerrIn, request: Request):
+    user = current_user(request)
+    client = seerr()
+    if not client:
+        raise HTTPException(400, "Seerr is not configured")
+    if not payload.all_stale and not payload.ids:
+        raise HTTPException(400, "Nothing selected")
+    with connect() as conn:
+        if payload.all_stale:
+            rows = [dict(row) for row in conn.execute(
+                "SELECT * FROM unmatched WHERE kind = 'seerr_missing'"
+            ).fetchall()]
+        else:
+            placeholders = ",".join("?" for _ in payload.ids)
+            rows = [dict(row) for row in conn.execute(
+                f"SELECT * FROM unmatched WHERE kind = 'seerr_missing' AND id IN ({placeholders})",
+                payload.ids,
+            ).fetchall()]
+    results = []
+    for row in rows:
+        title = row.get("title") or "Untitled"
+        try:
+            media_id = int(row.get("seerr_media_id") or 0)
+            if not media_id:
+                raise RuntimeError("No Seerr media id to delete")
+            try:
+                client.delete_media(media_id)
+            except ServiceError as exc:
+                if exc.status not in {404, 410}:
+                    raise
+            with connect() as conn:
+                conn.execute("DELETE FROM unmatched WHERE id = ?", (row["id"],))
+            results.append({"title": title, "ok": True})
+            add_log(
+                f"Cleared stale Seerr record {title}",
+                category="audit",
+                action="clear-seerr",
+                actor=user,
+                detail={"tmdb_id": row.get("tmdb_id"), "seerr_media_id": row.get("seerr_media_id")},
+            )
+        except Exception as exc:
+            results.append({"title": title, "ok": False, "error": str(exc)})
+            add_log(
+                f"Failed to clear Seerr record {title}: {exc}",
+                level="error",
+                category="audit",
+                action="clear-seerr",
+                actor=user,
+            )
+    remaining = 0
+    with connect() as conn:
+        remaining = conn.execute("SELECT COUNT(*) AS n FROM unmatched").fetchone()["n"]
+    return {"results": results, "remaining": remaining}
