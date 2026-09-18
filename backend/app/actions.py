@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import time
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from .auth import current_user
+from .db import connect
+from .services.clients import radarr, seerr, sonarr
+
+router = APIRouter()
+
+
+class WhitelistIn(BaseModel):
+    match_type: str = "title"
+    media_type: str = "any"
+    tmdb_id: int = 0
+    pattern: str
+    note: str = ""
+
+
+class CleanupIn(BaseModel):
+    items: list[dict] = Field(default_factory=list)
+    delete_files: bool = True
+    blacklist: bool = False
+
+
+def _whitelist_rows() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM whitelist ORDER BY pattern COLLATE NOCASE").fetchall()
+    return [dict(row) for row in rows]
+
+
+def is_protected(title: str, media_type: str, tmdb_id: int) -> dict | None:
+    needle = (title or "").lower()
+    for row in _whitelist_rows():
+        if row["media_type"] not in {"any", media_type}:
+            continue
+        if row["match_type"] == "id":
+            if tmdb_id and int(row["tmdb_id"] or 0) == int(tmdb_id):
+                return row
+            continue
+        pattern = (row["pattern"] or "").lower().strip()
+        if pattern and pattern in needle:
+            return row
+    return None
+
+
+@router.get("/whitelist")
+def list_whitelist(request: Request):
+    current_user(request)
+    return {"items": _whitelist_rows()}
+
+
+@router.post("/whitelist")
+def add_whitelist(payload: WhitelistIn, request: Request):
+    current_user(request)
+    pattern = payload.pattern.strip()
+    if not pattern:
+        raise HTTPException(400, "Pattern is required")
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO whitelist (match_type, media_type, tmdb_id, pattern, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload.match_type if payload.match_type in {"title", "id"} else "title",
+                payload.media_type if payload.media_type in {"any", "movie", "tv"} else "any",
+                payload.tmdb_id,
+                pattern,
+                payload.note.strip(),
+                int(time.time()),
+            ),
+        )
+        item_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    return {"ok": True, "id": item_id}
+
+
+@router.delete("/whitelist/{item_id}")
+def remove_whitelist(item_id: int, request: Request):
+    current_user(request)
+    with connect() as conn:
+        conn.execute("DELETE FROM whitelist WHERE id = ?", (item_id,))
+    return {"ok": True}
+
+
+def _load_media(media_type: str, tmdb_id: int, tvdb_id: int = 0) -> dict | None:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM media
+            WHERE media_type = ? AND tmdb_id = ? AND (tvdb_id = ? OR ? = 0)
+            """,
+            (media_type, tmdb_id, tvdb_id, tvdb_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+@router.post("/cleanup")
+def cleanup(payload: CleanupIn, request: Request):
+    current_user(request)
+    results = []
+    radarr_client = radarr()
+    sonarr_client = sonarr()
+    seerr_client = seerr()
+    for raw in payload.items:
+        media_type = raw.get("media_type")
+        tmdb_id = int(raw.get("tmdb_id") or 0)
+        tvdb_id = int(raw.get("tvdb_id") or 0)
+        item = _load_media(media_type, tmdb_id, tvdb_id)
+        if not item:
+            results.append({"title": raw.get("title"), "ok": False, "error": "Not found"})
+            continue
+        blocked = is_protected(item["title"], item["media_type"], item["tmdb_id"])
+        if blocked:
+            results.append(
+                {
+                    "title": item["title"],
+                    "ok": False,
+                    "error": f"Whitelisted ({blocked['pattern']})",
+                }
+            )
+            continue
+        try:
+            if item["media_type"] == "movie":
+                if not item.get("radarr_id") or not radarr_client:
+                    raise RuntimeError("No Radarr id for this movie")
+                radarr_client.delete(int(item["radarr_id"]), payload.delete_files, payload.blacklist)
+            else:
+                if not item.get("sonarr_id") or not sonarr_client:
+                    raise RuntimeError("No Sonarr id for this series")
+                sonarr_client.delete(int(item["sonarr_id"]), payload.delete_files, payload.blacklist)
+            if seerr_client:
+                if payload.blacklist and item.get("tmdb_id"):
+                    try:
+                        seerr_client.blacklist(int(item["tmdb_id"]), item["media_type"], item["title"])
+                    except Exception:
+                        pass
+                if item.get("seerr_media_id"):
+                    try:
+                        seerr_client.delete_media(int(item["seerr_media_id"]))
+                    except Exception:
+                        pass
+            with connect() as conn:
+                conn.execute("DELETE FROM media WHERE id = ?", (item["id"],))
+            results.append({"title": item["title"], "ok": True})
+        except Exception as exc:
+            results.append({"title": item["title"], "ok": False, "error": str(exc)})
+    return {"results": results}
