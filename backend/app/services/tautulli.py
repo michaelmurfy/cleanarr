@@ -10,6 +10,46 @@ TVDB_RE = re.compile(r"(?:thetvdb|tvdb)(?:://(?:series/)?)?(\d+)", re.I)
 IMDB_RE = re.compile(r"(tt\d{5,})", re.I)
 
 
+def as_int(value: Any, default: int = 0) -> int:
+    try:
+        if value in (None, "", False):
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def rating_key_score(row: dict[str, Any]) -> tuple[int, int, int, int, int, int]:
+    return (
+        1 if row.get("in_library") else 0,
+        1 if as_int(row.get("file_size")) > 0 or row.get("thumb") else 0,
+        as_int(row.get("rating_key")),
+        as_int(row.get("last_played")),
+        as_int(row.get("play_count")),
+        as_int(row.get("added_at")),
+    )
+
+
+def pick_live_rating_key(options: dict[str, dict[str, Any]], exists) -> str:
+    rows = [row for row in options.values() if row.get("rating_key")]
+    if not rows:
+        return ""
+    rows.sort(key=rating_key_score, reverse=True)
+    winner = rows[0]
+    needs_check = (
+        len(rows) > 1
+        or not winner.get("in_library")
+        or (as_int(winner.get("file_size")) <= 0 and not winner.get("thumb"))
+    )
+    if not needs_check:
+        return str(winner["rating_key"])
+    for row in rows:
+        key = str(row["rating_key"])
+        if exists(key):
+            return key
+    return ""
+
+
 def parse_ids(blob: Any) -> dict[str, Any]:
     text = blob if isinstance(blob, str) else " ".join(str(x) for x in (blob or []))
     tmdb = TMDB_RE.search(text or "")
@@ -86,6 +126,15 @@ class Tautulli:
             return rows if isinstance(rows, list) else []
         return []
 
+    def metadata(self, rating_key: str) -> dict[str, Any] | None:
+        try:
+            data = self._cmd("get_metadata", rating_key=str(rating_key))
+        except Exception:
+            return None
+        if isinstance(data, dict) and (data.get("rating_key") or data.get("title") or data.get("guid")):
+            return data
+        return None
+
     def rating_map(self) -> dict[str, dict[str, Any]]:
         mapping: dict[str, dict[str, Any]] = {}
         for lib in self.libraries():
@@ -93,6 +142,9 @@ class Tautulli:
             if section_id is None:
                 continue
             for row in self.library_media(section_id):
+                media_type = row.get("media_type") or lib.get("section_type") or ""
+                if str(media_type).lower() in {"season", "episode", "track", "album", "photo"}:
+                    continue
                 ids = parse_ids(row.get("guid") or row.get("guids") or "")
                 rating_key = str(row.get("rating_key") or "")
                 if rating_key:
@@ -100,6 +152,12 @@ class Tautulli:
                         **ids,
                         "title": row.get("title") or "",
                         "year": row.get("year"),
-                        "media_type": row.get("media_type") or lib.get("section_type") or "",
+                        "media_type": media_type,
+                        "play_count": as_int(row.get("play_count")),
+                        "last_played": as_int(row.get("last_played")),
+                        "added_at": as_int(row.get("added_at")),
+                        "file_size": as_int(row.get("file_size")),
+                        "thumb": row.get("thumb") or "",
+                        "in_library": True,
                     }
         return mapping

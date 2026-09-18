@@ -15,7 +15,7 @@ from .match import CatalogIndex, parse_year
 from .services.arr import movie_availability, pick_rating, poster_from, series_availability
 from .services.clients import radarr, seerr, sonarr, tautulli, tracearr
 from .services.seerr import media_blocked, media_claimed, media_in_flight, request_is_open, request_was_made
-from .services.tautulli import parse_ids
+from .services.tautulli import as_int, parse_ids, pick_live_rating_key
 
 UNKNOWN_LABELS = {"unknown", "unknown title", "unknown request", "n/a", "none", "null"}
 
@@ -610,6 +610,22 @@ def _run_sync() -> None:
 
         _progress("Loading Tautulli history…", step="tautulli")
         if client := tautulli():
+            rating_map = {}
+            tautulli_hits: dict[tuple[str, int, int], dict[str, dict[str, Any]]] = defaultdict(dict)
+
+            def remember_tautulli(key: tuple[str, int, int] | None, rating_key: str, meta: dict[str, Any]) -> None:
+                if not key or not rating_key:
+                    return
+                rating_key = str(rating_key)
+                slot = tautulli_hits[key].setdefault(rating_key, {"rating_key": rating_key})
+                for field in ("title", "year", "media_type", "thumb"):
+                    if meta.get(field) and not slot.get(field):
+                        slot[field] = meta[field]
+                for field in ("play_count", "last_played", "added_at", "file_size"):
+                    slot[field] = max(as_int(slot.get(field)), as_int(meta.get(field)))
+                if meta.get("in_library"):
+                    slot["in_library"] = True
+
             try:
                 _progress("Loading Tautulli library IDs…", step="tautulli")
                 rating_map = client.rating_map()
@@ -626,8 +642,7 @@ def _run_sync() -> None:
                     [meta.get("title") or ""],
                     meta.get("year"),
                 )
-                if key and not catalog[key].get("tautulli_rating_key"):
-                    catalog[key]["tautulli_rating_key"] = rating_key
+                remember_tautulli(key, rating_key, meta)
 
             def tautulli_progress(fetched: int) -> None:
                 _progress(f"Fetching Tautulli history… {fetched}", step="tautulli", current=fetched, total=0)
@@ -675,6 +690,18 @@ def _run_sync() -> None:
                 )
                 if key:
                     matched += 1
+                    mapped_meta = rating_map.get(rating_key) or {}
+                    remember_tautulli(
+                        key,
+                        rating_key,
+                        {
+                            **mapped_meta,
+                            "rating_key": rating_key,
+                            "last_played": _unix(row.get("date")) or mapped_meta.get("last_played"),
+                            "play_count": max(1, as_int(mapped_meta.get("play_count"))),
+                            "in_library": rating_key in rating_map,
+                        },
+                    )
                 attach_play(
                     key,
                     {
@@ -689,6 +716,15 @@ def _run_sync() -> None:
                 if i == total or i % 250 == 0:
                     _progress(f"Matching Tautulli history… {i}/{total}", step="tautulli", current=i, total=total)
             log_history_match("Tautulli", matched, total)
+            exists_cache: dict[str, bool] = {}
+
+            def tautulli_exists(rating_key: str) -> bool:
+                if rating_key not in exists_cache:
+                    exists_cache[rating_key] = bool(client.metadata(rating_key))
+                return exists_cache[rating_key]
+
+            for key, options in tautulli_hits.items():
+                catalog[key]["tautulli_rating_key"] = pick_live_rating_key(options, tautulli_exists)
 
         _progress("Loading Tracearr history…", step="tracearr")
         if client := tracearr():
