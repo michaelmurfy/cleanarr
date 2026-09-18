@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -9,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .actions import is_protected, router as actions_router
+from .art import serve_art, art_url
 from .auth import (
     bootstrap_auth,
     current_user,
@@ -18,11 +20,10 @@ from .auth import (
     verify_password,
     COOKIE,
 )
-from .config import settings
-from .db import all_settings, init_db, set_setting
+from .config import env_file_present, locked_setting_keys
+from .db import all_settings, connect, init_db, set_setting
 from .services.clients import KEYS, cfg, public_url, radarr, seerr, sonarr, tautulli, tracearr
 from .sync import job_status, start_sync
-from .db import connect
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -39,9 +40,6 @@ def health():
 def startup() -> None:
     init_db()
     bootstrap_auth()
-    for key in KEYS:
-        if not get_setting(key) and cfg(key):
-            set_setting(key, cfg(key))
 
 
 class LoginIn(BaseModel):
@@ -89,18 +87,25 @@ def me(request: Request):
 def get_settings(request: Request):
     current_user(request)
     stored = all_settings()
+    locked = locked_setting_keys()
+    env_locked = env_file_present()
     values = {}
     for key in KEYS:
-        value = stored.get(key) or cfg(key)
-        if key.endswith("_api_key") and value:
-            values[key] = "••••••••"
-            values[f"{key}_set"] = True
+        configured = bool(cfg(key) or stored.get(key))
+        values[f"{key}_set"] = configured
+        values[f"{key}_locked"] = env_locked or key in locked
+        if key.endswith("_api_key"):
+            values[key] = ""
+        elif values[f"{key}_locked"]:
+            values[key] = cfg(key)
         else:
-            values[key] = value
-            values[f"{key}_set"] = bool(value)
+            values[key] = stored.get(key) or ""
     return {
         "values": values,
+        "locked": sorted(locked),
+        "env_file": env_locked,
         "username": get_setting("auth_username"),
+        "username_locked": env_locked or "auth_username" in locked,
         "using_default_password": get_setting("using_default_password") == "1",
     }
 
@@ -108,13 +113,20 @@ def get_settings(request: Request):
 @app.put("/api/settings")
 def put_settings(payload: SettingsIn, request: Request):
     current_user(request)
+    locked = locked_setting_keys()
+    if env_file_present():
+        return {"ok": True, "locked": True}
     for key, value in payload.values.items():
-        if key not in KEYS:
+        if key not in KEYS or key in locked:
             continue
-        if key.endswith("_api_key") and value.strip("•") == "":
+        if key.endswith("_api_key"):
+            cleaned = value.strip()
+            if not cleaned or set(cleaned) <= {"•", "*"}:
+                continue
+            set_setting(key, cleaned)
             continue
         set_setting(key, value.strip())
-    if payload.username or payload.password:
+    if "auth_username" not in locked and (payload.username or payload.password):
         set_credentials(payload.username or "", payload.password)
     return {"ok": True}
 
@@ -154,18 +166,38 @@ def sync_now(request: Request):
     return start_sync()
 
 
-@app.get("/api/library")
-def library(request: Request, q: str = "", media_type: str = "", watched: str = "", sort: str = "last_watched"):
+@app.get("/api/art/{item_id}")
+def artwork(item_id: int, request: Request):
     current_user(request)
+    return serve_art(item_id)
+
+
+@app.get("/api/library")
+def library(
+    request: Request,
+    q: str = "",
+    media_type: str = "",
+    watched: str = "",
+    sort: str = "oldest",
+    page: int = 1,
+    page_size: int = 50,
+    stale_days: int = 365,
+    max_rating: float | None = None,
+):
+    current_user(request)
+    page = max(1, page)
+    page_size = min(max(page_size, 10), 200)
+    stale_days = max(1, stale_days)
     with connect() as conn:
         rows = [dict(row) for row in conn.execute("SELECT * FROM media").fetchall()]
         whitelist = [dict(row) for row in conn.execute("SELECT * FROM whitelist").fetchall()]
 
-    items = []
+    cutoff = int(time.time()) - stale_days * 24 * 3600
+    pool = []
     for row in rows:
         watchers = json.loads(row["watchers_json"] or "[]")
         sources = json.loads(row["sources_json"] or "[]")
-        protected = is_protected(row["title"], row["media_type"], row["tmdb_id"])
+        protected = is_protected(row["title"], row["media_type"], row["tmdb_id"], whitelist)
         item = {
             **row,
             "watchers": watchers,
@@ -173,6 +205,8 @@ def library(request: Request, q: str = "", media_type: str = "", watched: str = 
             "whitelisted": bool(protected),
             "whitelist_reason": protected["pattern"] if protected else "",
             "links": _links(row),
+            "art_url": art_url(row["id"], row.get("poster_url") or ""),
+            "poster_url": "",
         }
         if media_type and item["media_type"] != media_type:
             continue
@@ -180,46 +214,66 @@ def library(request: Request, q: str = "", media_type: str = "", watched: str = 
             hay = f"{item['title']} {item['requested_by']} {' '.join(w['user'] for w in watchers)}".lower()
             if q.lower() not in hay:
                 continue
+        if max_rating is not None:
+            rating = item.get("rating")
+            if rating is None or float(rating) > max_rating:
+                continue
+        pool.append(item)
+
+    never_watched = sum(1 for item in pool if not item["play_count"])
+    stale_count = sum(
+        1 for item in pool if not item["play_count"] or (item["last_watched_at"] or 0) <= cutoff
+    )
+    items = []
+    for item in pool:
         if watched == "never" and item["play_count"]:
             continue
         if watched == "watched" and not item["play_count"]:
             continue
         if watched == "stale":
-            import time
-
-            cutoff = int(time.time()) - 365 * 24 * 3600
             if item["play_count"] and (item["last_watched_at"] or 0) > cutoff:
                 continue
-            if not item["play_count"]:
-                pass
         items.append(item)
 
-    reverse = True
-    key = sort
-    if sort.startswith("-"):
-        reverse = False
-        key = sort[1:]
-
     def sort_value(item):
-        if key == "title":
+        if sort == "title":
             return item["title"].lower()
-        if key == "size":
+        if sort == "size":
             return item["size_bytes"] or 0
-        if key == "plays":
+        if sort == "plays":
             return item["play_count"] or 0
-        if key == "requested":
+        if sort == "requested":
             return (item["requested_by"] or "").lower()
+        if sort == "rating":
+            rating = item.get("rating")
+            return float(rating) if rating is not None else 99.0
         return item["last_watched_at"] or 0
 
-    items.sort(key=sort_value, reverse=False if key in {"title", "requested"} else reverse)
+    reverse = sort in {"size", "plays", "last_watched"}
+    items.sort(key=sort_value, reverse=reverse)
 
+    total = len(items)
+    start = (page - 1) * page_size
+    page_items = items[start : start + page_size]
     stats = {
-        "count": len(items),
-        "never_watched": sum(1 for i in items if not i["play_count"]),
+        "count": total,
+        "never_watched": never_watched,
+        "stale": stale_count,
         "whitelisted": sum(1 for i in items if i["whitelisted"]),
         "size_bytes": sum(i["size_bytes"] or 0 for i in items),
+        "page": page,
+        "page_size": page_size,
+        "pages": max(1, (total + page_size - 1) // page_size),
     }
-    return {"items": items, "stats": stats, "whitelist_count": len(whitelist), "sync": job_status()}
+    return {
+        "items": page_items,
+        "stats": stats,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "whitelist_count": len(whitelist),
+        "sync": job_status(),
+    }
 
 
 def _links(row: dict) -> dict:
@@ -232,7 +286,7 @@ def _links(row: dict) -> dict:
         base = public_url("sonarr", "sonarr_url")
         if base:
             slug = row.get("title_slug") or str(row.get("sonarr_id") or "")
-        links["sonarr"] = f"{base}/series/{slug}"
+            links["sonarr"] = f"{base}/series/{slug}"
     seerr_base = public_url("seerr", "seerr_url")
     if seerr_base and row.get("tmdb_id"):
         kind = "movie" if row["media_type"] == "movie" else "tv"

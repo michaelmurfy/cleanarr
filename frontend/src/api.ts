@@ -11,7 +11,7 @@ export type MediaItem = {
   tvdb_id: number;
   title: string;
   year: number | null;
-  poster_url: string;
+  art_url: string;
   size_bytes: number;
   radarr_id: number | null;
   sonarr_id: number | null;
@@ -25,20 +25,33 @@ export type MediaItem = {
   whitelisted: boolean;
   whitelist_reason: string;
   links: Record<string, string>;
+  rating: number | null;
+  rating_votes: number;
+  rating_source: string;
+};
+
+export type LibraryResponse = {
+  items: MediaItem[];
+  stats: Record<string, number>;
+  total: number;
+  page: number;
+  page_size: number;
+  sync: { status: string; message: string };
 };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = { ...(options.headers as Record<string, string> | undefined) };
+  if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
   const response = await fetch(path, {
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
     ...options,
+    headers,
   });
+  if (response.status === 204) return {} as T;
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.detail || data.message || response.statusText);
+    const detail = data.detail;
+    throw new Error(typeof detail === "string" ? detail : data.message || response.statusText);
   }
   return data as T;
 }
@@ -46,15 +59,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   me: () => request<{ username: string; using_default_password: boolean }>("/api/auth/me"),
   login: (username: string, password: string) =>
-    request("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+    request<{ username: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   logout: () => request("/api/auth/logout", { method: "POST" }),
   library: (params: Record<string, string>) => {
-    const query = new URLSearchParams(params).toString();
-    return request<{ items: MediaItem[]; stats: Record<string, number>; sync: { status: string; message: string } }>(
-      `/api/library?${query}`
-    );
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value) query.set(key, value);
+    }
+    return request<LibraryResponse>(`/api/library?${query}`);
   },
-  sync: () => request("/api/sync", { method: "POST" }),
+  sync: () => request<{ status: string; message: string }>("/api/sync", { method: "POST" }),
   syncStatus: () => request<{ status: string; message: string }>("/api/sync"),
   cleanup: (items: Partial<MediaItem>[], blacklist: boolean) =>
     request<{ results: { title: string; ok: boolean; error?: string }[] }>("/api/cleanup", {
@@ -65,9 +79,17 @@ export const api = {
   addWhitelist: (payload: Partial<WhitelistItem>) =>
     request("/api/whitelist", { method: "POST", body: JSON.stringify(payload) }),
   removeWhitelist: (id: number) => request(`/api/whitelist/${id}`, { method: "DELETE" }),
-  settings: () => request<{ values: Record<string, string | boolean>; username: string; using_default_password: boolean }>("/api/settings"),
+  settings: () =>
+    request<{
+      values: Record<string, string | boolean>;
+      locked: string[];
+      env_file: boolean;
+      username: string;
+      username_locked: boolean;
+      using_default_password: boolean;
+    }>("/api/settings"),
   saveSettings: (body: unknown) => request("/api/settings", { method: "PUT", body: JSON.stringify(body) }),
-  test: (service: string) => request("/api/settings/test", { method: "POST", body: JSON.stringify({ service }) }),
+  test: (service: string) => request<{ message: string }>("/api/settings/test", { method: "POST", body: JSON.stringify({ service }) }),
 };
 
 export type WhitelistItem = {

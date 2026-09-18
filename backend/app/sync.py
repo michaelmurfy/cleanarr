@@ -7,8 +7,9 @@ import time
 from collections import defaultdict
 from typing import Any
 
+from .art import warm_cache
 from .db import connect
-from .services.arr import poster_from
+from .services.arr import pick_rating, poster_from
 from .services.clients import radarr, seerr, sonarr, tautulli, tracearr
 from .services.tautulli import parse_ids
 
@@ -115,6 +116,9 @@ def _run_sync() -> None:
                 "requested_at": "",
                 "path": "",
                 "title_slug": "",
+                "rating": None,
+                "rating_votes": 0,
+                "rating_source": "",
             }
             for field in current:
                 if item.get(field) not in (None, "", 0, []):
@@ -127,6 +131,7 @@ def _run_sync() -> None:
         _set_job(message="Loading Radarr…")
         if client := radarr():
             for movie in client.movies():
+                rating, votes, source = pick_rating(movie.get("ratings"))
                 upsert_base(
                     {
                         "media_type": "movie",
@@ -140,6 +145,9 @@ def _run_sync() -> None:
                         "radarr_id": movie.get("id"),
                         "path": movie.get("path") or "",
                         "title_slug": movie.get("titleSlug") or "",
+                        "rating": rating,
+                        "rating_votes": votes,
+                        "rating_source": source,
                     }
                 )
 
@@ -147,6 +155,7 @@ def _run_sync() -> None:
         if client := sonarr():
             for show in client.series():
                 stats = show.get("statistics") or {}
+                rating, votes, source = pick_rating(show.get("ratings"))
                 upsert_base(
                     {
                         "media_type": "tv",
@@ -160,6 +169,9 @@ def _run_sync() -> None:
                         "sonarr_id": show.get("id"),
                         "path": show.get("path") or "",
                         "title_slug": show.get("titleSlug") or "",
+                        "rating": rating,
+                        "rating_votes": votes,
+                        "rating_source": source,
                     }
                 )
 
@@ -362,15 +374,18 @@ def _run_sync() -> None:
                 INSERT INTO media (
                     media_type, tmdb_id, tvdb_id, imdb_id, title, year, poster_url, size_bytes,
                     radarr_id, sonarr_id, seerr_media_id, requested_by, requested_at,
-                    last_watched_at, play_count, watcher_count, watchers_json, sources_json, path, title_slug
+                    last_watched_at, play_count, watcher_count, watchers_json, sources_json, path, title_slug,
+                    rating, rating_votes, rating_source
                 ) VALUES (
                     :media_type, :tmdb_id, :tvdb_id, :imdb_id, :title, :year, :poster_url, :size_bytes,
                     :radarr_id, :sonarr_id, :seerr_media_id, :requested_by, :requested_at,
-                    :last_watched_at, :play_count, :watcher_count, :watchers_json, :sources_json, :path, :title_slug
+                    :last_watched_at, :play_count, :watcher_count, :watchers_json, :sources_json, :path, :title_slug,
+                    :rating, :rating_votes, :rating_source
                 )
                 """,
                 records,
             )
         _set_job(status="idle", message=f"Synced {len(records)} titles", finished_at=int(time.time()))
+        warm_cache()
     except Exception as exc:
         _set_job(status="error", message=str(exc), finished_at=int(time.time()))

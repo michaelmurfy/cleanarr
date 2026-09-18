@@ -9,7 +9,7 @@ from functools import wraps
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from .config import settings
+from .config import env_file_present, settings
 from .db import get_setting, set_setting
 
 COOKIE = "cleanarr_session"
@@ -22,11 +22,21 @@ def _hash_password(password: str, salt: str) -> str:
 
 
 def bootstrap_auth() -> None:
-    if not get_setting("auth_username"):
+    env_user = os.environ.get("CLEANARR_USERNAME")
+    env_pass = os.environ.get("CLEANARR_PASSWORD")
+    if env_file_present() or env_user:
+        set_setting("auth_username", env_user or settings.cleanarr_username)
+    elif not get_setting("auth_username"):
         set_setting("auth_username", settings.cleanarr_username)
-    if not get_setting("auth_salt"):
+    if env_file_present() or env_pass:
+        password = env_pass or settings.cleanarr_password
         salt = secrets.token_hex(16)
-        password = get_setting("auth_password_hash") and "" or settings.cleanarr_password
+        set_setting("auth_salt", salt)
+        set_setting("auth_password_hash", _hash_password(password, salt))
+        set_setting("using_default_password", "1" if password == "changeme" else "0")
+    elif not get_setting("auth_salt"):
+        salt = secrets.token_hex(16)
+        password = settings.cleanarr_password
         set_setting("auth_salt", salt)
         set_setting("auth_password_hash", _hash_password(password, salt))
         set_setting("using_default_password", "1" if password == "changeme" else "0")

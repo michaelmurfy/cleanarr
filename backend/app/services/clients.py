@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from ..config import settings
-from ..db import get_setting
+import os
 from .arr import Radarr, Sonarr
 from .seerr import Seerr
 from .tautulli import Tautulli
 from .tracearr import Tracearr
+from ..config import ENV_KEY_MAP, settings
+from ..db import get_setting
 
 KEYS = [
     "tautulli_url",
@@ -25,6 +26,10 @@ KEYS = [
 
 
 def cfg(key: str) -> str:
+    env_name = ENV_KEY_MAP.get(key, key.upper())
+    env_val = (os.environ.get(env_name) or "").strip()
+    if env_val:
+        return env_val
     stored = get_setting(key)
     if stored:
         return stored.strip()

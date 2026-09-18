@@ -47,6 +47,9 @@ def init_db() -> None:
                 sources_json TEXT NOT NULL DEFAULT '[]',
                 path TEXT NOT NULL DEFAULT '',
                 title_slug TEXT NOT NULL DEFAULT '',
+                rating REAL,
+                rating_votes INTEGER NOT NULL DEFAULT 0,
+                rating_source TEXT NOT NULL DEFAULT '',
                 UNIQUE(media_type, tmdb_id, tvdb_id)
             );
 
@@ -74,6 +77,12 @@ def init_db() -> None:
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(media)").fetchall()}
         if "title_slug" not in cols:
             conn.execute("ALTER TABLE media ADD COLUMN title_slug TEXT NOT NULL DEFAULT ''")
+        if "rating" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN rating REAL")
+        if "rating_votes" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN rating_votes INTEGER NOT NULL DEFAULT 0")
+        if "rating_source" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN rating_source TEXT NOT NULL DEFAULT ''")
 
 
 def get_setting(key: str, default: str = "") -> str:

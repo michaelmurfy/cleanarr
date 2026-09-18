@@ -12,6 +12,24 @@ def poster_from(images: list[dict[str, Any]] | None) -> str:
     return ""
 
 
+def pick_rating(ratings: dict[str, Any] | None) -> tuple[float | None, int, str]:
+    if not ratings:
+        return None, 0, ""
+    if isinstance(ratings.get("value"), (int, float)) and ratings.get("value"):
+        return float(ratings["value"]), int(ratings.get("votes") or 0), "arr"
+    for source in ("imdb", "tmdb", "trakt", "rottenTomatoes", "metacritic"):
+        block = ratings.get(source) or {}
+        value = block.get("value")
+        if not isinstance(value, (int, float)) or not value:
+            continue
+        votes = int(block.get("votes") or 0)
+        score = float(value)
+        if source in {"rottenTomatoes", "metacritic"} and score > 10:
+            score = score / 10.0
+        return round(score, 1), votes, source
+    return None, 0, ""
+
+
 class Radarr:
     def __init__(self, url: str, api_key: str):
         self.url = tidy_url(url)

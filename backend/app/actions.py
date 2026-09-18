@@ -5,6 +5,7 @@ import time
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from .art import remove_art
 from .auth import current_user
 from .db import connect
 from .services.clients import radarr, seerr, sonarr
@@ -32,9 +33,9 @@ def _whitelist_rows() -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def is_protected(title: str, media_type: str, tmdb_id: int) -> dict | None:
+def is_protected(title: str, media_type: str, tmdb_id: int, rows: list[dict] | None = None) -> dict | None:
     needle = (title or "").lower()
-    for row in _whitelist_rows():
+    for row in rows if rows is not None else _whitelist_rows():
         if row["media_type"] not in {"any", media_type}:
             continue
         if row["match_type"] == "id":
@@ -145,6 +146,7 @@ def cleanup(payload: CleanupIn, request: Request):
                         pass
             with connect() as conn:
                 conn.execute("DELETE FROM media WHERE id = ?", (item["id"],))
+            remove_art(item["media_type"], item.get("tmdb_id") or 0, item.get("tvdb_id") or 0)
             results.append({"title": item["title"], "ok": True})
         except Exception as exc:
             results.append({"title": item["title"], "ok": False, "error": str(exc)})

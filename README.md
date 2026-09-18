@@ -10,7 +10,11 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Open [http://localhost:7585](http://localhost:7585), sign in, then add service URLs and API keys under Settings. Sync builds the library.
+Open [http://localhost:7585](http://localhost:7585) and sign in. The login form never prefills a username.
+
+If a `.env` file is present (Docker Compose mounts it read-only), Settings are locked. Change URLs and keys in `.env` and restart. Saved API keys are never shown in the UI.
+
+Sync builds the library, ratings, and a local poster cache.
 
 You can leave Tautulli or Tracearr empty. If both are configured, the same play on Plex and Jellyfin (same person, same title, within two hours) counts once.
 
