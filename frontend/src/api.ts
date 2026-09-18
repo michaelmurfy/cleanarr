@@ -114,9 +114,25 @@ export const api = {
       username: string;
       username_locked: boolean;
       using_default_password: boolean;
+      maintenance: Maintenance;
+      sync: SyncStatus;
     }>("/api/settings"),
   saveSettings: (body: unknown) => request("/api/settings", { method: "PUT", body: JSON.stringify(body) }),
-  test: (service: string) => request<{ message: string }>("/api/settings/test", { method: "POST", body: JSON.stringify({ service }) }),
+  test: (service: string) =>
+    request<ServiceTest>("/api/settings/test", { method: "POST", body: JSON.stringify({ service }) }),
+  testAll: () => request<{ results: ServiceTest[]; ok: boolean }>("/api/settings/test-all", { method: "POST" }),
+  clearCache: () => request<{ removed: number; cache_files: number; cache_bytes: number }>("/api/settings/clear-cache", { method: "POST" }),
+  clearLibrary: () =>
+    request<{ media: number; people: number; unmatched: number; posters: number }>("/api/settings/clear-library", { method: "POST" }),
+  unmatched: (params: Record<string, string>) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value) query.set(key, value);
+    }
+    return request<{ items: UnmatchedItem[]; total: number; page: number; pages: number; stats: Record<string, number>; sync: SyncStatus }>(
+      `/api/unmatched?${query}`,
+    );
+  },
   users: (params: Record<string, string>) => {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -139,6 +155,33 @@ export type Person = {
   last_watched_at: number | null;
   sources: string[];
   links: Record<string, string>;
+  matched: boolean;
+};
+
+export type UnmatchedItem = {
+  id: number;
+  source: string;
+  media_type: string;
+  title: string;
+  year: number;
+  plays: number;
+  reason: string;
+  links: Record<string, string>;
+};
+
+export type ServiceTest = {
+  service: string;
+  ok: boolean;
+  configured: boolean;
+  message: string;
+};
+
+export type Maintenance = {
+  cache_files: number;
+  cache_bytes: number;
+  library_count: number;
+  people_count: number;
+  unmatched_count: number;
 };
 
 export type WhitelistItem = {

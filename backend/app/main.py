@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .actions import is_protected, router as actions_router
-from .art import serve_art, art_url
+from .art import art_url, cache_stats, clear_cache, serve_art
 from .auth import (
     bootstrap_auth,
     current_user,
@@ -21,11 +21,11 @@ from .auth import (
     verify_password,
     COOKIE,
 )
-from .config import env_file_present, locked_setting_keys
-from .db import all_settings, connect, init_db, set_setting
+from .config import APP_SETTING_KEYS, env_file_present, locked_setting_keys
+from .db import all_settings, clear_library, connect, init_db, set_setting
 from .services.clients import KEYS, cfg, public_url, radarr, seerr, sonarr, tautulli, tracearr
 from .logs import add_log, list_logs
-from .sync import job_status, restore_job, start_sync
+from .sync import job_status, reset_job, restore_job, start_scheduler, start_sync
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -43,6 +43,16 @@ def startup() -> None:
     init_db()
     bootstrap_auth()
     restore_job()
+    start_scheduler()
+
+
+SERVICES = {
+    "tautulli": tautulli,
+    "tracearr": tracearr,
+    "seerr": seerr,
+    "radarr": radarr,
+    "sonarr": sonarr,
+}
 
 
 class LoginIn(BaseModel):
@@ -103,6 +113,13 @@ def get_settings(request: Request):
             values[key] = cfg(key)
         else:
             values[key] = stored.get(key) or ""
+    values["sync_schedule_enabled"] = stored.get("sync_schedule_enabled") or "0"
+    values["sync_interval_hours"] = stored.get("sync_interval_hours") or "24"
+    cache = cache_stats()
+    with connect() as conn:
+        library_count = conn.execute("SELECT COUNT(*) AS n FROM media").fetchone()["n"]
+        people_count = conn.execute("SELECT COUNT(*) AS n FROM people").fetchone()["n"]
+        unmatched_count = conn.execute("SELECT COUNT(*) AS n FROM unmatched").fetchone()["n"]
     return {
         "values": values,
         "locked": sorted(locked),
@@ -110,17 +127,39 @@ def get_settings(request: Request):
         "username": get_setting("auth_username"),
         "username_locked": env_locked or "auth_username" in locked,
         "using_default_password": get_setting("using_default_password") == "1",
+        "sync": job_status(),
+        "maintenance": {
+            "cache_files": cache["files"],
+            "cache_bytes": cache["bytes"],
+            "library_count": library_count,
+            "people_count": people_count,
+            "unmatched_count": unmatched_count,
+        },
     }
+
+
+def _normalize_app_setting(key: str, value: str) -> str:
+    cleaned = (value or "").strip()
+    if key == "sync_schedule_enabled":
+        return "1" if cleaned.lower() in {"1", "true", "on", "yes"} else "0"
+    if key == "sync_interval_hours":
+        try:
+            return str(max(1, min(168, int(cleaned or "24"))))
+        except ValueError:
+            return "24"
+    return cleaned
 
 
 @app.put("/api/settings")
 def put_settings(payload: SettingsIn, request: Request):
     current_user(request)
     locked = locked_setting_keys()
-    if env_file_present():
-        return {"ok": True, "locked": True}
+    env_locked = env_file_present()
     for key, value in payload.values.items():
-        if key not in KEYS or key in locked:
+        if key in APP_SETTING_KEYS:
+            set_setting(key, _normalize_app_setting(key, value))
+            continue
+        if env_locked or key not in KEYS or key in locked:
             continue
         if key.endswith("_api_key"):
             cleaned = value.strip()
@@ -129,34 +168,79 @@ def put_settings(payload: SettingsIn, request: Request):
             set_setting(key, cleaned)
             continue
         set_setting(key, value.strip())
-    if "auth_username" not in locked and (payload.username or payload.password):
+    if not env_locked and "auth_username" not in locked and (payload.username or payload.password):
         set_credentials(payload.username or "", payload.password)
-    return {"ok": True}
+    return {"ok": True, "locked": env_locked}
+
+
+def _probe_service(name: str) -> dict:
+    factory = SERVICES.get(name)
+    if not factory:
+        return {"service": name, "ok": False, "configured": False, "message": "Unknown service"}
+    client = factory()
+    if not client:
+        return {"service": name, "ok": False, "configured": False, "message": "Not configured"}
+    try:
+        version = client.test()
+        return {"service": name, "ok": True, "configured": True, "message": str(version)}
+    except Exception as exc:
+        return {"service": name, "ok": False, "configured": True, "message": str(exc)}
 
 
 @app.post("/api/settings/test")
 def test_service(payload: TestIn, request: Request):
     user = current_user(request)
-    testers = {
-        "tautulli": tautulli,
-        "tracearr": tracearr,
-        "seerr": seerr,
-        "radarr": radarr,
-        "sonarr": sonarr,
-    }
-    factory = testers.get(payload.service)
-    if not factory:
+    if payload.service not in SERVICES:
         raise HTTPException(400, "Unknown service")
-    client = factory()
-    if not client:
-        raise HTTPException(400, f"{payload.service} is not configured")
-    try:
-        version = client.test()
-        add_log(f"Tested {payload.service}: {version}", category="system", action="test", actor=user)
-        return {"ok": True, "message": str(version)}
-    except Exception as exc:
-        add_log(f"Test {payload.service} failed: {exc}", level="error", category="system", action="test", actor=user)
-        raise HTTPException(400, str(exc)) from exc
+    result = _probe_service(payload.service)
+    add_log(
+        f"Tested {payload.service}: {result['message']}",
+        level="info" if result["ok"] else "error",
+        category="system",
+        action="test",
+        actor=user,
+    )
+    return result
+
+
+@app.post("/api/settings/test-all")
+def test_all_services(request: Request):
+    user = current_user(request)
+    results = [_probe_service(name) for name in SERVICES]
+    ok_count = sum(1 for row in results if row["ok"])
+    add_log(
+        f"Tested {ok_count}/{len(results)} services",
+        category="system",
+        action="test",
+        actor=user,
+        detail={"results": results},
+    )
+    return {"results": results, "ok": all(row["ok"] for row in results if row["configured"])}
+
+
+@app.post("/api/settings/clear-cache")
+def clear_poster_cache(request: Request):
+    user = current_user(request)
+    removed = clear_cache()
+    cache = cache_stats()
+    add_log(f"Cleared {removed} cached posters", category="system", action="clear-cache", actor=user)
+    return {"ok": True, "removed": removed, "cache_files": cache["files"], "cache_bytes": cache["bytes"]}
+
+
+@app.post("/api/settings/clear-library")
+def clear_synced_library(request: Request):
+    user = current_user(request)
+    counts = clear_library()
+    posters = clear_cache()
+    reset_job("Library cleared")
+    add_log(
+        f"Cleared synced library ({counts['media']} titles, {counts['people']} users, {posters} posters)",
+        category="system",
+        action="clear-library",
+        actor=user,
+        detail={**counts, "posters": posters},
+    )
+    return {"ok": True, **counts, "posters": posters}
 
 
 @app.get("/api/sync")
@@ -210,6 +294,7 @@ def list_users(request: Request, q: str = "", sort: str = "requests"):
                 "aliases": aliases,
                 "sources": sources,
                 "links": links,
+                "matched": bool(row.get("plex_username")),
             }
         )
 
@@ -232,7 +317,47 @@ def list_users(request: Request, q: str = "", sort: str = "requests"):
             "requests": sum(item.get("request_count") or 0 for item in items),
             "library": sum(item.get("library_count") or 0 for item in items),
             "plays": sum(item.get("play_count") or 0 for item in items),
+            "unmatched": sum(1 for item in items if not item.get("matched")),
         },
+        "sync": job_status(),
+    }
+
+
+@app.get("/api/unmatched")
+def unmatched(
+    request: Request,
+    q: str = "",
+    source: str = "",
+    media_type: str = "",
+    page: int = 1,
+    page_size: int = 50,
+):
+    current_user(request)
+    page = max(1, page)
+    page_size = min(max(page_size, 10), 200)
+    with connect() as conn:
+        rows = [dict(row) for row in conn.execute("SELECT * FROM unmatched ORDER BY plays DESC, title ASC").fetchall()]
+    items = []
+    for row in rows:
+        if source and row.get("source") != source:
+            continue
+        if media_type and row.get("media_type") != media_type:
+            continue
+        if q and q.lower() not in f"{row.get('title') or ''} {row.get('source') or ''}".lower():
+            continue
+        items.append({**row, "links": _unmatched_links(row)})
+    total = len(items)
+    start = (page - 1) * page_size
+    by_source: dict[str, int] = {}
+    for item in items:
+        by_source[item.get("source") or "unknown"] = by_source.get(item.get("source") or "unknown", 0) + 1
+    return {
+        "items": items[start : start + page_size],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": max(1, (total + page_size - 1) // page_size),
+        "stats": {"count": total, **{f"{key}_count": value for key, value in by_source.items()}},
         "sync": job_status(),
     }
 
@@ -262,6 +387,7 @@ def library(
     with connect() as conn:
         rows = [dict(row) for row in conn.execute("SELECT * FROM media").fetchall()]
         whitelist = [dict(row) for row in conn.execute("SELECT * FROM whitelist").fetchall()]
+        unmatched_count = conn.execute("SELECT COUNT(*) AS n FROM unmatched").fetchone()["n"]
 
     cutoff = int(time.time()) - stale_days * 24 * 3600
     pool = []
@@ -331,6 +457,7 @@ def library(
         "never_watched": never_watched,
         "stale": stale_count,
         "whitelisted": sum(1 for i in items if i["whitelisted"]),
+        "unmatched": unmatched_count,
         "size_bytes": sum(i["size_bytes"] or 0 for i in items),
         "page": page,
         "page_size": page_size,
@@ -345,6 +472,25 @@ def library(
         "whitelist_count": len(whitelist),
         "sync": job_status(),
     }
+
+
+def _unmatched_links(row: dict) -> dict:
+    links = {}
+    title = quote(str(row.get("title") or ""))
+    source = row.get("source")
+    if source == "tautulli":
+        base = public_url("tautulli", "tautulli_url")
+        if base:
+            links["tautulli"] = f"{base}/search?query={title}" if title else base
+    elif source == "tracearr":
+        base = public_url("tracearr", "tracearr_url")
+        if base:
+            links["tracearr"] = f"{base}/history?q={title}" if title else f"{base}/history"
+    elif source == "seerr":
+        base = public_url("seerr", "seerr_url")
+        if base:
+            links["seerr"] = f"{base}/search?query={title}" if title else base
+    return links
 
 
 def _links(row: dict) -> dict:

@@ -92,6 +92,8 @@ class Settings(BaseSettings):
     radarr_api_key: str = ""
 
 
+APP_SETTING_KEYS = ("sync_schedule_enabled", "sync_interval_hours")
+
 settings = Settings()
 Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
 (Path(settings.data_dir) / "art").mkdir(parents=True, exist_ok=True)

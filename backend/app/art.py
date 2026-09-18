@@ -105,6 +105,27 @@ def _download(url: str, cached: Path) -> tuple[bytes, str]:
     return data, media_type
 
 
+def cache_stats() -> dict[str, int]:
+    ART_DIR.mkdir(parents=True, exist_ok=True)
+    files = 0
+    size = 0
+    for path in ART_DIR.iterdir():
+        if path.is_file():
+            files += 1
+            size += path.stat().st_size
+    return {"files": files, "bytes": size}
+
+
+def clear_cache() -> int:
+    ART_DIR.mkdir(parents=True, exist_ok=True)
+    removed = 0
+    for path in ART_DIR.iterdir():
+        if path.is_file():
+            path.unlink()
+            removed += 1
+    return removed
+
+
 def _guess_type(path: Path) -> str:
     head = path.read_bytes()[:16]
     if head.startswith(b"\x89PNG"):

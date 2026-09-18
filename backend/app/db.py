@@ -102,6 +102,17 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_logs_category ON logs(category, id DESC);
+
+            CREATE TABLE IF NOT EXISTS unmatched (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                media_type TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL,
+                year INTEGER NOT NULL DEFAULT 0,
+                plays INTEGER NOT NULL DEFAULT 0,
+                reason TEXT NOT NULL DEFAULT '',
+                UNIQUE(source, media_type, title, year)
+            );
             """
         )
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(media)").fetchall()}
@@ -142,3 +153,22 @@ def all_settings() -> dict[str, str]:
     with connect() as conn:
         rows = conn.execute("SELECT key, value FROM settings").fetchall()
     return {row["key"]: row["value"] for row in rows}
+
+
+def clear_library() -> dict[str, int]:
+    with connect() as conn:
+        media = conn.execute("SELECT COUNT(*) AS n FROM media").fetchone()["n"]
+        people = conn.execute("SELECT COUNT(*) AS n FROM people").fetchone()["n"]
+        unmatched = conn.execute("SELECT COUNT(*) AS n FROM unmatched").fetchone()["n"]
+        conn.execute("DELETE FROM media")
+        conn.execute("DELETE FROM people")
+        conn.execute("DELETE FROM unmatched")
+        conn.execute(
+            """
+            UPDATE sync_state
+            SET status = 'idle', message = 'Library cleared', step = '',
+                progress_current = 0, progress_total = 0, started_at = NULL, finished_at = NULL
+            WHERE id = 1
+            """
+        )
+    return {"media": media, "people": people, "unmatched": unmatched}

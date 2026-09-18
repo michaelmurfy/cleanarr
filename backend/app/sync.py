@@ -8,7 +8,7 @@ from collections import defaultdict
 from typing import Any
 
 from .art import warm_cache
-from .db import connect
+from .db import connect, get_setting
 from .identity import UserDirectory
 from .logs import add_log
 from .match import CatalogIndex, parse_year
@@ -174,6 +174,27 @@ def _run_sync() -> None:
         catalog: dict[tuple[str, int, int], dict[str, Any]] = {}
         index = CatalogIndex()
         directory = UserDirectory()
+        unmatched_rows: dict[tuple, dict[str, Any]] = {}
+
+        def note_unmatched(source: str, media_type: str, title: str, year: Any, plays: int = 1) -> None:
+            label = (title or "Unknown").strip() or "Unknown"
+            try:
+                year_i = int(year or 0)
+            except (TypeError, ValueError):
+                year_i = 0
+            key = (source, media_type, label.lower(), year_i)
+            row = unmatched_rows.setdefault(
+                key,
+                {
+                    "source": source,
+                    "media_type": media_type,
+                    "title": label,
+                    "year": year_i,
+                    "plays": 0,
+                    "reason": "No matching library title",
+                },
+            )
+            row["plays"] += plays
 
         _progress("Loading user directories…", step="users")
         if client := tautulli():
@@ -303,6 +324,12 @@ def _run_sync() -> None:
                 ]
                 key = index.resolve(media_type, tmdb_id, tvdb_id, imdb_id, titles, media.get("year") or req.get("year"))
                 if not key:
+                    note_unmatched(
+                        "seerr",
+                        media_type,
+                        next((t for t in titles if t), "Unknown request"),
+                        media.get("year") or req.get("year"),
+                    )
                     return False
                 requested = req.get("requestedBy") or req.get("requested_by") or req.get("user") or {}
                 if isinstance(requested, (int, float)) or (isinstance(requested, str) and requested.isdigit()):
@@ -344,12 +371,13 @@ def _run_sync() -> None:
 
         plays: dict[tuple[str, int, int], list[dict[str, Any]]] = defaultdict(list)
 
-        def attach_play(key: tuple[str, int, int] | None, event: dict[str, Any], unmatched: set[str]) -> None:
+        def attach_play(key: tuple[str, int, int] | None, event: dict[str, Any], unmatched: set[str], source: str) -> None:
             if key:
                 plays[key].append(event)
                 return
             label = event.get("title") or "Unknown title"
             year = event.get("year")
+            note_unmatched(source, event.get("media_type") or "movie", label, year)
             unmatched.add(f"{label}{f' ({year})' if year else ''}")
 
         def log_unmatched(source: str, unmatched: set[str], matched: int, total: int) -> None:
@@ -444,10 +472,12 @@ def _run_sync() -> None:
                         "user": identity["display"] or row.get("friendly_name") or row.get("user") or "Unknown",
                         "watched_at": _unix(row.get("date")),
                         "source": "tautulli",
+                        "media_type": media_type,
                         "title": title or mapped.get("title") or row.get("full_title") or "Unknown",
                         "year": parse_year(year),
                     },
                     unmatched,
+                    "tautulli",
                 )
                 if i == total or i % 250 == 0:
                     _progress(f"Matching Tautulli history… {i}/{total}", step="tautulli", current=i, total=total)
@@ -529,10 +559,12 @@ def _run_sync() -> None:
                             or row.get("date")
                         ),
                         "source": "tracearr",
+                        "media_type": media_type,
                         "title": title or "Unknown",
                         "year": parse_year(year),
                     },
                     unmatched,
+                    "tracearr",
                 )
                 if i == total or i % 250 == 0:
                     _progress(f"Matching Tracearr history… {i}/{total}", step="tracearr", current=i, total=total)
@@ -680,11 +712,70 @@ def _run_sync() -> None:
                     for row in people_stats.values()
                 ],
             )
+            conn.execute("DELETE FROM unmatched")
+            if unmatched_rows:
+                conn.executemany(
+                    """
+                    INSERT INTO unmatched (source, media_type, title, year, plays, reason)
+                    VALUES (:source, :media_type, :title, :year, :plays, :reason)
+                    """,
+                    list(unmatched_rows.values()),
+                )
         watched = sum(1 for row in records if row["play_count"])
-        message = f"Synced {len(records)} titles ({watched} with watch history)"
+        message = f"Synced {len(records)} titles ({watched} with watch history, {len(unmatched_rows)} unmatched)"
         _set_job(status="idle", message=message, step="", current=0, total=0, finished_at=int(time.time()))
-        add_log(message, category="sync", action="complete", detail={"titles": len(records), "watched": watched})
+        add_log(
+            message,
+            category="sync",
+            action="complete",
+            detail={"titles": len(records), "watched": watched, "unmatched": len(unmatched_rows)},
+        )
         warm_cache()
     except Exception as exc:
         _set_job(status="error", message=str(exc), step="", current=0, total=0, finished_at=int(time.time()))
         add_log(str(exc), level="error", category="sync", action="error")
+
+
+def reset_job(message: str = "Idle") -> dict[str, Any]:
+    _set_job(
+        status="idle",
+        message=message,
+        step="",
+        current=0,
+        total=0,
+        started_at=None,
+        finished_at=None,
+    )
+    return job_status()
+
+
+_scheduler_started = False
+
+
+def start_scheduler() -> None:
+    global _scheduler_started
+    if _scheduler_started:
+        return
+    _scheduler_started = True
+
+    def loop() -> None:
+        while True:
+            time.sleep(60)
+            try:
+                if get_setting("sync_schedule_enabled", "0") != "1":
+                    continue
+                if _job.get("status") == "running":
+                    continue
+                try:
+                    hours = max(1, min(168, int(get_setting("sync_interval_hours", "24") or "24")))
+                except ValueError:
+                    hours = 24
+                last = int(_job.get("finished_at") or 0)
+                if last and (time.time() - last) < hours * 3600:
+                    continue
+                add_log(f"Scheduled sync every {hours}h", category="sync", action="schedule")
+                start_sync()
+            except Exception:
+                continue
+
+    threading.Thread(target=loop, daemon=True, name="cleanarr-scheduler").start()

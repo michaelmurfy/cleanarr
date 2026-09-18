@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { api, LogItem, MediaItem, Person, SyncStatus, WhitelistItem } from "./api";
+import { api, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
-type Page = "library" | "users" | "whitelist" | "logs" | "settings";
+type Page = "library" | "unmatched" | "users" | "whitelist" | "logs" | "settings";
 
 const FILTERS_KEY = "cleanarr.library";
 
@@ -62,6 +62,35 @@ function when(ts: number | null) {
 
 function whenFull(ts: number | null) {
   return ts ? new Date(ts * 1000).toLocaleString() : "Never watched";
+}
+
+const SERVICE_META: Record<string, { label: string; className: string }> = {
+  seerr: { label: "Seerr", className: "seerr" },
+  tautulli: { label: "Tautulli", className: "tautulli" },
+  tracearr: { label: "Tracearr", className: "tracearr" },
+  radarr: { label: "Radarr", className: "radarr" },
+  sonarr: { label: "Sonarr", className: "sonarr" },
+};
+
+function ServiceLinks({ links }: { links?: Record<string, string> }) {
+  const entries = Object.entries(SERVICE_META).filter(([key]) => links?.[key]);
+  if (!entries.length) return <span className="muted">—</span>;
+  return (
+    <div className="service-links">
+      {entries.map(([key, meta]) => (
+        <a
+          key={key}
+          className={`service-pill ${meta.className}`}
+          href={links?.[key]}
+          target="_blank"
+          rel="noreferrer"
+          title={`Open in ${meta.label}`}
+        >
+          {meta.label}
+        </a>
+      ))}
+    </div>
+  );
 }
 
 export function App() {
@@ -157,6 +186,7 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
         <Brand compact />
         <nav className="nav">
           <button className={page === "library" ? "active" : ""} onClick={() => setPage("library")}>Library</button>
+          <button className={page === "unmatched" ? "active" : ""} onClick={() => setPage("unmatched")}>Unmatched</button>
           <button className={page === "users" ? "active" : ""} onClick={() => setPage("users")}>Users</button>
           <button className={page === "whitelist" ? "active" : ""} onClick={() => setPage("whitelist")}>Whitelist</button>
           <button className={page === "logs" ? "active" : ""} onClick={() => setPage("logs")}>Logs</button>
@@ -180,7 +210,8 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
         <button className="ghost" onClick={async () => { await api.logout(); onLogout(); }}>Sign out</button>
       </header>
       {sync.status === "running" && <SyncBanner sync={sync} />}
-      {page === "library" && <Library sync={sync} setSync={setSync} />}
+      {page === "library" && <Library sync={sync} setSync={setSync} onOpenUnmatched={() => setPage("unmatched")} />}
+      {page === "unmatched" && <Unmatched sync={sync} setSync={setSync} />}
       {page === "users" && <Users onOpenLibrary={(q) => {
         sessionStorage.setItem(FILTERS_KEY, JSON.stringify({ ...defaultFilters, q }));
         setPage("library");
@@ -209,7 +240,7 @@ function SyncBanner({ sync }: { sync: SyncStatus }) {
   );
 }
 
-function Library({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncStatus) => void }) {
+function Library({ sync, setSync, onOpenUnmatched }: { sync: SyncStatus; setSync: (value: SyncStatus) => void; onOpenUnmatched: () => void }) {
   const [filters, setFilters] = useState<Filters>(loadFilters);
   const [qInput, setQInput] = useState(filters.q);
   const [items, setItems] = useState<MediaItem[]>([]);
@@ -346,6 +377,9 @@ function Library({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncSta
         <div className="stat" style={{ cursor: "default" }}>
           <span className="muted">Protected</span><b>{stats.whitelisted ?? 0}</b>
         </div>
+        <button className={`stat warn ${stats.unmatched ? "active" : ""}`} onClick={onOpenUnmatched}>
+          <span className="muted">Unmatched</span><b>{stats.unmatched ?? 0}</b>
+        </button>
       </div>
       <div className="filters">
         <button className={`chip-btn ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>Never watched</button>
@@ -441,11 +475,7 @@ function Library({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncSta
                 <td>
                   <div className="row-actions">
                     {!item.whitelisted && <button className="ghost" onClick={() => keep(item)}>Whitelist</button>}
-                    {item.links.seerr && <a href={item.links.seerr} target="_blank" rel="noreferrer">Seerr</a>}
-                    {item.links.tautulli && <a href={item.links.tautulli} target="_blank" rel="noreferrer">Tautulli</a>}
-                    {item.links.tracearr && <a href={item.links.tracearr} target="_blank" rel="noreferrer">Tracearr</a>}
-                    {item.links.radarr && <a href={item.links.radarr} target="_blank" rel="noreferrer">Radarr</a>}
-                    {item.links.sonarr && <a href={item.links.sonarr} target="_blank" rel="noreferrer">Sonarr</a>}
+                    <ServiceLinks links={item.links} />
                   </div>
                 </td>
               </tr>
@@ -498,6 +528,129 @@ function Library({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncSta
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncStatus) => void }) {
+  const [qInput, setQInput] = useState("");
+  const [q, setQ] = useState("");
+  const [source, setSource] = useState("");
+  const [mediaType, setMediaType] = useState("");
+  const [page, setPage] = useState(1);
+  const [items, setItems] = useState<UnmatchedItem[]>([]);
+  const [stats, setStats] = useState<Record<string, number>>({});
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const prevSync = useRef(sync.status);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setQ(qInput);
+      setPage(1);
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [qInput]);
+
+  async function load(nextPage = page) {
+    setLoading(true);
+    try {
+      const data = await api.unmatched({
+        q,
+        source,
+        media_type: mediaType,
+        page: String(nextPage),
+        page_size: "50",
+      });
+      setItems(data.items);
+      setStats(data.stats);
+      setTotal(data.total);
+      setPages(data.pages || 1);
+      setSync(data.sync);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load(page).catch(() => undefined);
+  }, [q, source, mediaType, page]);
+
+  useEffect(() => {
+    if (prevSync.current === "running" && sync.status !== "running") {
+      load(page).catch(() => undefined);
+    }
+    prevSync.current = sync.status;
+  }, [sync.status]);
+
+  return (
+    <div className="page">
+      <h2>Unmatched</h2>
+      <p className="muted">Watch history and Seerr requests that did not match a Radarr or Sonarr library title.</p>
+      <div className="stats">
+        <div className="stat warn" style={{ cursor: "default" }}><span className="muted">Unmatched titles</span><b>{stats.count ?? total}</b></div>
+        <div className="stat" style={{ cursor: "default" }}><span className="muted">Tautulli</span><b>{stats.tautulli_count ?? 0}</b></div>
+        <div className="stat" style={{ cursor: "default" }}><span className="muted">Tracearr</span><b>{stats.tracearr_count ?? 0}</b></div>
+        <div className="stat" style={{ cursor: "default" }}><span className="muted">Seerr</span><b>{stats.seerr_count ?? 0}</b></div>
+      </div>
+      <div className="filters">
+        <input type="search" placeholder="Search unmatched titles" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <select value={source} onChange={(e) => { setSource(e.target.value); setPage(1); }}>
+          <option value="">All sources</option>
+          <option value="tautulli">Tautulli</option>
+          <option value="tracearr">Tracearr</option>
+          <option value="seerr">Seerr</option>
+        </select>
+        <select value={mediaType} onChange={(e) => { setMediaType(e.target.value); setPage(1); }}>
+          <option value="">Movies & TV</option>
+          <option value="movie">Movies</option>
+          <option value="tv">TV</option>
+        </select>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Source</th>
+              <th>Type</th>
+              <th>Plays / requests</th>
+              <th>Why</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
+                  <div><span className="chip warn">Unmatched</span></div>
+                </td>
+                <td className="capitalize">{item.source}</td>
+                <td>{item.media_type === "tv" ? "TV" : "Movie"}</td>
+                <td>{item.plays}</td>
+                <td className="muted">{item.reason || "No matching library title"}</td>
+                <td><ServiceLinks links={item.links} /></td>
+              </tr>
+            ))}
+            {!items.length && (
+              <tr>
+                <td colSpan={6} className="empty">
+                  {loading ? "Loading unmatched titles…" : "Everything from the last sync matched the library."}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="pager">
+        <span className="muted">{total} unmatched</span>
+        <div className="spacer" />
+        <span className="muted">Page {page} of {pages}</span>
+        <button className="ghost" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Previous</button>
+        <button className="ghost" disabled={page >= pages} onClick={() => setPage((current) => current + 1)}>Next</button>
+      </div>
     </div>
   );
 }
@@ -586,6 +739,7 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
   const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("requests");
+  const [onlyUnmatched, setOnlyUnmatched] = useState(false);
   const [items, setItems] = useState<Person[]>([]);
   const [stats, setStats] = useState<Record<string, number>>({});
 
@@ -601,6 +755,8 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
     }).catch(() => undefined);
   }, [q, sort]);
 
+  const visible = onlyUnmatched ? items.filter((person) => !person.matched) : items;
+
   return (
     <div className="page">
       <h2>Users</h2>
@@ -609,7 +765,9 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
         <div className="stat" style={{ cursor: "default" }}><span className="muted">People</span><b>{stats.users ?? 0}</b></div>
         <div className="stat" style={{ cursor: "default" }}><span className="muted">Requests in library</span><b>{stats.requests ?? 0}</b></div>
         <div className="stat" style={{ cursor: "default" }}><span className="muted">Plays</span><b>{stats.plays ?? 0}</b></div>
-        <div className="stat" style={{ cursor: "default" }}><span className="muted">Titles listed</span><b>{stats.library ?? 0}</b></div>
+        <button className={`stat warn ${onlyUnmatched ? "active" : ""}`} onClick={() => setOnlyUnmatched((current) => !current)}>
+          <span className="muted">Unmatched to Plex</span><b>{stats.unmatched ?? 0}</b>
+        </button>
       </div>
       <div className="filters">
         <input type="search" placeholder="Search name, Plex user, email" value={qInput} onChange={(e) => setQInput(e.target.value)} />
@@ -635,14 +793,15 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
             </tr>
           </thead>
           <tbody>
-            {items.map((person) => (
-              <tr key={person.canonical}>
+            {visible.map((person) => (
+              <tr key={person.canonical} className={person.matched ? "" : "unmatched-row"}>
                 <td>
                   <strong>{person.display_name}</strong>
                   <div className="muted">
                     {person.plex_username && person.plex_username !== person.display_name ? `Plex · ${person.plex_username}` : person.plex_username ? "Plex user" : "No Plex username"}
                     {person.email ? ` · ${person.email}` : ""}
                   </div>
+                  {!person.matched && <span className="chip warn">Unmatched</span>}
                 </td>
                 <td>{person.request_count}</td>
                 <td>{person.library_count}</td>
@@ -652,14 +811,13 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
                 <td>
                   <div className="row-actions">
                     <button className="ghost" onClick={() => onOpenLibrary(person.display_name)}>Library</button>
-                    {person.links.seerr && <a href={person.links.seerr} target="_blank" rel="noreferrer">Seerr</a>}
-                    {person.links.tautulli && <a href={person.links.tautulli} target="_blank" rel="noreferrer">Tautulli</a>}
+                    <ServiceLinks links={person.links} />
                   </div>
                 </td>
               </tr>
             ))}
-            {!items.length && (
-              <tr><td colSpan={7} className="empty">No users yet. Sync the library to pull Seerr and Tautulli people.</td></tr>
+            {!visible.length && (
+              <tr><td colSpan={7} className="empty">{onlyUnmatched ? "Every listed person matched a Plex username." : "No users yet. Sync the library to pull Seerr and Tautulli people."}</td></tr>
             )}
           </tbody>
         </table>
@@ -730,6 +888,20 @@ function Settings() {
   const [usernameLocked, setUsernameLocked] = useState(false);
   const [envFile, setEnvFile] = useState(false);
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [interval, setIntervalHours] = useState("24");
+  const [tests, setTests] = useState<Record<string, ServiceTest | { status: string }>>({});
+  const [testing, setTesting] = useState(false);
+  const [maintenance, setMaintenance] = useState({ cache_files: 0, cache_bytes: 0, library_count: 0, people_count: 0, unmatched_count: 0 });
+  const [busy, setBusy] = useState("");
+  const services = [
+    { id: "tautulli", label: "Tautulli", urlKey: "tautulli_url" },
+    { id: "tracearr", label: "Tracearr", urlKey: "tracearr_url" },
+    { id: "seerr", label: "Seerr", urlKey: "seerr_url" },
+    { id: "radarr", label: "Radarr", urlKey: "radarr_url" },
+    { id: "sonarr", label: "Sonarr", urlKey: "sonarr_url" },
+  ] as const;
   const groups = [
     {
       title: "Watch history",
@@ -772,41 +944,109 @@ function Settings() {
     },
   ] as const;
 
+  async function loadSettings() {
+    const data = await api.settings();
+    const next: Record<string, string> = {};
+    const nextFlags: Record<string, boolean> = {};
+    for (const [key, value] of Object.entries(data.values)) {
+      if (typeof value === "boolean") nextFlags[key] = value;
+      else next[key] = value;
+    }
+    setValues(next);
+    setFlags(nextFlags);
+    setUsername(data.username);
+    setUsernameLocked(data.username_locked);
+    setEnvFile(data.env_file);
+    setScheduleEnabled((next.sync_schedule_enabled || "0") === "1");
+    setIntervalHours(next.sync_interval_hours || "24");
+    if (data.maintenance) setMaintenance(data.maintenance);
+  }
+
   useEffect(() => {
-    api.settings().then((data) => {
-      const next: Record<string, string> = {};
-      const nextFlags: Record<string, boolean> = {};
-      for (const [key, value] of Object.entries(data.values)) {
-        if (typeof value === "boolean") nextFlags[key] = value;
-        else next[key] = value;
-      }
-      setValues(next);
-      setFlags(nextFlags);
-      setUsername(data.username);
-      setUsernameLocked(data.username_locked);
-      setEnvFile(data.env_file);
-    });
+    loadSettings().catch((err) => setError(err instanceof Error ? err.message : "Could not load settings"));
   }, []);
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (envFile) return;
-    const outgoing: Record<string, string> = {};
-    for (const [key, value] of Object.entries(values)) {
-      if (key.endsWith("_api_key") && !value) continue;
-      outgoing[key] = value;
+    setError("");
+    const outgoing: Record<string, string> = {
+      sync_schedule_enabled: scheduleEnabled ? "1" : "0",
+      sync_interval_hours: interval,
+    };
+    if (!envFile) {
+      for (const [key, value] of Object.entries(values)) {
+        if (key.endsWith("_api_key") && !value) continue;
+        outgoing[key] = value;
+      }
     }
-    await api.saveSettings({ values: outgoing, username, password: password || null });
+    await api.saveSettings({ values: outgoing, username: envFile ? null : username, password: envFile ? null : password || null });
     setPassword("");
-    setMessage("Saved.");
+    setMessage(envFile ? "Schedule saved." : "Saved.");
+  }
+
+  function applyTest(result: ServiceTest) {
+    setTests((current) => ({ ...current, [result.service]: result }));
   }
 
   async function test(service: string) {
+    setTests((current) => ({ ...current, [service]: { status: "running" } }));
     try {
-      const result = await api.test(service);
-      setMessage(`${service}: ${result.message}`);
+      applyTest(await api.test(service));
     } catch (err) {
-      setMessage(`${service}: ${err instanceof Error ? err.message : "failed"}`);
+      applyTest({
+        service,
+        ok: false,
+        configured: true,
+        message: err instanceof Error ? err.message : "failed",
+      });
+    }
+  }
+
+  async function testAll() {
+    setTesting(true);
+    setError("");
+    for (const service of services) {
+      setTests((current) => ({ ...current, [service.id]: { status: "running" } }));
+    }
+    try {
+      const data = await api.testAll();
+      for (const result of data.results) applyTest(result);
+      const ok = data.results.filter((row) => row.ok).length;
+      setMessage(`Tested ${ok}/${data.results.length} services.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Tests failed");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function clearCache() {
+    if (!window.confirm("Clear cached posters? They will be re-downloaded on the next sync or when a poster is viewed.")) return;
+    setBusy("cache");
+    setError("");
+    try {
+      const result = await api.clearCache();
+      setMaintenance((current) => ({ ...current, cache_files: result.cache_files, cache_bytes: result.cache_bytes }));
+      setMessage(`Cleared ${result.removed} cached posters.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not clear cache");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function clearLibrary() {
+    if (!window.confirm("Clear the synced library, users, unmatched titles, and poster cache? Whitelist, login, and settings are kept. Run Sync now afterwards.")) return;
+    setBusy("library");
+    setError("");
+    try {
+      const result = await api.clearLibrary();
+      await loadSettings();
+      setMessage(`Cleared ${result.media} titles, ${result.people} users, and ${result.posters} posters.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not clear library");
+    } finally {
+      setBusy("");
     }
   }
 
@@ -830,12 +1070,112 @@ function Settings() {
     );
   }
 
+  function testLabel(service: string, configured: boolean) {
+    const result = tests[service];
+    if (!result) return configured ? "Not tested" : "Not configured";
+    if ("status" in result && result.status === "running") return "Testing…";
+    if ("ok" in result) return result.message;
+    return configured ? "Not tested" : "Not configured";
+  }
+
+  function testClass(service: string, configured: boolean) {
+    const result = tests[service];
+    if (!configured && !result) return "skip";
+    if (result && "status" in result && result.status === "running") return "running";
+    if (result && "ok" in result) return result.ok ? "ok" : "fail";
+    return "skip";
+  }
+
   return (
     <div className="page">
       <h2>Settings</h2>
-      {envFile && <p className="muted">A <code>.env</code> file is present, so service fields are read-only. Change them there and restart the container.</p>}
+      {envFile && <p className="muted">A <code>.env</code> file is present, so service URLs and keys are read-only. Automatic sync and maintenance still work from here.</p>}
       {!envFile && <p className="muted">Values present in the process environment are locked. API keys are never shown after they are saved.</p>}
+      {error && <p className="error">{error}</p>}
+      {message && <p className="muted">{message}</p>}
+
+      <section className="settings-section">
+        <div className="settings-head">
+          <div>
+            <h3>Connections</h3>
+            <p className="muted">Probe each service without exposing API keys.</p>
+          </div>
+          <button className="primary" type="button" disabled={testing} onClick={testAll}>{testing ? "Testing…" : "Test all"}</button>
+        </div>
+        <div className="test-list">
+          {services.map((service) => {
+            const configured = Boolean(flags[`${service.urlKey}_set`]);
+            return (
+              <div className="test-row" key={service.id}>
+                <div>
+                  <strong>{service.label}</strong>
+                  <div className="muted">{configured ? "Configured" : "Not configured"}</div>
+                </div>
+                <span className={`test-status ${testClass(service.id, configured)}`}>{testLabel(service.id, configured)}</span>
+                <button className="ghost" type="button" disabled={testing || !configured} onClick={() => test(service.id)}>Test</button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       <form onSubmit={save}>
+        <section className="settings-section">
+          <h3>Automatic sync</h3>
+          <p className="muted">When enabled, Cleanarr syncs the library on this interval while the container is running.</p>
+          <div className="schedule-row">
+            <label className="toggle">
+              <input type="checkbox" checked={scheduleEnabled} onChange={(e) => setScheduleEnabled(e.target.checked)} />
+              <span className="toggle-track" />
+              <span>{scheduleEnabled ? "Enabled" : "Disabled"}</span>
+            </label>
+            <label className="interval-field">
+              Interval
+              <select value={interval} onChange={(e) => setIntervalHours(e.target.value)} disabled={!scheduleEnabled}>
+                <option value="1">Every hour</option>
+                <option value="3">Every 3 hours</option>
+                <option value="6">Every 6 hours</option>
+                <option value="12">Every 12 hours</option>
+                <option value="24">Every day</option>
+                <option value="48">Every 2 days</option>
+                <option value="168">Every week</option>
+              </select>
+            </label>
+            <button className="primary" type="submit">Save schedule</button>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <h3>Maintenance</h3>
+          <p className="muted">Clearing the library removes synced titles, users, and unmatched rows. Whitelist, login, and connection settings stay.</p>
+          <div className="maintenance-grid">
+            <div>
+              <span className="muted">Synced titles</span>
+              <b>{maintenance.library_count}</b>
+            </div>
+            <div>
+              <span className="muted">Users</span>
+              <b>{maintenance.people_count}</b>
+            </div>
+            <div>
+              <span className="muted">Unmatched</span>
+              <b>{maintenance.unmatched_count}</b>
+            </div>
+            <div>
+              <span className="muted">Poster cache</span>
+              <b>{maintenance.cache_files} · {bytes(maintenance.cache_bytes)}</b>
+            </div>
+          </div>
+          <div className="settings-actions">
+            <button className="ghost" type="button" disabled={Boolean(busy)} onClick={clearCache}>
+              {busy === "cache" ? "Clearing…" : "Clear poster cache"}
+            </button>
+            <button className="danger-ghost" type="button" disabled={Boolean(busy)} onClick={clearLibrary}>
+              {busy === "library" ? "Clearing…" : "Clear synced library"}
+            </button>
+          </div>
+        </section>
+
         {groups.map((group) => (
           <section className="settings-section" key={group.title}>
             <h3>{group.title}</h3>
@@ -856,16 +1196,10 @@ function Settings() {
             </label>
           </div>
         </section>
-        <div className="filters">
-          <button className="primary" type="submit" disabled={envFile}>Save unlocked fields</button>
-          <button className="ghost" type="button" onClick={() => test("tautulli")}>Tautulli</button>
-          <button className="ghost" type="button" onClick={() => test("tracearr")}>Tracearr</button>
-          <button className="ghost" type="button" onClick={() => test("seerr")}>Seerr</button>
-          <button className="ghost" type="button" onClick={() => test("radarr")}>Radarr</button>
-          <button className="ghost" type="button" onClick={() => test("sonarr")}>Sonarr</button>
+        <div className="settings-actions">
+          <button className="primary" type="submit">{envFile ? "Save schedule" : "Save settings"}</button>
         </div>
       </form>
-      {message && <p className="muted">{message}</p>}
     </div>
   );
 }
