@@ -10,6 +10,8 @@ ENV_KEY_MAP = {
     "tautulli_api_key": "TAUTULLI_API_KEY",
     "tracearr_url": "TRACEARR_URL",
     "tracearr_api_key": "TRACEARR_API_KEY",
+    "jellystat_url": "JELLYSTAT_URL",
+    "jellystat_api_key": "JELLYSTAT_API_KEY",
     "seerr_url": "SEERR_URL",
     "seerr_api_key": "SEERR_API_KEY",
     "sonarr_url": "SONARR_URL",
@@ -21,6 +23,7 @@ ENV_KEY_MAP = {
     "seerr_external_url": "SEERR_EXTERNAL_URL",
     "tautulli_external_url": "TAUTULLI_EXTERNAL_URL",
     "tracearr_external_url": "TRACEARR_EXTERNAL_URL",
+    "jellystat_external_url": "JELLYSTAT_EXTERNAL_URL",
     "auth_username": "CLEANARR_USERNAME",
 }
 
@@ -84,6 +87,8 @@ class Settings(BaseSettings):
     tautulli_api_key: str = ""
     tracearr_url: str = ""
     tracearr_api_key: str = ""
+    jellystat_url: str = ""
+    jellystat_api_key: str = ""
     seerr_url: str = ""
     seerr_api_key: str = ""
     sonarr_url: str = ""

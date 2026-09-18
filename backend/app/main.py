@@ -23,7 +23,7 @@ from .auth import (
 )
 from .config import APP_SETTING_KEYS, env_file_present, locked_setting_keys
 from .db import all_settings, clear_library, connect, init_db, set_setting
-from .services.clients import KEYS, cfg, public_url, radarr, seerr, sonarr, tautulli, tracearr
+from .services.clients import KEYS, cfg, public_url, jellystat, radarr, seerr, sonarr, tautulli, tracearr
 from .logs import add_log, list_logs
 from .sync import job_status, reset_job, restore_job, start_scheduler, start_sync
 
@@ -49,6 +49,7 @@ def startup() -> None:
 SERVICES = {
     "tautulli": tautulli,
     "tracearr": tracearr,
+    "jellystat": jellystat,
     "seerr": seerr,
     "radarr": radarr,
     "sonarr": sonarr,
@@ -276,6 +277,7 @@ def list_users(request: Request, q: str = "", sort: str = "requests"):
     items = []
     tautulli_base = public_url("tautulli", "tautulli_url")
     seerr_base = public_url("seerr", "seerr_url")
+    jellystat_base = public_url("jellystat", "jellystat_url")
     for row in rows:
         aliases = json.loads(row.get("aliases_json") or "[]")
         sources = json.loads(row.get("sources_json") or "[]")
@@ -286,6 +288,8 @@ def list_users(request: Request, q: str = "", sort: str = "requests"):
         links = {}
         if tautulli_base and row.get("tautulli_id"):
             links["tautulli"] = f"{tautulli_base}/user?user_id={row['tautulli_id']}"
+        if jellystat_base and row.get("jellystat_id"):
+            links["jellystat"] = f"{jellystat_base}/users/{row['jellystat_id']}"
         if seerr_base and row.get("seerr_id"):
             links["seerr"] = f"{seerr_base}/users/{row['seerr_id']}"
         items.append(
@@ -544,6 +548,12 @@ def _links(row: dict) -> dict:
             links["tautulli"] = f"{tautulli_base}/info?rating_key={row['tautulli_rating_key']}"
         elif row.get("title"):
             links["tautulli"] = f"{tautulli_base}/search?query={quote(str(row['title']))}"
+    jellystat_base = public_url("jellystat", "jellystat_url")
+    if jellystat_base:
+        if row.get("jellystat_item_id"):
+            links["jellystat"] = f"{jellystat_base}/libraries/item/{row['jellystat_item_id']}"
+        elif row.get("title"):
+            links["jellystat"] = f"{jellystat_base}/libraries"
     tracearr_base = public_url("tracearr", "tracearr_url")
     if tracearr_base:
         title = quote(str(row.get("title") or ""))

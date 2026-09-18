@@ -305,6 +305,7 @@ input.tick:disabled {
 .service-pill.seerr { color: #e5a1ff; border-color: #3d2a4a; background: #1e1524; }
 .service-pill.tautulli { color: #f4a261; border-color: #4a3420; background: #241910; }
 .service-pill.tracearr { color: #80cbc4; border-color: #1f3d3a; background: #12201e; }
+.service-pill.jellystat { color: #6ec6ff; border-color: #1a3f58; background: #102433; }
 .capitalize { text-transform: capitalize; }
 .bulk {
   position: sticky;

@@ -43,6 +43,22 @@ class UserDirectory:
             tautulli_id=user.get("user_id"),
         )
 
+    def ingest_jellystat(self, user: dict[str, Any]) -> dict[str, Any]:
+        uid = user.get("Id") or user.get("UserId") or user.get("userid") or user.get("user_id")
+        name = (
+            user.get("Name")
+            or user.get("UserName")
+            or user.get("userName")
+            or user.get("username")
+            or user.get("displayName")
+            or ""
+        )
+        return self.add(
+            display=name,
+            extras=[name, f"jellystat:{uid}" if uid not in (None, "") else ""],
+            jellystat_id=uid,
+        )
+
     def add(
         self,
         *,
@@ -52,6 +68,7 @@ class UserDirectory:
         extras: list[Any] | None = None,
         seerr_id: Any = None,
         tautulli_id: Any = None,
+        jellystat_id: Any = None,
     ) -> dict[str, Any]:
         plex = _clean(plex)
         display = _clean(display)
@@ -83,6 +100,7 @@ class UserDirectory:
                 "aliases": set(),
                 "seerr_id": seerr_id,
                 "tautulli_id": tautulli_id,
+                "jellystat_id": jellystat_id,
             }
             self.people.append(person)
 
@@ -96,6 +114,8 @@ class UserDirectory:
             person["seerr_id"] = seerr_id
         if tautulli_id not in (None, "") and not person.get("tautulli_id"):
             person["tautulli_id"] = tautulli_id
+        if jellystat_id not in (None, "") and not person.get("jellystat_id"):
+            person["jellystat_id"] = jellystat_id
         person["aliases"] = set(person.get("aliases") or []) | aliases
         return person
 
@@ -112,6 +132,8 @@ class UserDirectory:
                 extras=[
                     raw.get("username") or "",
                     raw.get("jellyfinUsername") or "",
+                    raw.get("UserName") or "",
+                    raw.get("Name") or "",
                     raw.get("name") or "",
                 ],
             )
@@ -153,6 +175,7 @@ class UserDirectory:
                     "aliases": sorted(person.get("aliases") or []),
                     "seerr_id": person.get("seerr_id"),
                     "tautulli_id": person.get("tautulli_id"),
+                    "jellystat_id": person.get("jellystat_id"),
                 }
             )
         rows.sort(key=lambda row: row["display_name"].lower())

@@ -106,6 +106,7 @@ const SERVICE_META: Record<string, { label: string; className: string }> = {
   seerr: { label: "Seerr", className: "seerr" },
   tautulli: { label: "Tautulli", className: "tautulli" },
   tracearr: { label: "Tracearr", className: "tracearr" },
+  jellystat: { label: "Jellystat", className: "jellystat" },
   radarr: { label: "Radarr", className: "radarr" },
   sonarr: { label: "Sonarr", className: "sonarr" },
 };
@@ -967,7 +968,7 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
   return (
     <div className="page">
       <h2>Users</h2>
-      <p className="muted">Seerr requesters and Tautulli/Tracearr watchers are matched to Plex usernames when those exist.</p>
+      <p className="muted">Seerr requesters and Tautulli/Tracearr/Jellystat watchers are matched to Plex usernames when those exist.</p>
       <div className="stats">
         <div className="stat" style={{ cursor: "default" }}><span className="muted">People</span><b>{stats.users ?? 0}</b></div>
         <div className="stat" style={{ cursor: "default" }}><span className="muted">Requests in library</span><b>{stats.requests ?? 0}</b></div>
@@ -1024,7 +1025,7 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
               </tr>
             ))}
             {!visible.length && (
-              <tr><td colSpan={7} className="empty">{onlyUnmatched ? "Every listed person matched a Plex username." : "No users yet. Sync the library to pull Seerr and Tautulli people."}</td></tr>
+              <tr><td colSpan={7} className="empty">{onlyUnmatched ? "Every listed person matched a Plex username." : "No users yet. Sync the library to pull Seerr, Tautulli, Tracearr, and Jellystat people."}</td></tr>
             )}
           </tbody>
         </table>
@@ -1105,6 +1106,7 @@ function Settings() {
   const services = [
     { id: "tautulli", label: "Tautulli", urlKey: "tautulli_url" },
     { id: "tracearr", label: "Tracearr", urlKey: "tracearr_url" },
+    { id: "jellystat", label: "Jellystat", urlKey: "jellystat_url" },
     { id: "seerr", label: "Seerr", urlKey: "seerr_url" },
     { id: "radarr", label: "Radarr", urlKey: "radarr_url" },
     { id: "sonarr", label: "Sonarr", urlKey: "sonarr_url" },
@@ -1112,12 +1114,14 @@ function Settings() {
   const groups = [
     {
       title: "Watch history",
-      copy: "Tautulli covers Plex. Tracearr covers Jellyfin, Plex, or Emby. Both can be enabled; Cleanarr dedupes overlapping plays.",
+      copy: "Tautulli covers Plex. Tracearr covers Jellyfin, Plex, or Emby. Jellystat covers Jellyfin. Enable any mix; Cleanarr dedupes overlapping plays.",
       fields: [
         ["tautulli_url", "Tautulli URL"],
         ["tautulli_api_key", "Tautulli API key"],
         ["tracearr_url", "Tracearr URL"],
         ["tracearr_api_key", "Tracearr API key"],
+        ["jellystat_url", "Jellystat URL"],
+        ["jellystat_api_key", "Jellystat API key"],
       ],
     },
     {
@@ -1147,6 +1151,7 @@ function Settings() {
         ["sonarr_external_url", "Sonarr public URL"],
         ["tautulli_external_url", "Tautulli public URL"],
         ["tracearr_external_url", "Tracearr public URL"],
+        ["jellystat_external_url", "Jellystat public URL"],
       ],
     },
   ] as const;

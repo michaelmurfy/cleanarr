@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from .arr import Radarr, Sonarr
+from .jellystat import Jellystat
 from .seerr import Seerr
 from .tautulli import Tautulli
 from .tracearr import Tracearr
@@ -13,6 +14,8 @@ KEYS = [
     "tautulli_api_key",
     "tracearr_url",
     "tracearr_api_key",
+    "jellystat_url",
+    "jellystat_api_key",
     "seerr_url",
     "seerr_api_key",
     "sonarr_url",
@@ -24,6 +27,7 @@ KEYS = [
     "seerr_external_url",
     "tautulli_external_url",
     "tracearr_external_url",
+    "jellystat_external_url",
 ]
 
 
@@ -46,6 +50,11 @@ def tautulli() -> Tautulli | None:
 def tracearr() -> Tracearr | None:
     url, key = cfg("tracearr_url"), cfg("tracearr_api_key")
     return Tracearr(url, key) if url and key else None
+
+
+def jellystat() -> Jellystat | None:
+    url, key = cfg("jellystat_url"), cfg("jellystat_api_key")
+    return Jellystat(url, key) if url and key else None
 
 
 def seerr() -> Seerr | None:

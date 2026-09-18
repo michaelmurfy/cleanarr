@@ -51,6 +51,7 @@ def init_db() -> None:
                 rating_votes INTEGER NOT NULL DEFAULT 0,
                 rating_source TEXT NOT NULL DEFAULT '',
                 tautulli_rating_key TEXT NOT NULL DEFAULT '',
+                jellystat_item_id TEXT NOT NULL DEFAULT '',
                 availability TEXT NOT NULL DEFAULT 'downloaded',
                 UNIQUE(media_type, tmdb_id, tvdb_id)
             );
@@ -62,6 +63,7 @@ def init_db() -> None:
                 email TEXT NOT NULL DEFAULT '',
                 aliases_json TEXT NOT NULL DEFAULT '[]',
                 tautulli_id TEXT NOT NULL DEFAULT '',
+                jellystat_id TEXT NOT NULL DEFAULT '',
                 seerr_id TEXT NOT NULL DEFAULT '',
                 request_count INTEGER NOT NULL DEFAULT 0,
                 library_count INTEGER NOT NULL DEFAULT 0,
@@ -132,6 +134,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE media ADD COLUMN rating_source TEXT NOT NULL DEFAULT ''")
         if "tautulli_rating_key" not in cols:
             conn.execute("ALTER TABLE media ADD COLUMN tautulli_rating_key TEXT NOT NULL DEFAULT ''")
+        if "jellystat_item_id" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN jellystat_item_id TEXT NOT NULL DEFAULT ''")
         if "availability" not in cols:
             conn.execute("ALTER TABLE media ADD COLUMN availability TEXT NOT NULL DEFAULT 'downloaded'")
         sync_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sync_state)").fetchall()}
@@ -141,6 +145,9 @@ def init_db() -> None:
             conn.execute("ALTER TABLE sync_state ADD COLUMN progress_current INTEGER NOT NULL DEFAULT 0")
         if "progress_total" not in sync_cols:
             conn.execute("ALTER TABLE sync_state ADD COLUMN progress_total INTEGER NOT NULL DEFAULT 0")
+        people_cols = {row["name"] for row in conn.execute("PRAGMA table_info(people)").fetchall()}
+        if "jellystat_id" not in people_cols:
+            conn.execute("ALTER TABLE people ADD COLUMN jellystat_id TEXT NOT NULL DEFAULT ''")
         unmatched_cols = {row["name"] for row in conn.execute("PRAGMA table_info(unmatched)").fetchall()}
         if "tmdb_id" not in unmatched_cols:
             conn.execute("ALTER TABLE unmatched ADD COLUMN tmdb_id INTEGER NOT NULL DEFAULT 0")

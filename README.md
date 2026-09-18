@@ -1,6 +1,6 @@
 # Cleanarr
 
-Cleanarr is a small self-hosted UI for reclaiming disk from your *arr stack. It merges watch history from **Tautulli** (Plex) and/or **Tracearr** (Jellyfin/Plex/Emby), shows who requested a title in **Seerr**, and can bulk-delete from **Radarr** / **Sonarr** (including files on disk). A whitelist keeps cult titles like *Stargate* or *Back to the Future* off the chopping block. Ban sends the title to the Seerr blacklist.
+Cleanarr is a small self-hosted UI for reclaiming disk from your *arr stack. It merges watch history from **Tautulli** (Plex), **Tracearr** (Jellyfin/Plex/Emby), and/or **Jellystat** (Jellyfin), shows who requested a title in **Seerr**, and can bulk-delete from **Radarr** / **Sonarr** (including files on disk). A whitelist keeps cult titles like *Stargate* or *Back to the Future* off the chopping block. Ban sends the title to the Seerr blacklist.
 
 ## Run with Docker
 
@@ -16,7 +16,7 @@ If a `.env` file is present (Docker Compose mounts it read-only), Settings are l
 
 Sync builds the library, ratings, and a local poster cache.
 
-You can leave Tautulli or Tracearr empty. If both are configured, the same play on Plex and Jellyfin (same person, same title, within two hours) counts once.
+You can leave Tautulli, Tracearr, or Jellystat empty. If more than one is configured, the same play (same person, same title, within two hours) counts once. Jellystat needs an API key from its Settings → API keys page.
 
 ## What delete does
 

@@ -13,7 +13,8 @@ from .identity import UserDirectory
 from .logs import add_log
 from .match import CatalogIndex, parse_year
 from .services.arr import movie_availability, pick_rating, poster_from, series_availability
-from .services.clients import radarr, seerr, sonarr, tautulli, tracearr
+from .services.clients import jellystat, radarr, seerr, sonarr, tautulli, tracearr
+from .services.jellystat import play_title
 from .services.seerr import media_blocked, media_claimed, media_in_flight, request_is_open, request_was_made
 from .services.tautulli import as_int, parse_ids, pick_live_rating_key
 
@@ -133,7 +134,7 @@ def _unix(value: Any) -> int | None:
 
 
 def _user_name(row: dict[str, Any]) -> str:
-    user = row.get("user") or row.get("friendly_name") or row.get("username") or ""
+    user = row.get("user") or row.get("friendly_name") or row.get("username") or row.get("UserName") or row.get("Name") or ""
     if isinstance(user, dict):
         return (
             user.get("displayName")
@@ -244,6 +245,12 @@ def _run_sync() -> None:
                     directory.ingest_tautulli(user)
             except Exception as exc:
                 add_log(f"Tautulli users failed: {exc}", level="warn", category="sync", action="users")
+        if client := jellystat():
+            try:
+                for user in client.users():
+                    directory.ingest_jellystat(user)
+            except Exception as exc:
+                add_log(f"Jellystat users failed: {exc}", level="warn", category="sync", action="users")
         seerr_users_by_id: dict[int, dict[str, Any]] = {}
         if client := seerr():
             try:
@@ -279,6 +286,7 @@ def _run_sync() -> None:
                 "rating_votes": 0,
                 "rating_source": "",
                 "tautulli_rating_key": "",
+                "jellystat_item_id": "",
                 "availability": "downloaded",
             }
             for field in current:
@@ -810,6 +818,84 @@ def _run_sync() -> None:
                     _progress(f"Matching Tracearr history… {i}/{total}", step="tracearr", current=i, total=total)
             log_history_match("Tracearr", matched, total)
 
+        _progress("Loading Jellystat history…", step="jellystat")
+        if client := jellystat():
+            library_map: dict[str, dict[str, Any]] = {}
+            try:
+                _progress("Loading Jellystat library…", step="jellystat")
+                library_map = client.library_map()
+            except Exception as exc:
+                add_log(f"Jellystat library map failed: {exc}", level="warn", category="sync", action="jellystat")
+            for item_id, meta in library_map.items():
+                mapped_type = _media_type(meta.get("media_type"), "movie")
+                key = index.resolve(
+                    mapped_type,
+                    0,
+                    0,
+                    "",
+                    [meta.get("title") or ""],
+                    meta.get("year"),
+                )
+                if key and not catalog[key].get("jellystat_item_id"):
+                    catalog[key]["jellystat_item_id"] = item_id
+
+            def jellystat_progress(fetched: int) -> None:
+                _progress(f"Fetching Jellystat history… {fetched}", step="jellystat", current=fetched, total=0)
+
+            rows = client.history(on_progress=jellystat_progress)
+            total = len(rows)
+            matched = 0
+            _progress(f"Matching Jellystat history… 0/{total}", step="jellystat", current=0, total=total)
+            for i, row in enumerate(rows, 1):
+                item_id = str(row.get("NowPlayingItemId") or row.get("nowPlayingItemId") or "")
+                mapped = library_map.get(item_id) or {}
+                media_type, title = play_title(row)
+                if mapped.get("media_type"):
+                    media_type = _media_type(mapped.get("media_type"), media_type)
+                if mapped.get("title") and media_type != "tv":
+                    title = mapped["title"] or title
+                elif mapped.get("title") and not title:
+                    title = mapped["title"]
+                year = mapped.get("year") or row.get("ProductionYear") or row.get("productionYear")
+                directory.ingest_jellystat(row)
+                key = index.resolve(
+                    media_type,
+                    0,
+                    0,
+                    "",
+                    [
+                        title,
+                        row.get("SeriesName") or "",
+                        row.get("NowPlayingItemName") or "",
+                        mapped.get("title") or "",
+                    ],
+                    year,
+                )
+                identity = directory.resolve(row)
+                if key:
+                    matched += 1
+                    if not catalog[key].get("jellystat_item_id") and media_type == "movie" and item_id:
+                        catalog[key]["jellystat_item_id"] = item_id
+                attach_play(
+                    key,
+                    {
+                        "user": identity["display"] or _user_name(row) or "Unknown",
+                        "watched_at": _unix(
+                            row.get("ActivityDateInserted")
+                            or row.get("activityDateInserted")
+                            or row.get("ActivityDate")
+                            or row.get("date")
+                        ),
+                        "source": "jellystat",
+                        "media_type": media_type,
+                        "title": title or "Unknown",
+                        "year": parse_year(year),
+                    },
+                )
+                if i == total or i % 250 == 0:
+                    _progress(f"Matching Jellystat history… {i}/{total}", step="jellystat", current=i, total=total)
+            log_history_match("Jellystat", matched, total)
+
         _progress("Deduping watch history…", step="save")
         records = []
         for key, item in catalog.items():
@@ -843,6 +929,7 @@ def _run_sync() -> None:
                 {
                     **item,
                     "tautulli_rating_key": item.get("tautulli_rating_key") or "",
+                    "jellystat_item_id": item.get("jellystat_item_id") or "",
                     "availability": item.get("availability") or "downloaded",
                     "last_watched_at": last_watched,
                     "play_count": len(unique_events),
@@ -861,12 +948,12 @@ def _run_sync() -> None:
                     media_type, tmdb_id, tvdb_id, imdb_id, title, year, poster_url, size_bytes,
                     radarr_id, sonarr_id, seerr_media_id, requested_by, requested_at,
                     last_watched_at, play_count, watcher_count, watchers_json, sources_json, path, title_slug,
-                    rating, rating_votes, rating_source, tautulli_rating_key, availability
+                    rating, rating_votes, rating_source, tautulli_rating_key, jellystat_item_id, availability
                 ) VALUES (
                     :media_type, :tmdb_id, :tvdb_id, :imdb_id, :title, :year, :poster_url, :size_bytes,
                     :radarr_id, :sonarr_id, :seerr_media_id, :requested_by, :requested_at,
                     :last_watched_at, :play_count, :watcher_count, :watchers_json, :sources_json, :path, :title_slug,
-                    :rating, :rating_votes, :rating_source, :tautulli_rating_key, :availability
+                    :rating, :rating_votes, :rating_source, :tautulli_rating_key, :jellystat_item_id, :availability
                 )
                 """,
                 records,
@@ -897,6 +984,7 @@ def _run_sync() -> None:
                         "aliases": [],
                         "seerr_id": None,
                         "tautulli_id": None,
+                        "jellystat_id": None,
                         "request_count": 0,
                         "library_count": 0,
                         "library_size": 0,
@@ -927,10 +1015,10 @@ def _run_sync() -> None:
             conn.executemany(
                 """
                 INSERT INTO people (
-                    canonical, display_name, plex_username, email, aliases_json, tautulli_id, seerr_id,
+                    canonical, display_name, plex_username, email, aliases_json, tautulli_id, jellystat_id, seerr_id,
                     request_count, library_count, library_size, play_count, last_watched_at, sources_json
                 ) VALUES (
-                    :canonical, :display_name, :plex_username, :email, :aliases_json, :tautulli_id, :seerr_id,
+                    :canonical, :display_name, :plex_username, :email, :aliases_json, :tautulli_id, :jellystat_id, :seerr_id,
                     :request_count, :library_count, :library_size, :play_count, :last_watched_at, :sources_json
                 )
                 """,
@@ -942,6 +1030,7 @@ def _run_sync() -> None:
                         "email": row.get("email") or "",
                         "aliases_json": json.dumps(row.get("aliases") or []),
                         "tautulli_id": str(row.get("tautulli_id") or ""),
+                        "jellystat_id": str(row.get("jellystat_id") or ""),
                         "seerr_id": str(row.get("seerr_id") or ""),
                         "request_count": row.get("request_count") or 0,
                         "library_count": row.get("library_count") or 0,
