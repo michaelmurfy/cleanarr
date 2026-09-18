@@ -117,6 +117,28 @@ export const api = {
     }>("/api/settings"),
   saveSettings: (body: unknown) => request("/api/settings", { method: "PUT", body: JSON.stringify(body) }),
   test: (service: string) => request<{ message: string }>("/api/settings/test", { method: "POST", body: JSON.stringify({ service }) }),
+  users: (params: Record<string, string>) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value) query.set(key, value);
+    }
+    return request<{ items: Person[]; stats: Record<string, number> }>(`/api/users?${query}`);
+  },
+};
+
+export type Person = {
+  canonical: string;
+  display_name: string;
+  plex_username: string;
+  email: string;
+  aliases: string[];
+  request_count: number;
+  library_count: number;
+  library_size: number;
+  play_count: number;
+  last_watched_at: number | null;
+  sources: string[];
+  links: Record<string, string>;
 };
 
 export type WhitelistItem = {

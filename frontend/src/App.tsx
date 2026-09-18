@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { api, LogItem, MediaItem, SyncStatus, WhitelistItem } from "./api";
+import { api, LogItem, MediaItem, Person, SyncStatus, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
-type Page = "library" | "whitelist" | "logs" | "settings";
+type Page = "library" | "users" | "whitelist" | "logs" | "settings";
 
 const FILTERS_KEY = "cleanarr.library";
 
@@ -157,6 +157,7 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
         <Brand compact />
         <nav className="nav">
           <button className={page === "library" ? "active" : ""} onClick={() => setPage("library")}>Library</button>
+          <button className={page === "users" ? "active" : ""} onClick={() => setPage("users")}>Users</button>
           <button className={page === "whitelist" ? "active" : ""} onClick={() => setPage("whitelist")}>Whitelist</button>
           <button className={page === "logs" ? "active" : ""} onClick={() => setPage("logs")}>Logs</button>
           <button className={page === "settings" ? "active" : ""} onClick={() => setPage("settings")}>Settings</button>
@@ -167,6 +168,10 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
       </header>
       {sync.status === "running" && <SyncBanner sync={sync} />}
       {page === "library" && <Library sync={sync} setSync={setSync} />}
+      {page === "users" && <Users onOpenLibrary={(q) => {
+        sessionStorage.setItem(FILTERS_KEY, JSON.stringify({ ...defaultFilters, q }));
+        setPage("library");
+      }} />}
       {page === "whitelist" && <Whitelist />}
       {page === "logs" && <Logs sync={sync} />}
       {page === "settings" && <Settings />}
@@ -436,6 +441,8 @@ function Library({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncSta
                   <div className="row-actions">
                     {!item.whitelisted && <button className="ghost" onClick={() => keep(item)}>Whitelist</button>}
                     {item.links.seerr && <a href={item.links.seerr} target="_blank" rel="noreferrer">Seerr</a>}
+                    {item.links.tautulli && <a href={item.links.tautulli} target="_blank" rel="noreferrer">Tautulli</a>}
+                    {item.links.tracearr && <a href={item.links.tracearr} target="_blank" rel="noreferrer">Tracearr</a>}
                     {item.links.radarr && <a href={item.links.radarr} target="_blank" rel="noreferrer">Radarr</a>}
                     {item.links.sonarr && <a href={item.links.sonarr} target="_blank" rel="noreferrer">Sonarr</a>}
                   </div>
@@ -574,6 +581,92 @@ function Logs({ sync }: { sync: SyncStatus }) {
   );
 }
 
+function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
+  const [qInput, setQInput] = useState("");
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState("requests");
+  const [items, setItems] = useState<Person[]>([]);
+  const [stats, setStats] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQ(qInput), 200);
+    return () => window.clearTimeout(timer);
+  }, [qInput]);
+
+  useEffect(() => {
+    api.users({ q, sort }).then((data) => {
+      setItems(data.items);
+      setStats(data.stats);
+    }).catch(() => undefined);
+  }, [q, sort]);
+
+  return (
+    <div className="page">
+      <h2>Users</h2>
+      <p className="muted">Seerr requesters and Tautulli/Tracearr watchers are matched to Plex usernames when those exist.</p>
+      <div className="stats">
+        <div className="stat" style={{ cursor: "default" }}><span className="muted">People</span><b>{stats.users ?? 0}</b></div>
+        <div className="stat" style={{ cursor: "default" }}><span className="muted">Requests in library</span><b>{stats.requests ?? 0}</b></div>
+        <div className="stat" style={{ cursor: "default" }}><span className="muted">Plays</span><b>{stats.plays ?? 0}</b></div>
+        <div className="stat" style={{ cursor: "default" }}><span className="muted">Titles listed</span><b>{stats.library ?? 0}</b></div>
+      </div>
+      <div className="filters">
+        <input type="search" placeholder="Search name, Plex user, email" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <select value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="requests">Most requests</option>
+          <option value="library">Most library items</option>
+          <option value="plays">Most plays</option>
+          <option value="size">Largest requested</option>
+          <option value="name">Name</option>
+        </select>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Requests</th>
+              <th>In library</th>
+              <th>Plays</th>
+              <th>Requested size</th>
+              <th>Last watched</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((person) => (
+              <tr key={person.canonical}>
+                <td>
+                  <strong>{person.display_name}</strong>
+                  <div className="muted">
+                    {person.plex_username && person.plex_username !== person.display_name ? `Plex · ${person.plex_username}` : person.plex_username ? "Plex user" : "No Plex username"}
+                    {person.email ? ` · ${person.email}` : ""}
+                  </div>
+                </td>
+                <td>{person.request_count}</td>
+                <td>{person.library_count}</td>
+                <td>{person.play_count}</td>
+                <td>{bytes(person.library_size)}</td>
+                <td title={whenFull(person.last_watched_at)}>{when(person.last_watched_at)}</td>
+                <td>
+                  <div className="row-actions">
+                    <button className="ghost" onClick={() => onOpenLibrary(person.display_name)}>Library</button>
+                    {person.links.seerr && <a href={person.links.seerr} target="_blank" rel="noreferrer">Seerr</a>}
+                    {person.links.tautulli && <a href={person.links.tautulli} target="_blank" rel="noreferrer">Tautulli</a>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!items.length && (
+              <tr><td colSpan={7} className="empty">No users yet. Sync the library to pull Seerr and Tautulli people.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Whitelist() {
   const [items, setItems] = useState<WhitelistItem[]>([]);
   const [pattern, setPattern] = useState("");
@@ -672,6 +765,8 @@ function Settings() {
         ["seerr_external_url", "Seerr public URL"],
         ["radarr_external_url", "Radarr public URL"],
         ["sonarr_external_url", "Sonarr public URL"],
+        ["tautulli_external_url", "Tautulli public URL"],
+        ["tracearr_external_url", "Tracearr public URL"],
       ],
     },
   ] as const;

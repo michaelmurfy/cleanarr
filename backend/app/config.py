@@ -19,6 +19,8 @@ ENV_KEY_MAP = {
     "sonarr_external_url": "SONARR_EXTERNAL_URL",
     "radarr_external_url": "RADARR_EXTERNAL_URL",
     "seerr_external_url": "SEERR_EXTERNAL_URL",
+    "tautulli_external_url": "TAUTULLI_EXTERNAL_URL",
+    "tracearr_external_url": "TRACEARR_EXTERNAL_URL",
     "auth_username": "CLEANARR_USERNAME",
 }
 

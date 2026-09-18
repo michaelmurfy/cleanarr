@@ -22,6 +22,8 @@ KEYS = [
     "sonarr_external_url",
     "radarr_external_url",
     "seerr_external_url",
+    "tautulli_external_url",
+    "tracearr_external_url",
 ]
 
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from .art import warm_cache
 from .db import connect
+from .identity import UserDirectory
 from .logs import add_log
 from .match import CatalogIndex, parse_year
 from .services.arr import pick_rating, poster_from
@@ -172,6 +173,24 @@ def _run_sync() -> None:
     try:
         catalog: dict[tuple[str, int, int], dict[str, Any]] = {}
         index = CatalogIndex()
+        directory = UserDirectory()
+
+        _progress("Loading user directories…", step="users")
+        if client := tautulli():
+            try:
+                for user in client.users():
+                    directory.ingest_tautulli(user)
+            except Exception as exc:
+                add_log(f"Tautulli users failed: {exc}", level="warn", category="sync", action="users")
+        seerr_users_by_id: dict[int, dict[str, Any]] = {}
+        if client := seerr():
+            try:
+                for user in client.users():
+                    directory.ingest_seerr(user)
+                    if user.get("id") is not None:
+                        seerr_users_by_id[int(user["id"])] = user
+            except Exception as exc:
+                add_log(f"Seerr users failed: {exc}", level="warn", category="sync", action="users")
 
         def upsert_base(item: dict[str, Any], extra_titles: list[str] | None = None) -> tuple[str, int, int]:
             media_type = item["media_type"]
@@ -197,6 +216,7 @@ def _run_sync() -> None:
                 "rating": None,
                 "rating_votes": 0,
                 "rating_source": "",
+                "tautulli_rating_key": "",
             }
             for field in current:
                 if item.get(field) not in (None, "", 0, []):
@@ -267,36 +287,60 @@ def _run_sync() -> None:
             add_log(f"Loaded {total} series from Sonarr", category="sync", action="sonarr")
 
         _progress("Loading Seerr requests…", step="seerr")
+        seerr_matched = 0
+        seerr_total = 0
         if client := seerr():
-            for req in client.requests():
+            def attach_requester(req: dict[str, Any]) -> bool:
                 media = req.get("media") or {}
-                media_type = _media_type(media.get("mediaType") or req.get("type"), "movie")
+                media_type = _media_type(req.get("type") or media.get("mediaType") or req.get("mediaType"), "movie")
                 tmdb_id = int(media.get("tmdbId") or req.get("tmdbId") or 0)
-                tvdb_id = int(media.get("tvdbId") or 0)
-                key = (media_type, tmdb_id, tvdb_id if media_type == "tv" else 0)
-                if key not in catalog:
-                    alt = next((k for k in catalog if k[0] == media_type and tmdb_id and k[1] == tmdb_id), None)
-                    key = alt or key
-                    if key not in catalog:
-                        continue
-                requested_by = _user_name(req.get("requestedBy") or {})
-                catalog[key]["requested_by"] = requested_by
-                catalog[key]["requested_at"] = req.get("createdAt") or ""
+                tvdb_id = int(media.get("tvdbId") or req.get("tvdbId") or 0)
+                imdb_id = str(media.get("imdbId") or req.get("imdbId") or "")
+                titles = [
+                    media.get("title") or "",
+                    req.get("mediaTitle") or "",
+                    req.get("title") or "",
+                ]
+                key = index.resolve(media_type, tmdb_id, tvdb_id, imdb_id, titles, media.get("year") or req.get("year"))
+                if not key:
+                    return False
+                requested = req.get("requestedBy") or req.get("requested_by") or req.get("user") or {}
+                if isinstance(requested, (int, float)) or (isinstance(requested, str) and requested.isdigit()):
+                    requested = seerr_users_by_id.get(int(requested)) or {}
+                identity = directory.resolve(requested)
+                if identity["display"]:
+                    catalog[key]["requested_by"] = identity["display"]
+                catalog[key]["requested_at"] = req.get("createdAt") or req.get("modifiedAt") or catalog[key]["requested_at"]
                 catalog[key]["seerr_media_id"] = media.get("id") or catalog[key]["seerr_media_id"]
+                return True
+
+            requests = client.requests()
+            seerr_total = len(requests)
+            _progress(f"Matching Seerr requests… 0/{seerr_total}", step="seerr", current=0, total=seerr_total or 0)
+            for i, req in enumerate(requests, 1):
+                if attach_requester(req):
+                    seerr_matched += 1
+                if seerr_total and (i == seerr_total or i % 50 == 0):
+                    _progress(f"Matching Seerr requests… {i}/{seerr_total}", step="seerr", current=i, total=seerr_total)
             for media in client.media():
                 media_type = _media_type(media.get("mediaType"), "movie")
                 tmdb_id = int(media.get("tmdbId") or 0)
                 tvdb_id = int(media.get("tvdbId") or 0)
-                key = next(
-                    (
-                        k
-                        for k in catalog
-                        if k[0] == media_type and ((tmdb_id and k[1] == tmdb_id) or (tvdb_id and k[2] == tvdb_id))
-                    ),
-                    None,
-                )
+                key = index.resolve(media_type, tmdb_id, tvdb_id, str(media.get("imdbId") or ""), [media.get("title") or ""], media.get("year"))
                 if key:
-                    catalog[key]["seerr_media_id"] = media.get("id")
+                    catalog[key]["seerr_media_id"] = media.get("id") or catalog[key]["seerr_media_id"]
+                for req in media.get("requests") or media.get("MediaRequests") or []:
+                    if isinstance(req, dict):
+                        nested = dict(req)
+                        nested.setdefault("media", media)
+                        if attach_requester(nested):
+                            seerr_matched += 1
+            add_log(
+                f"Attached Seerr requesters to {seerr_matched} library titles from {seerr_total} requests",
+                category="sync",
+                action="seerr",
+                detail={"matched": seerr_matched, "requests": seerr_total},
+            )
 
         plays: dict[tuple[str, int, int], list[dict[str, Any]]] = defaultdict(list)
 
@@ -334,6 +378,18 @@ def _run_sync() -> None:
             except Exception as exc:
                 rating_map = {}
                 add_log(f"Tautulli library map failed: {exc}", level="warn", category="sync", action="tautulli")
+            for rating_key, meta in rating_map.items():
+                mapped_type = _media_type(meta.get("media_type"), "movie")
+                key = index.resolve(
+                    mapped_type,
+                    int(meta.get("tmdb_id") or 0),
+                    int(meta.get("tvdb_id") or 0),
+                    str(meta.get("imdb_id") or ""),
+                    [meta.get("title") or ""],
+                    meta.get("year"),
+                )
+                if key and not catalog[key].get("tautulli_rating_key"):
+                    catalog[key]["tautulli_rating_key"] = rating_key
 
             def tautulli_progress(fetched: int) -> None:
                 _progress(f"Fetching Tautulli history… {fetched}", step="tautulli", current=fetched, total=0)
@@ -372,12 +428,20 @@ def _run_sync() -> None:
                     titles,
                     year,
                 )
+                identity = directory.resolve(
+                    {
+                        "user": row.get("user") or "",
+                        "username": row.get("user") or "",
+                        "friendly_name": row.get("friendly_name") or "",
+                        "displayName": row.get("friendly_name") or "",
+                    }
+                )
                 if key:
                     matched += 1
                 attach_play(
                     key,
                     {
-                        "user": _user_name(row) or row.get("friendly_name") or "Unknown",
+                        "user": identity["display"] or row.get("friendly_name") or row.get("user") or "Unknown",
                         "watched_at": _unix(row.get("date")),
                         "source": "tautulli",
                         "title": title or mapped.get("title") or row.get("full_title") or "Unknown",
@@ -450,12 +514,13 @@ def _run_sync() -> None:
                     ],
                     year,
                 )
+                identity = directory.resolve(row)
                 if key:
                     matched += 1
                 attach_play(
                     key,
                     {
-                        "user": _user_name(row) or "Unknown",
+                        "user": identity["display"] or _user_name(row) or "Unknown",
                         "watched_at": _unix(
                             row.get("viewedAt")
                             or row.get("watchedAt")
@@ -505,6 +570,7 @@ def _run_sync() -> None:
             records.append(
                 {
                     **item,
+                    "tautulli_rating_key": item.get("tautulli_rating_key") or "",
                     "last_watched_at": last_watched,
                     "play_count": len(unique_events),
                     "watcher_count": len(watchers),
@@ -522,15 +588,97 @@ def _run_sync() -> None:
                     media_type, tmdb_id, tvdb_id, imdb_id, title, year, poster_url, size_bytes,
                     radarr_id, sonarr_id, seerr_media_id, requested_by, requested_at,
                     last_watched_at, play_count, watcher_count, watchers_json, sources_json, path, title_slug,
-                    rating, rating_votes, rating_source
+                    rating, rating_votes, rating_source, tautulli_rating_key
                 ) VALUES (
                     :media_type, :tmdb_id, :tvdb_id, :imdb_id, :title, :year, :poster_url, :size_bytes,
                     :radarr_id, :sonarr_id, :seerr_media_id, :requested_by, :requested_at,
                     :last_watched_at, :play_count, :watcher_count, :watchers_json, :sources_json, :path, :title_slug,
-                    :rating, :rating_votes, :rating_source
+                    :rating, :rating_votes, :rating_source, :tautulli_rating_key
                 )
                 """,
                 records,
+            )
+            people_stats: dict[str, dict[str, Any]] = {}
+            for person in directory.snapshot():
+                people_stats[person["canonical"]] = {
+                    **person,
+                    "request_count": 0,
+                    "library_count": 0,
+                    "library_size": 0,
+                    "play_count": 0,
+                    "last_watched_at": None,
+                    "sources": set(filter(None, [])),
+                }
+
+            def person_row(ident: dict[str, str]) -> dict[str, Any] | None:
+                key = ident.get("canonical") or ident.get("display") or ""
+                if not key:
+                    return None
+                return people_stats.setdefault(
+                    key,
+                    {
+                        "canonical": key,
+                        "display_name": ident.get("display") or key,
+                        "plex_username": ident.get("plex") or "",
+                        "email": ident.get("email") or "",
+                        "aliases": [],
+                        "seerr_id": None,
+                        "tautulli_id": None,
+                        "request_count": 0,
+                        "library_count": 0,
+                        "library_size": 0,
+                        "play_count": 0,
+                        "last_watched_at": None,
+                        "sources": set(),
+                    },
+                )
+
+            for item in records:
+                if item.get("requested_by"):
+                    row = person_row(directory.resolve(item["requested_by"]))
+                    if row:
+                        row["request_count"] += 1
+                        row["library_count"] += 1
+                        row["library_size"] += item.get("size_bytes") or 0
+                        row["sources"].add("seerr")
+                for watcher in json.loads(item["watchers_json"] or "[]"):
+                    row = person_row(directory.resolve(watcher.get("user")))
+                    if not row:
+                        continue
+                    row["play_count"] += watcher.get("plays") or 0
+                    ts = watcher.get("last_watched_at")
+                    if ts and (row["last_watched_at"] or 0) < ts:
+                        row["last_watched_at"] = ts
+                    row["sources"].add("watch")
+            conn.execute("DELETE FROM people")
+            conn.executemany(
+                """
+                INSERT INTO people (
+                    canonical, display_name, plex_username, email, aliases_json, tautulli_id, seerr_id,
+                    request_count, library_count, library_size, play_count, last_watched_at, sources_json
+                ) VALUES (
+                    :canonical, :display_name, :plex_username, :email, :aliases_json, :tautulli_id, :seerr_id,
+                    :request_count, :library_count, :library_size, :play_count, :last_watched_at, :sources_json
+                )
+                """,
+                [
+                    {
+                        "canonical": row["canonical"],
+                        "display_name": row.get("display_name") or row["canonical"],
+                        "plex_username": row.get("plex_username") or "",
+                        "email": row.get("email") or "",
+                        "aliases_json": json.dumps(row.get("aliases") or []),
+                        "tautulli_id": str(row.get("tautulli_id") or ""),
+                        "seerr_id": str(row.get("seerr_id") or ""),
+                        "request_count": row.get("request_count") or 0,
+                        "library_count": row.get("library_count") or 0,
+                        "library_size": row.get("library_size") or 0,
+                        "play_count": row.get("play_count") or 0,
+                        "last_watched_at": row.get("last_watched_at"),
+                        "sources_json": json.dumps(sorted(row.get("sources") or [])),
+                    }
+                    for row in people_stats.values()
+                ],
             )
         watched = sum(1 for row in records if row["play_count"])
         message = f"Synced {len(records)} titles ({watched} with watch history)"

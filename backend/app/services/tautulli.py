@@ -77,6 +77,15 @@ class Tautulli:
                 break
         return rows
 
+    def users(self) -> list[dict[str, Any]]:
+        data = self._cmd("get_users") or []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            rows = data.get("data") or data.get("users") or []
+            return rows if isinstance(rows, list) else []
+        return []
+
     def rating_map(self) -> dict[str, dict[str, Any]]:
         mapping: dict[str, dict[str, Any]] = {}
         for lib in self.libraries():

@@ -50,7 +50,24 @@ def init_db() -> None:
                 rating REAL,
                 rating_votes INTEGER NOT NULL DEFAULT 0,
                 rating_source TEXT NOT NULL DEFAULT '',
+                tautulli_rating_key TEXT NOT NULL DEFAULT '',
                 UNIQUE(media_type, tmdb_id, tvdb_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS people (
+                canonical TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL DEFAULT '',
+                plex_username TEXT NOT NULL DEFAULT '',
+                email TEXT NOT NULL DEFAULT '',
+                aliases_json TEXT NOT NULL DEFAULT '[]',
+                tautulli_id TEXT NOT NULL DEFAULT '',
+                seerr_id TEXT NOT NULL DEFAULT '',
+                request_count INTEGER NOT NULL DEFAULT 0,
+                library_count INTEGER NOT NULL DEFAULT 0,
+                library_size INTEGER NOT NULL DEFAULT 0,
+                play_count INTEGER NOT NULL DEFAULT 0,
+                last_watched_at INTEGER,
+                sources_json TEXT NOT NULL DEFAULT '[]'
             );
 
             CREATE TABLE IF NOT EXISTS whitelist (
@@ -96,6 +113,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE media ADD COLUMN rating_votes INTEGER NOT NULL DEFAULT 0")
         if "rating_source" not in cols:
             conn.execute("ALTER TABLE media ADD COLUMN rating_source TEXT NOT NULL DEFAULT ''")
+        if "tautulli_rating_key" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN tautulli_rating_key TEXT NOT NULL DEFAULT ''")
         sync_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sync_state)").fetchall()}
         if "step" not in sync_cols:
             conn.execute("ALTER TABLE sync_state ADD COLUMN step TEXT NOT NULL DEFAULT ''")

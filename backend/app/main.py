@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -183,6 +184,59 @@ def logs(
     return list_logs(q=q, category=category, level=level, page=page, page_size=page_size)
 
 
+@app.get("/api/users")
+def list_users(request: Request, q: str = "", sort: str = "requests"):
+    current_user(request)
+    with connect() as conn:
+        rows = [dict(row) for row in conn.execute("SELECT * FROM people").fetchall()]
+    items = []
+    tautulli_base = public_url("tautulli", "tautulli_url")
+    seerr_base = public_url("seerr", "seerr_url")
+    for row in rows:
+        aliases = json.loads(row.get("aliases_json") or "[]")
+        sources = json.loads(row.get("sources_json") or "[]")
+        if q:
+            hay = f"{row.get('display_name')} {row.get('plex_username')} {row.get('email')} {' '.join(aliases)}".lower()
+            if q.lower() not in hay:
+                continue
+        links = {}
+        if tautulli_base and row.get("tautulli_id"):
+            links["tautulli"] = f"{tautulli_base}/user?user_id={row['tautulli_id']}"
+        if seerr_base and row.get("seerr_id"):
+            links["seerr"] = f"{seerr_base}/users/{row['seerr_id']}"
+        items.append(
+            {
+                **row,
+                "aliases": aliases,
+                "sources": sources,
+                "links": links,
+            }
+        )
+
+    def sort_value(item):
+        if sort == "library":
+            return item.get("library_count") or 0
+        if sort == "plays":
+            return item.get("play_count") or 0
+        if sort == "size":
+            return item.get("library_size") or 0
+        if sort == "name":
+            return (item.get("display_name") or "").lower()
+        return item.get("request_count") or 0
+
+    items.sort(key=sort_value, reverse=sort != "name")
+    return {
+        "items": items,
+        "stats": {
+            "users": len(items),
+            "requests": sum(item.get("request_count") or 0 for item in items),
+            "library": sum(item.get("library_count") or 0 for item in items),
+            "plays": sum(item.get("play_count") or 0 for item in items),
+        },
+        "sync": job_status(),
+    }
+
+
 @app.get("/api/art/{item_id}")
 def artwork(item_id: int, request: Request):
     current_user(request)
@@ -308,6 +362,16 @@ def _links(row: dict) -> dict:
     if seerr_base and row.get("tmdb_id"):
         kind = "movie" if row["media_type"] == "movie" else "tv"
         links["seerr"] = f"{seerr_base}/{kind}/{row['tmdb_id']}"
+    tautulli_base = public_url("tautulli", "tautulli_url")
+    if tautulli_base:
+        if row.get("tautulli_rating_key"):
+            links["tautulli"] = f"{tautulli_base}/info?rating_key={row['tautulli_rating_key']}"
+        elif row.get("title"):
+            links["tautulli"] = f"{tautulli_base}/search?query={quote(str(row['title']))}"
+    tracearr_base = public_url("tracearr", "tracearr_url")
+    if tracearr_base:
+        title = quote(str(row.get("title") or ""))
+        links["tracearr"] = f"{tracearr_base}/history?q={title}" if title else f"{tracearr_base}/history"
     return links
 
 
