@@ -77,6 +77,12 @@ function parseStamp(value: string | number | null | undefined): number | null {
   return Number.isNaN(ms) ? null : Math.floor(ms / 1000);
 }
 
+function availabilityLabel(value?: string | null) {
+  if (value === "requested") return "Requested";
+  if (value === "partial") return "Partial";
+  return "";
+}
+
 function Requester({ name, at }: { name?: string | null; at?: string | number | null }) {
   if (!name) return <span className="muted">—</span>;
   const ts = parseStamp(at);
@@ -431,9 +437,12 @@ function Library({
         <button className={`stat stale ${filters.watched === "stale" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>
           <span className="muted">Stale / unwatched</span><b>{stats.stale ?? 0}</b>
         </button>
-        <div className="stat ok" style={{ cursor: "default" }}>
+        <button className={`stat pending ${filters.watched === "requested" ? "active" : ""}`} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title" })}>
+          <span className="muted">Requested</span><b>{stats.requested ?? 0}</b>
+        </button>
+        <button className={`stat ok ${filters.watched === "protected" ? "active" : ""}`} onClick={() => patch(filters.watched === "protected" ? { watched: "" } : { watched: "protected", maxRating: "", sort: "title" })}>
           <span className="muted">Protected</span><b>{stats.whitelisted ?? 0}</b>
-        </div>
+        </button>
         {unmatchedCount > 0 && (
           <button className="stat warn" onClick={onOpenUnmatched}>
             <span className="muted">Unmatched</span><b>{unmatchedCount}</b>
@@ -443,11 +452,13 @@ function Library({
       <div className="filters">
         <button className={`chip-btn ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>Never watched</button>
         <button className={`chip-btn ${filters.watched === "stale" && filters.sort === "oldest" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>Oldest / stale</button>
+        <button className={`chip-btn pending ${filters.watched === "requested" ? "active" : ""}`} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title" })}>Requested</button>
+        <button className={`chip-btn ok ${filters.watched === "protected" ? "active" : ""}`} onClick={() => patch(filters.watched === "protected" ? { watched: "" } : { watched: "protected", maxRating: "", sort: "title" })}>Protected</button>
         <button className={`chip-btn ${filters.sort === "rating" ? "active" : ""}`} onClick={() => patch({ sort: filters.sort === "rating" ? "oldest" : "rating" })}>Lowest rated</button>
         <button className={`chip-btn ${filters.sort === "size" ? "active" : ""}`} onClick={() => patch({ sort: filters.sort === "size" ? "oldest" : "size" })}>Largest</button>
       </div>
       <div className="filters">
-        <input type="search" placeholder="Search title, requester, watcher" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <input type="search" placeholder="Search title, requester, watcher, requested" value={qInput} onChange={(e) => setQInput(e.target.value)} />
         <select value={filters.mediaType} onChange={(e) => patch({ mediaType: e.target.value })}>
           <option value="">Movies & TV</option>
           <option value="movie">Movies</option>
@@ -458,6 +469,8 @@ function Library({
           <option value="never">Never watched</option>
           <option value="stale">Stale / unwatched</option>
           <option value="watched">Watched</option>
+          <option value="requested">Requested</option>
+          <option value="protected">Protected</option>
         </select>
         <select value={filters.staleDays} onChange={(e) => patch({ staleDays: e.target.value })}>
           <option value="90">Stale after 90 days</option>
@@ -524,9 +537,10 @@ function Library({
                       <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
                       <div className="title-meta">
                         <span className={`type-chip ${item.media_type}`}>{item.media_type === "movie" ? "Movie" : "TV"}</span>
+                        {availabilityLabel(item.availability) ? <span className={`chip ${item.availability === "requested" ? "pending" : "partial"}`}>{availabilityLabel(item.availability)}</span> : null}
                         {item.sources.length ? <span className="muted">{item.sources.join(" / ")}</span> : null}
                         {item.whitelisted
-                          ? <span className="chip ok">Protected · {item.whitelist_reason}</span>
+                          ? <span className="chip ok" title={item.whitelist_reason}>Protected · {item.whitelist_reason}</span>
                           : <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>}
                       </div>
                     </div>
@@ -535,7 +549,9 @@ function Library({
                 <td className="rating" title={item.rating_source ? `${item.rating_source} · ${item.rating_votes} votes` : "No rating"}>
                   {item.rating != null ? <><strong>{Number(item.rating).toFixed(1)}</strong> <span className="muted">/10</span></> : "—"}
                 </td>
-                <td title={whenFull(item.last_watched_at)}>{when(item.last_watched_at)}</td>
+                <td title={item.availability === "requested" ? "Requested, not downloaded yet" : whenFull(item.last_watched_at)}>
+                  {item.availability === "requested" ? "—" : when(item.last_watched_at)}
+                </td>
                 <td>{item.play_count}</td>
                 <td className="watchers" title={item.watchers.map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}>
                   {item.watchers.length
@@ -553,7 +569,7 @@ function Library({
             ))}
             {!items.length && (
               <tr>
-                <td colSpan={9} className="empty">{loading ? "Loading library…" : "Nothing matches these filters. Try Never watched or Oldest / stale."}</td>
+                <td colSpan={9} className="empty">{loading ? "Loading library…" : filters.watched === "protected" ? "No library titles match the current whitelist." : filters.watched === "requested" ? "Nothing is sitting in a requested / not-downloaded state." : "Nothing matches these filters. Try Never watched or Oldest / stale."}</td>
               </tr>
             )}
           </tbody>

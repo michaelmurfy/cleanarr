@@ -8,6 +8,8 @@ from .http import json_get, json_request, tidy_url
 MEDIA_AVAILABLE = {4, 5}
 MEDIA_IN_FLIGHT = {2, 3}
 REQUEST_PENDING = {1}
+REQUEST_APPROVED = {2}
+REQUEST_OPEN = REQUEST_PENDING | REQUEST_APPROVED
 REQUEST_COUNTED = {2, 4, 5}  # approved, failed, completed
 
 
@@ -51,6 +53,15 @@ def media_claimed(media: dict[str, Any] | None) -> bool:
 def media_in_flight(media: dict[str, Any] | None) -> bool:
     media = media or {}
     return _status_num(media.get("status")) in MEDIA_IN_FLIGHT and not media_claimed(media)
+
+
+def request_is_open(requests: list[Any] | None) -> bool:
+    for req in requests or []:
+        if not isinstance(req, dict):
+            continue
+        if _status_num(req.get("status")) in REQUEST_OPEN:
+            return True
+    return False
 
 
 def request_was_made(requests: list[Any] | None) -> bool:

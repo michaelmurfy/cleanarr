@@ -24,6 +24,7 @@ export type MediaItem = {
   sources: string[];
   whitelisted: boolean;
   whitelist_reason: string;
+  availability?: "downloaded" | "requested" | "partial";
   links: Record<string, string>;
   rating: number | null;
   rating_votes: number;

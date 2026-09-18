@@ -12,6 +12,34 @@ def poster_from(images: list[dict[str, Any]] | None) -> str:
     return ""
 
 
+def movie_availability(movie: dict[str, Any] | None) -> str:
+    movie = movie or {}
+    if movie.get("hasFile") or movie.get("movieFile"):
+        return "downloaded"
+    if int(movie.get("sizeOnDisk") or 0) > 0:
+        return "downloaded"
+    return "requested"
+
+
+def series_availability(show: dict[str, Any] | None) -> str:
+    show = show or {}
+    stats = show.get("statistics") or {}
+    files = int(stats.get("episodeFileCount") or 0)
+    size = int(stats.get("sizeOnDisk") or show.get("sizeOnDisk") or 0)
+    aired = int(stats.get("episodeCount") or 0)
+    if files <= 0 and size <= 0:
+        return "requested"
+    if aired and files < aired:
+        return "partial"
+    try:
+        pct = float(stats.get("percentOfEpisodes") or 100)
+    except (TypeError, ValueError):
+        pct = 100.0
+    if files > 0 and pct < 100:
+        return "partial"
+    return "downloaded"
+
+
 def pick_rating(ratings: dict[str, Any] | None) -> tuple[float | None, int, str]:
     if not ratings:
         return None, 0, ""

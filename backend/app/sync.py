@@ -12,9 +12,9 @@ from .db import connect, get_setting
 from .identity import UserDirectory
 from .logs import add_log
 from .match import CatalogIndex, parse_year
-from .services.arr import pick_rating, poster_from
+from .services.arr import movie_availability, pick_rating, poster_from, series_availability
 from .services.clients import radarr, seerr, sonarr, tautulli, tracearr
-from .services.seerr import media_claimed, media_in_flight, request_was_made
+from .services.seerr import media_claimed, media_in_flight, request_is_open, request_was_made
 from .services.tautulli import parse_ids
 
 UNKNOWN_LABELS = {"unknown", "unknown title", "unknown request", "n/a", "none", "null"}
@@ -279,6 +279,7 @@ def _run_sync() -> None:
                 "rating_votes": 0,
                 "rating_source": "",
                 "tautulli_rating_key": "",
+                "availability": "downloaded",
             }
             for field in current:
                 if item.get(field) not in (None, "", 0, []):
@@ -310,6 +311,7 @@ def _run_sync() -> None:
                         "rating": rating,
                         "rating_votes": votes,
                         "rating_source": source,
+                        "availability": movie_availability(movie),
                     },
                     _alt_titles(movie),
                 )
@@ -341,6 +343,7 @@ def _run_sync() -> None:
                         "rating": rating,
                         "rating_votes": votes,
                         "rating_source": source,
+                        "availability": series_availability(show),
                     },
                     _alt_titles(show),
                 )
@@ -444,6 +447,8 @@ def _run_sync() -> None:
                     catalog[key]["requested_by"] = identity["display"]
                 catalog[key]["requested_at"] = req.get("createdAt") or req.get("modifiedAt") or catalog[key]["requested_at"]
                 catalog[key]["seerr_media_id"] = bucket.get("seerr_media_id") or catalog[key]["seerr_media_id"]
+                if request_is_open([req]) and (catalog[key].get("size_bytes") or 0) <= 0 and catalog[key].get("availability") != "partial":
+                    catalog[key]["availability"] = "requested"
                 return True
 
             requests = client.requests()
@@ -474,6 +479,16 @@ def _run_sync() -> None:
                         nested.setdefault("media", media)
                         if attach_requester(nested):
                             seerr_matched += 1
+
+            for bucket in seerr_seen.values():
+                key = bucket.get("catalog_key")
+                if not key:
+                    continue
+                item = catalog[key]
+                if (item.get("size_bytes") or 0) > 0 or item.get("availability") == "partial":
+                    continue
+                if bucket.get("in_flight") or request_is_open(bucket.get("requests")):
+                    item["availability"] = "requested"
 
             stale = 0
             for bucket in seerr_seen.values():
@@ -770,6 +785,7 @@ def _run_sync() -> None:
                 {
                     **item,
                     "tautulli_rating_key": item.get("tautulli_rating_key") or "",
+                    "availability": item.get("availability") or "downloaded",
                     "last_watched_at": last_watched,
                     "play_count": len(unique_events),
                     "watcher_count": len(watchers),
@@ -787,12 +803,12 @@ def _run_sync() -> None:
                     media_type, tmdb_id, tvdb_id, imdb_id, title, year, poster_url, size_bytes,
                     radarr_id, sonarr_id, seerr_media_id, requested_by, requested_at,
                     last_watched_at, play_count, watcher_count, watchers_json, sources_json, path, title_slug,
-                    rating, rating_votes, rating_source, tautulli_rating_key
+                    rating, rating_votes, rating_source, tautulli_rating_key, availability
                 ) VALUES (
                     :media_type, :tmdb_id, :tvdb_id, :imdb_id, :title, :year, :poster_url, :size_bytes,
                     :radarr_id, :sonarr_id, :seerr_media_id, :requested_by, :requested_at,
                     :last_watched_at, :play_count, :watcher_count, :watchers_json, :sources_json, :path, :title_slug,
-                    :rating, :rating_votes, :rating_source, :tautulli_rating_key
+                    :rating, :rating_votes, :rating_source, :tautulli_rating_key, :availability
                 )
                 """,
                 records,

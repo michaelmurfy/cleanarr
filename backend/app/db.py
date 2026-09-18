@@ -51,6 +51,7 @@ def init_db() -> None:
                 rating_votes INTEGER NOT NULL DEFAULT 0,
                 rating_source TEXT NOT NULL DEFAULT '',
                 tautulli_rating_key TEXT NOT NULL DEFAULT '',
+                availability TEXT NOT NULL DEFAULT 'downloaded',
                 UNIQUE(media_type, tmdb_id, tvdb_id)
             );
 
@@ -131,6 +132,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE media ADD COLUMN rating_source TEXT NOT NULL DEFAULT ''")
         if "tautulli_rating_key" not in cols:
             conn.execute("ALTER TABLE media ADD COLUMN tautulli_rating_key TEXT NOT NULL DEFAULT ''")
+        if "availability" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN availability TEXT NOT NULL DEFAULT 'downloaded'")
         sync_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sync_state)").fetchall()}
         if "step" not in sync_cols:
             conn.execute("ALTER TABLE sync_state ADD COLUMN step TEXT NOT NULL DEFAULT ''")

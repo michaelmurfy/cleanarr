@@ -55,6 +55,20 @@ def is_protected(title: str, media_type: str, tmdb_id: int, rows: list[dict] | N
     return None
 
 
+def protect_reason(row: dict) -> str:
+    pattern = (row.get("pattern") or "").strip()
+    if row.get("match_type") == "id":
+        label = f"TMDB {row.get('tmdb_id') or pattern}"
+        if pattern and not str(pattern).isdigit():
+            label = f"{label} · {pattern}"
+    else:
+        label = f"contains “{pattern}”" if pattern else "title rule"
+    note = (row.get("note") or "").strip()
+    if note and note.casefold() != pattern.casefold():
+        label = f"{label} · {note}"
+    return label
+
+
 @router.get("/whitelist")
 def list_whitelist(request: Request):
     current_user(request)

@@ -111,6 +111,8 @@ a:hover { text-decoration: underline; }
 .danger { background: var(--danger); border-color: var(--danger); color: white; font-weight: 600; }
 .ghost:hover, .nav button:hover, .chip-btn:hover { background: var(--bg-hover); }
 .chip-btn.active { border-color: var(--accent); color: var(--accent-2); background: #2b2418; }
+.chip-btn.ok.active { border-color: var(--ok); color: var(--ok); background: #16241a; }
+.chip-btn.pending.active { border-color: var(--sky); color: var(--sky); background: #102433; }
 .primary:active, .danger:active { transform: translateY(1px); }
 .spacer { flex: 1; }
 .muted { color: var(--muted); }
@@ -138,6 +140,8 @@ a:hover { text-decoration: underline; }
   border-radius: 12px;
   padding: 14px 16px;
   cursor: pointer;
+  text-align: left;
+  color: inherit;
   transition: border-color 160ms ease, transform 160ms ease;
 }
 .stat:hover, .stat.active { border-color: var(--accent); transform: translateY(-1px); }
@@ -146,7 +150,11 @@ a:hover { text-decoration: underline; }
 .stat.stale { border-color: #4a3420; }
 .stat.stale b { color: #f4a261; }
 .stat.ok { border-color: #2a4a32; }
+.stat.ok:hover, .stat.ok.active { border-color: var(--ok); }
 .stat.ok b { color: var(--ok); }
+.stat.pending { border-color: #1a3f58; }
+.stat.pending:hover, .stat.pending.active { border-color: var(--sky); }
+.stat.pending b { color: var(--sky); }
 .stat.warn { border-color: #5a2a24; background: #241414; }
 .stat.warn:hover, .stat.warn.active { border-color: var(--danger); }
 .stat.warn b { color: #f7c4c0; }
@@ -259,6 +267,8 @@ input.tick:disabled {
 }
 .chip.warn { background: #2a1614; color: #f7c4c0; border-color: #6a2e2a; }
 .chip.ok { background: #16241a; color: #a8d39a; border-color: #2a4a32; }
+.chip.pending { background: #102433; color: #8fd4ff; border-color: #1a4a68; }
+.chip.partial { background: #241c10; color: #f0d2a0; border-color: #4a3a20; }
 .keep-btn {
   font-size: 11px;
   font-weight: 600;

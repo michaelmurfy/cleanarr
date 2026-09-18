@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .actions import is_protected, router as actions_router
+from .actions import is_protected, protect_reason, router as actions_router
 from .art import art_url, cache_stats, clear_cache, serve_art
 from .auth import (
     bootstrap_auth,
@@ -412,7 +412,7 @@ def library(
             "watchers": watchers,
             "sources": sources,
             "whitelisted": bool(protected),
-            "whitelist_reason": protected["pattern"] if protected else "",
+            "whitelist_reason": protect_reason(protected) if protected else "",
             "links": _links(row),
             "art_url": art_url(row["id"], row.get("poster_url") or ""),
             "poster_url": "",
@@ -420,7 +420,8 @@ def library(
         if media_type and item["media_type"] != media_type:
             continue
         if q:
-            hay = f"{item['title']} {item['requested_by']} {' '.join(w['user'] for w in watchers)}".lower()
+            status = "requested not downloaded queued" if (item.get("availability") or "") == "requested" else (item.get("availability") or "")
+            hay = f"{item['title']} {item['requested_by']} {' '.join(w['user'] for w in watchers)} {status}".lower()
             if q.lower() not in hay:
                 continue
         if max_rating is not None:
@@ -429,17 +430,31 @@ def library(
                 continue
         pool.append(item)
 
-    never_watched = sum(1 for item in pool if not item["play_count"])
+    def on_disk(item):
+        return (item.get("availability") or "downloaded") != "requested"
+
+    never_watched = sum(1 for item in pool if on_disk(item) and not item["play_count"])
     stale_count = sum(
-        1 for item in pool if not item["play_count"] or (item["last_watched_at"] or 0) <= cutoff
+        1 for item in pool if on_disk(item) and (not item["play_count"] or (item["last_watched_at"] or 0) <= cutoff)
     )
+    protected_count = sum(1 for item in pool if item["whitelisted"])
+    requested_count = sum(1 for item in pool if (item.get("availability") or "downloaded") == "requested")
     items = []
     for item in pool:
-        if watched == "never" and item["play_count"]:
+        if watched == "protected":
+            if not item["whitelisted"]:
+                continue
+        elif watched == "requested":
+            if (item.get("availability") or "downloaded") != "requested":
+                continue
+        elif watched == "never":
+            if item["play_count"] or not on_disk(item):
+                continue
+        elif watched == "watched" and not item["play_count"]:
             continue
-        if watched == "watched" and not item["play_count"]:
-            continue
-        if watched == "stale":
+        elif watched == "stale":
+            if not on_disk(item):
+                continue
             if item["play_count"] and (item["last_watched_at"] or 0) > cutoff:
                 continue
         items.append(item)
@@ -468,7 +483,8 @@ def library(
         "count": total,
         "never_watched": never_watched,
         "stale": stale_count,
-        "whitelisted": sum(1 for i in items if i["whitelisted"]),
+        "whitelisted": protected_count,
+        "requested": requested_count,
         "unmatched": unmatched_count,
         "size_bytes": sum(i["size_bytes"] or 0 for i in items),
         "page": page,
