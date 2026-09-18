@@ -166,6 +166,9 @@ export type UnmatchedItem = {
   year: number;
   plays: number;
   reason: string;
+  tmdb_id: number;
+  requested_by: string;
+  kind: string;
   links: Record<string, string>;
 };
 

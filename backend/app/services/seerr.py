@@ -4,6 +4,66 @@ from typing import Any
 
 from .http import json_get, json_request, tidy_url
 
+# Overseerr / Jellyseerr media + request status enums.
+MEDIA_AVAILABLE = {4, 5}
+MEDIA_IN_FLIGHT = {2, 3}
+REQUEST_PENDING = {1}
+REQUEST_COUNTED = {2, 4, 5}  # approved, failed, completed
+
+
+def _status_num(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value or "").strip().lower()
+    if text.isdigit():
+        return int(text)
+    names = {
+        "unknown": 1,
+        "pending": 2,
+        "processing": 3,
+        "partiallyavailable": 4,
+        "partially-available": 4,
+        "partial": 4,
+        "available": 5,
+        "approved": 2,
+        "declined": 3,
+        "failed": 4,
+        "completed": 5,
+    }
+    return names.get(text.replace(" ", ""))
+
+
+def media_claimed(media: dict[str, Any] | None) -> bool:
+    """True when Seerr still treats the title as present in the *arr library."""
+    media = media or {}
+    for field in ("status", "status4k"):
+        if _status_num(media.get(field)) in MEDIA_AVAILABLE:
+            return True
+    if media.get("externalServiceId") or media.get("externalServiceId4k"):
+        return True
+    if media.get("mediaAddedAt"):
+        return True
+    return False
+
+
+def media_in_flight(media: dict[str, Any] | None) -> bool:
+    media = media or {}
+    return _status_num(media.get("status")) in MEDIA_IN_FLIGHT and not media_claimed(media)
+
+
+def request_was_made(requests: list[Any] | None) -> bool:
+    for req in requests or []:
+        if not isinstance(req, dict):
+            continue
+        status = _status_num(req.get("status"))
+        if status in REQUEST_COUNTED:
+            return True
+        if status not in REQUEST_PENDING | {3, None} and req.get("status") not in (None, ""):
+            return True
+    return False
+
 
 class Seerr:
     def __init__(self, url: str, api_key: str):

@@ -14,7 +14,10 @@ from .logs import add_log
 from .match import CatalogIndex, parse_year
 from .services.arr import pick_rating, poster_from
 from .services.clients import radarr, seerr, sonarr, tautulli, tracearr
+from .services.seerr import media_claimed, media_in_flight, request_was_made
 from .services.tautulli import parse_ids
+
+UNKNOWN_LABELS = {"unknown", "unknown title", "unknown request", "n/a", "none", "null"}
 
 _lock = threading.Lock()
 _job: dict[str, Any] = {
@@ -165,6 +168,16 @@ def _alt_titles(item: dict[str, Any]) -> list[str]:
     return [title for title in titles if title]
 
 
+def _usable_title(title: Any, tmdb_id: int = 0) -> str | None:
+    label = re.sub(r"\s+", " ", str(title or "")).strip()
+    lowered = label.lower()
+    if lowered in UNKNOWN_LABELS or lowered.startswith("unknown"):
+        return None
+    if label:
+        return label
+    return f"TMDB {int(tmdb_id)}" if tmdb_id else None
+
+
 def _progress(message: str, *, step: str, current: int = 0, total: int = 0) -> None:
     _set_job(message=message, step=step, current=current, total=total)
 
@@ -176,13 +189,28 @@ def _run_sync() -> None:
         directory = UserDirectory()
         unmatched_rows: dict[tuple, dict[str, Any]] = {}
 
-        def note_unmatched(source: str, media_type: str, title: str, year: Any, plays: int = 1) -> None:
-            label = (title or "Unknown").strip() or "Unknown"
+        def note_unmatched(
+            source: str,
+            media_type: str,
+            title: str,
+            year: Any,
+            *,
+            reason: str,
+            plays: int = 1,
+            tmdb_id: int = 0,
+            tvdb_id: int = 0,
+            seerr_media_id: Any = None,
+            requested_by: str = "",
+            kind: str = "",
+        ) -> None:
+            label = _usable_title(title, tmdb_id)
+            if not label:
+                return
             try:
                 year_i = int(year or 0)
             except (TypeError, ValueError):
                 year_i = 0
-            key = (source, media_type, label.lower(), year_i)
+            key = (kind or source, media_type, int(tmdb_id or 0), int(tvdb_id or 0), label.lower(), year_i)
             row = unmatched_rows.setdefault(
                 key,
                 {
@@ -191,10 +219,19 @@ def _run_sync() -> None:
                     "title": label,
                     "year": year_i,
                     "plays": 0,
-                    "reason": "No matching library title",
+                    "reason": reason,
+                    "tmdb_id": int(tmdb_id or 0),
+                    "tvdb_id": int(tvdb_id or 0),
+                    "seerr_media_id": seerr_media_id,
+                    "requested_by": requested_by or "",
+                    "kind": kind,
                 },
             )
             row["plays"] += plays
+            if requested_by and not row.get("requested_by"):
+                row["requested_by"] = requested_by
+            if seerr_media_id and not row.get("seerr_media_id"):
+                row["seerr_media_id"] = seerr_media_id
 
         _progress("Loading user directories…", step="users")
         if client := tautulli():
@@ -311,26 +348,90 @@ def _run_sync() -> None:
         seerr_matched = 0
         seerr_total = 0
         if client := seerr():
-            def attach_requester(req: dict[str, Any]) -> bool:
-                media = req.get("media") or {}
-                media_type = _media_type(req.get("type") or media.get("mediaType") or req.get("mediaType"), "movie")
+            seerr_seen: dict[tuple, dict[str, Any]] = {}
+
+            def seerr_bucket(media: dict[str, Any], req: dict[str, Any] | None = None) -> dict[str, Any]:
+                media = media or {}
+                req = req or {}
+                media_type = _media_type(
+                    req.get("type") or media.get("mediaType") or req.get("mediaType"),
+                    "movie",
+                )
                 tmdb_id = int(media.get("tmdbId") or req.get("tmdbId") or 0)
                 tvdb_id = int(media.get("tvdbId") or req.get("tvdbId") or 0)
-                imdb_id = str(media.get("imdbId") or req.get("imdbId") or "")
+                title = next(
+                    (
+                        value
+                        for value in (
+                            media.get("title"),
+                            media.get("name"),
+                            req.get("mediaTitle"),
+                            req.get("title"),
+                            (req.get("media") or {}).get("title") if isinstance(req.get("media"), dict) else "",
+                        )
+                        if value
+                    ),
+                    "",
+                )
+                key = (media_type, tmdb_id, tvdb_id) if (tmdb_id or tvdb_id) else (media_type, 0, 0, title.lower())
+                row = seerr_seen.setdefault(
+                    key,
+                    {
+                        "media_type": media_type,
+                        "tmdb_id": tmdb_id,
+                        "tvdb_id": tvdb_id,
+                        "imdb_id": str(media.get("imdbId") or req.get("imdbId") or ""),
+                        "title": "",
+                        "year": media.get("year") or req.get("year"),
+                        "seerr_media_id": media.get("id"),
+                        "requests": [],
+                        "claimed": False,
+                        "in_flight": False,
+                        "catalog_key": None,
+                    },
+                )
+                if title and not row["title"]:
+                    row["title"] = title
+                if media.get("id"):
+                    row["seerr_media_id"] = media.get("id")
+                row["claimed"] = row["claimed"] or media_claimed(media)
+                row["in_flight"] = row.get("in_flight") or media_in_flight(media)
+                if req:
+                    req_id = req.get("id")
+                    seen_ids = {item.get("id") for item in row["requests"] if isinstance(item, dict)}
+                    if req_id is None or req_id not in seen_ids:
+                        row["requests"].append(req)
+                nested = media.get("requests") or media.get("MediaRequests") or []
+                for extra in nested:
+                    if not isinstance(extra, dict):
+                        continue
+                    extra_id = extra.get("id")
+                    seen_ids = {item.get("id") for item in row["requests"] if isinstance(item, dict)}
+                    if extra_id is None or extra_id not in seen_ids:
+                        row["requests"].append(extra)
+                return row
+
+            def attach_requester(req: dict[str, Any]) -> bool:
+                media = req.get("media") or {}
+                bucket = seerr_bucket(media, req)
+                media_type = bucket["media_type"]
                 titles = [
+                    bucket.get("title") or "",
                     media.get("title") or "",
                     req.get("mediaTitle") or "",
                     req.get("title") or "",
                 ]
-                key = index.resolve(media_type, tmdb_id, tvdb_id, imdb_id, titles, media.get("year") or req.get("year"))
+                key = index.resolve(
+                    media_type,
+                    bucket["tmdb_id"],
+                    bucket["tvdb_id"],
+                    bucket["imdb_id"],
+                    titles,
+                    bucket.get("year"),
+                )
                 if not key:
-                    note_unmatched(
-                        "seerr",
-                        media_type,
-                        next((t for t in titles if t), "Unknown request"),
-                        media.get("year") or req.get("year"),
-                    )
                     return False
+                bucket["catalog_key"] = key
                 requested = req.get("requestedBy") or req.get("requested_by") or req.get("user") or {}
                 if isinstance(requested, (int, float)) or (isinstance(requested, str) and requested.isdigit()):
                     requested = seerr_users_by_id.get(int(requested)) or {}
@@ -338,7 +439,7 @@ def _run_sync() -> None:
                 if identity["display"]:
                     catalog[key]["requested_by"] = identity["display"]
                 catalog[key]["requested_at"] = req.get("createdAt") or req.get("modifiedAt") or catalog[key]["requested_at"]
-                catalog[key]["seerr_media_id"] = media.get("id") or catalog[key]["seerr_media_id"]
+                catalog[key]["seerr_media_id"] = bucket.get("seerr_media_id") or catalog[key]["seerr_media_id"]
                 return True
 
             requests = client.requests()
@@ -350,52 +451,115 @@ def _run_sync() -> None:
                 if seerr_total and (i == seerr_total or i % 50 == 0):
                     _progress(f"Matching Seerr requests… {i}/{seerr_total}", step="seerr", current=i, total=seerr_total)
             for media in client.media():
-                media_type = _media_type(media.get("mediaType"), "movie")
-                tmdb_id = int(media.get("tmdbId") or 0)
-                tvdb_id = int(media.get("tvdbId") or 0)
-                key = index.resolve(media_type, tmdb_id, tvdb_id, str(media.get("imdbId") or ""), [media.get("title") or ""], media.get("year"))
+                bucket = seerr_bucket(media)
+                media_type = bucket["media_type"]
+                key = index.resolve(
+                    media_type,
+                    bucket["tmdb_id"],
+                    bucket["tvdb_id"],
+                    bucket["imdb_id"],
+                    [bucket.get("title") or "", media.get("title") or ""],
+                    bucket.get("year") or media.get("year"),
+                )
                 if key:
-                    catalog[key]["seerr_media_id"] = media.get("id") or catalog[key]["seerr_media_id"]
+                    bucket["catalog_key"] = key
+                    catalog[key]["seerr_media_id"] = bucket.get("seerr_media_id") or catalog[key]["seerr_media_id"]
                 for req in media.get("requests") or media.get("MediaRequests") or []:
                     if isinstance(req, dict):
                         nested = dict(req)
                         nested.setdefault("media", media)
                         if attach_requester(nested):
                             seerr_matched += 1
+
+            stale = 0
+            for bucket in seerr_seen.values():
+                if bucket.get("catalog_key"):
+                    continue
+                claimed = bucket.get("claimed")
+                requested = request_was_made(bucket.get("requests"))
+                if bucket.get("in_flight") and not claimed:
+                    continue
+                if not claimed and not requested:
+                    continue
+                title = _usable_title(bucket.get("title"), bucket.get("tmdb_id") or 0)
+                if not title:
+                    continue
+                requester = ""
+                for req in bucket.get("requests") or []:
+                    requested_by = req.get("requestedBy") or req.get("requested_by") or req.get("user") or {}
+                    if isinstance(requested_by, (int, float)) or (isinstance(requested_by, str) and requested_by.isdigit()):
+                        requested_by = seerr_users_by_id.get(int(requested_by)) or {}
+                    if isinstance(requested_by, dict):
+                        identity = directory.resolve(requested_by)
+                        requester = identity["display"] or requester
+                    if requester:
+                        break
+                reason = (
+                    "Seerr still lists this as available, but it is not in Radarr/Sonarr"
+                    if claimed
+                    else "Requested in Seerr, but it is not in the library"
+                )
+                note_unmatched(
+                    "seerr",
+                    bucket["media_type"],
+                    title,
+                    bucket.get("year"),
+                    reason=reason,
+                    plays=max(1, len(bucket.get("requests") or [])),
+                    tmdb_id=bucket.get("tmdb_id") or 0,
+                    tvdb_id=bucket.get("tvdb_id") or 0,
+                    seerr_media_id=bucket.get("seerr_media_id"),
+                    requested_by=requester,
+                    kind="seerr_missing",
+                )
+                stale += 1
+
+            missing_seerr = 0
+            for item in catalog.values():
+                if not (item.get("radarr_id") or item.get("sonarr_id")):
+                    continue
+                if item.get("seerr_media_id"):
+                    continue
+                title = _usable_title(item.get("title"), item.get("tmdb_id") or 0)
+                if not title:
+                    continue
+                source = "radarr" if item.get("radarr_id") else "sonarr"
+                note_unmatched(
+                    source,
+                    item["media_type"],
+                    title,
+                    item.get("year"),
+                    reason="In the library, but not matched to Seerr",
+                    tmdb_id=item.get("tmdb_id") or 0,
+                    tvdb_id=item.get("tvdb_id") or 0,
+                    kind="no_seerr",
+                )
+                missing_seerr += 1
+
             add_log(
                 f"Attached Seerr requesters to {seerr_matched} library titles from {seerr_total} requests",
                 category="sync",
                 action="seerr",
-                detail={"matched": seerr_matched, "requests": seerr_total},
+                detail={
+                    "matched": seerr_matched,
+                    "requests": seerr_total,
+                    "seerr_missing": stale,
+                    "library_no_seerr": missing_seerr,
+                },
             )
 
         plays: dict[tuple[str, int, int], list[dict[str, Any]]] = defaultdict(list)
 
-        def attach_play(key: tuple[str, int, int] | None, event: dict[str, Any], unmatched: set[str], source: str) -> None:
+        def attach_play(key: tuple[str, int, int] | None, event: dict[str, Any]) -> None:
             if key:
                 plays[key].append(event)
-                return
-            label = event.get("title") or "Unknown title"
-            year = event.get("year")
-            note_unmatched(source, event.get("media_type") or "movie", label, year)
-            unmatched.add(f"{label}{f' ({year})' if year else ''}")
 
-        def log_unmatched(source: str, unmatched: set[str], matched: int, total: int) -> None:
+        def log_history_match(source: str, matched: int, total: int) -> None:
             add_log(
                 f"Matched {matched}/{total} {source} plays",
                 category="sync",
                 action=f"{source}_match",
-                detail={"matched": matched, "total": total, "unmatched": total - matched},
-            )
-            if not unmatched:
-                return
-            sample = sorted(unmatched)[:40]
-            add_log(
-                f"{len(unmatched)} unmatched {source} titles (articles like “The” are ignored; check IDs if this looks wrong)",
-                level="warn",
-                category="match",
-                action="unmatched",
-                detail={"source": source, "titles": sample, "count": len(unmatched)},
+                detail={"matched": matched, "total": total, "ignored": max(0, total - matched)},
             )
 
         _progress("Loading Tautulli history…", step="tautulli")
@@ -424,7 +588,6 @@ def _run_sync() -> None:
 
             rows = client.history(on_progress=tautulli_progress)
             total = len(rows)
-            unmatched: set[str] = set()
             matched = 0
             _progress(f"Matching Tautulli history… 0/{total}", step="tautulli", current=0, total=total)
             for i, row in enumerate(rows, 1):
@@ -476,12 +639,10 @@ def _run_sync() -> None:
                         "title": title or mapped.get("title") or row.get("full_title") or "Unknown",
                         "year": parse_year(year),
                     },
-                    unmatched,
-                    "tautulli",
                 )
                 if i == total or i % 250 == 0:
                     _progress(f"Matching Tautulli history… {i}/{total}", step="tautulli", current=i, total=total)
-            log_unmatched("Tautulli", unmatched, matched, total)
+            log_history_match("Tautulli", matched, total)
 
         _progress("Loading Tracearr history…", step="tracearr")
         if client := tracearr():
@@ -490,7 +651,6 @@ def _run_sync() -> None:
 
             rows = client.history(on_progress=tracearr_progress)
             total = len(rows)
-            unmatched = set()
             matched = 0
             _progress(f"Matching Tracearr history… 0/{total}", step="tracearr", current=0, total=total)
             for i, row in enumerate(rows, 1):
@@ -563,12 +723,10 @@ def _run_sync() -> None:
                         "title": title or "Unknown",
                         "year": parse_year(year),
                     },
-                    unmatched,
-                    "tracearr",
                 )
                 if i == total or i % 250 == 0:
                     _progress(f"Matching Tracearr history… {i}/{total}", step="tracearr", current=i, total=total)
-            log_unmatched("Tracearr", unmatched, matched, total)
+            log_history_match("Tracearr", matched, total)
 
         _progress("Deduping watch history…", step="save")
         records = []
@@ -716,8 +874,14 @@ def _run_sync() -> None:
             if unmatched_rows:
                 conn.executemany(
                     """
-                    INSERT INTO unmatched (source, media_type, title, year, plays, reason)
-                    VALUES (:source, :media_type, :title, :year, :plays, :reason)
+                    INSERT INTO unmatched (
+                        source, media_type, title, year, plays, reason,
+                        tmdb_id, tvdb_id, seerr_media_id, requested_by, kind
+                    )
+                    VALUES (
+                        :source, :media_type, :title, :year, :plays, :reason,
+                        :tmdb_id, :tvdb_id, :seerr_media_id, :requested_by, :kind
+                    )
                     """,
                     list(unmatched_rows.values()),
                 )

@@ -111,7 +111,11 @@ def init_db() -> None:
                 year INTEGER NOT NULL DEFAULT 0,
                 plays INTEGER NOT NULL DEFAULT 0,
                 reason TEXT NOT NULL DEFAULT '',
-                UNIQUE(source, media_type, title, year)
+                tmdb_id INTEGER NOT NULL DEFAULT 0,
+                tvdb_id INTEGER NOT NULL DEFAULT 0,
+                seerr_media_id INTEGER,
+                requested_by TEXT NOT NULL DEFAULT '',
+                kind TEXT NOT NULL DEFAULT ''
             );
             """
         )
@@ -133,6 +137,40 @@ def init_db() -> None:
             conn.execute("ALTER TABLE sync_state ADD COLUMN progress_current INTEGER NOT NULL DEFAULT 0")
         if "progress_total" not in sync_cols:
             conn.execute("ALTER TABLE sync_state ADD COLUMN progress_total INTEGER NOT NULL DEFAULT 0")
+        unmatched_cols = {row["name"] for row in conn.execute("PRAGMA table_info(unmatched)").fetchall()}
+        if "tmdb_id" not in unmatched_cols:
+            conn.execute("ALTER TABLE unmatched ADD COLUMN tmdb_id INTEGER NOT NULL DEFAULT 0")
+        if "tvdb_id" not in unmatched_cols:
+            conn.execute("ALTER TABLE unmatched ADD COLUMN tvdb_id INTEGER NOT NULL DEFAULT 0")
+        if "seerr_media_id" not in unmatched_cols:
+            conn.execute("ALTER TABLE unmatched ADD COLUMN seerr_media_id INTEGER")
+        if "requested_by" not in unmatched_cols:
+            conn.execute("ALTER TABLE unmatched ADD COLUMN requested_by TEXT NOT NULL DEFAULT ''")
+        if "kind" not in unmatched_cols:
+            conn.execute("ALTER TABLE unmatched ADD COLUMN kind TEXT NOT NULL DEFAULT ''")
+        schema = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='unmatched'"
+        ).fetchone()
+        if schema and "UNIQUE" in (schema["sql"] or ""):
+            conn.execute("DROP TABLE unmatched")
+            conn.execute(
+                """
+                CREATE TABLE unmatched (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL,
+                    media_type TEXT NOT NULL DEFAULT '',
+                    title TEXT NOT NULL,
+                    year INTEGER NOT NULL DEFAULT 0,
+                    plays INTEGER NOT NULL DEFAULT 0,
+                    reason TEXT NOT NULL DEFAULT '',
+                    tmdb_id INTEGER NOT NULL DEFAULT 0,
+                    tvdb_id INTEGER NOT NULL DEFAULT 0,
+                    seerr_media_id INTEGER,
+                    requested_by TEXT NOT NULL DEFAULT '',
+                    kind TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
 
 
 def get_setting(key: str, default: str = "") -> str:

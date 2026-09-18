@@ -535,7 +535,7 @@ function Library({ sync, setSync, onOpenUnmatched }: { sync: SyncStatus; setSync
 function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncStatus) => void }) {
   const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
-  const [source, setSource] = useState("");
+  const [kind, setKind] = useState("");
   const [mediaType, setMediaType] = useState("");
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<UnmatchedItem[]>([]);
@@ -558,7 +558,7 @@ function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncS
     try {
       const data = await api.unmatched({
         q,
-        source,
+        kind,
         media_type: mediaType,
         page: String(nextPage),
         page_size: "50",
@@ -575,7 +575,7 @@ function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncS
 
   useEffect(() => {
     load(page).catch(() => undefined);
-  }, [q, source, mediaType, page]);
+  }, [q, kind, mediaType, page]);
 
   useEffect(() => {
     if (prevSync.current === "running" && sync.status !== "running") {
@@ -587,20 +587,31 @@ function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncS
   return (
     <div className="page">
       <h2>Unmatched</h2>
-      <p className="muted">Watch history and Seerr requests that did not match a Radarr or Sonarr library title.</p>
+      <p className="muted">
+        Gaps between Radarr/Sonarr and Seerr. Watch history for deleted titles is ignored.
+        Stale Seerr rows are titles Seerr still thinks are available or requested, so they can be cleared and re-requested.
+      </p>
       <div className="stats">
-        <div className="stat warn" style={{ cursor: "default" }}><span className="muted">Unmatched titles</span><b>{stats.count ?? total}</b></div>
-        <div className="stat" style={{ cursor: "default" }}><span className="muted">Tautulli</span><b>{stats.tautulli_count ?? 0}</b></div>
-        <div className="stat" style={{ cursor: "default" }}><span className="muted">Tracearr</span><b>{stats.tracearr_count ?? 0}</b></div>
-        <div className="stat" style={{ cursor: "default" }}><span className="muted">Seerr</span><b>{stats.seerr_count ?? 0}</b></div>
+        <button className={`stat ${!kind ? "active" : ""}`} onClick={() => { setKind(""); setPage(1); }}>
+          <span className="muted">All gaps</span><b>{stats.count ?? total}</b>
+        </button>
+        <button className={`stat warn ${kind === "seerr_missing" ? "active" : ""}`} onClick={() => { setKind(kind === "seerr_missing" ? "" : "seerr_missing"); setPage(1); }}>
+          <span className="muted">Stale in Seerr</span><b>{stats.seerr_missing ?? stats.seerr_count ?? 0}</b>
+        </button>
+        <button className={`stat ${kind === "no_seerr" ? "active" : ""}`} onClick={() => { setKind(kind === "no_seerr" ? "" : "no_seerr"); setPage(1); }}>
+          <span className="muted">Not in Seerr</span><b>{stats.no_seerr ?? 0}</b>
+        </button>
+        <div className="stat" style={{ cursor: "default" }}>
+          <span className="muted">Library</span>
+          <b>{(stats.radarr_count ?? 0) + (stats.sonarr_count ?? 0)}</b>
+        </div>
       </div>
       <div className="filters">
         <input type="search" placeholder="Search unmatched titles" value={qInput} onChange={(e) => setQInput(e.target.value)} />
-        <select value={source} onChange={(e) => { setSource(e.target.value); setPage(1); }}>
-          <option value="">All sources</option>
-          <option value="tautulli">Tautulli</option>
-          <option value="tracearr">Tracearr</option>
-          <option value="seerr">Seerr</option>
+        <select value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }}>
+          <option value="">All gaps</option>
+          <option value="seerr_missing">Stale in Seerr</option>
+          <option value="no_seerr">Library not in Seerr</option>
         </select>
         <select value={mediaType} onChange={(e) => { setMediaType(e.target.value); setPage(1); }}>
           <option value="">Movies & TV</option>
@@ -613,31 +624,33 @@ function Unmatched({ sync, setSync }: { sync: SyncStatus; setSync: (value: SyncS
           <thead>
             <tr>
               <th>Title</th>
-              <th>Source</th>
+              <th>Where</th>
               <th>Type</th>
-              <th>Plays / requests</th>
+              <th>Requested by</th>
               <th>Why</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.id}>
+              <tr key={item.id} className="unmatched-row">
                 <td>
                   <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
-                  <div><span className="chip warn">Unmatched</span></div>
+                  <div>
+                    <span className="chip warn">{item.kind === "no_seerr" ? "Not in Seerr" : "Not in library"}</span>
+                  </div>
                 </td>
                 <td className="capitalize">{item.source}</td>
                 <td>{item.media_type === "tv" ? "TV" : "Movie"}</td>
-                <td>{item.plays}</td>
-                <td className="muted">{item.reason || "No matching library title"}</td>
+                <td>{item.requested_by || "—"}</td>
+                <td className="muted">{item.reason}</td>
                 <td><ServiceLinks links={item.links} /></td>
               </tr>
             ))}
             {!items.length && (
               <tr>
                 <td colSpan={6} className="empty">
-                  {loading ? "Loading unmatched titles…" : "Everything from the last sync matched the library."}
+                  {loading ? "Loading unmatched titles…" : "Radarr, Sonarr, and Seerr agree on the current library."}
                 </td>
               </tr>
             )}
@@ -689,7 +702,7 @@ function Logs({ sync }: { sync: SyncStatus }) {
   return (
     <div className="page">
       <h2>Logs</h2>
-      <p className="muted">Sync progress, unmatched watch-history titles, and deletions. Newest first.</p>
+      <p className="muted">Sync progress, matching, and deletions. Newest first.</p>
       <div className="filters">
         <input type="search" placeholder="Search logs" value={q} onChange={(e) => setQ(e.target.value)} />
         <select value={category} onChange={(e) => setCategory(e.target.value)}>

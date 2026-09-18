@@ -329,6 +329,7 @@ def unmatched(
     q: str = "",
     source: str = "",
     media_type: str = "",
+    kind: str = "",
     page: int = 1,
     page_size: int = 50,
 ):
@@ -336,28 +337,39 @@ def unmatched(
     page = max(1, page)
     page_size = min(max(page_size, 10), 200)
     with connect() as conn:
-        rows = [dict(row) for row in conn.execute("SELECT * FROM unmatched ORDER BY plays DESC, title ASC").fetchall()]
+        rows = [dict(row) for row in conn.execute("SELECT * FROM unmatched ORDER BY kind DESC, title ASC").fetchall()]
+    by_source: dict[str, int] = {}
+    by_kind: dict[str, int] = {}
+    for row in rows:
+        by_source[row.get("source") or "unknown"] = by_source.get(row.get("source") or "unknown", 0) + 1
+        row_kind = row.get("kind") or ""
+        if row_kind:
+            by_kind[row_kind] = by_kind.get(row_kind, 0) + 1
     items = []
     for row in rows:
         if source and row.get("source") != source:
             continue
+        if kind and row.get("kind") != kind:
+            continue
         if media_type and row.get("media_type") != media_type:
             continue
-        if q and q.lower() not in f"{row.get('title') or ''} {row.get('source') or ''}".lower():
+        if q and q.lower() not in f"{row.get('title') or ''} {row.get('source') or ''} {row.get('requested_by') or ''}".lower():
             continue
         items.append({**row, "links": _unmatched_links(row)})
     total = len(items)
     start = (page - 1) * page_size
-    by_source: dict[str, int] = {}
-    for item in items:
-        by_source[item.get("source") or "unknown"] = by_source.get(item.get("source") or "unknown", 0) + 1
     return {
         "items": items[start : start + page_size],
         "total": total,
         "page": page,
         "page_size": page_size,
         "pages": max(1, (total + page_size - 1) // page_size),
-        "stats": {"count": total, **{f"{key}_count": value for key, value in by_source.items()}},
+        "stats": {
+            "count": len(rows),
+            **{f"{key}_count": value for key, value in by_source.items()},
+            "seerr_missing": by_kind.get("seerr_missing") or 0,
+            "no_seerr": by_kind.get("no_seerr") or 0,
+        },
         "sync": job_status(),
     }
 
@@ -476,20 +488,22 @@ def library(
 
 def _unmatched_links(row: dict) -> dict:
     links = {}
-    title = quote(str(row.get("title") or ""))
-    source = row.get("source")
-    if source == "tautulli":
-        base = public_url("tautulli", "tautulli_url")
+    media_type = row.get("media_type") or "movie"
+    tmdb_id = row.get("tmdb_id")
+    seerr_base = public_url("seerr", "seerr_url")
+    if seerr_base and tmdb_id:
+        kind = "movie" if media_type == "movie" else "tv"
+        links["seerr"] = f"{seerr_base}/{kind}/{tmdb_id}"
+    elif seerr_base and row.get("title"):
+        links["seerr"] = f"{seerr_base}/search?query={quote(str(row['title']))}"
+    if media_type == "movie" and tmdb_id:
+        base = public_url("radarr", "radarr_url")
         if base:
-            links["tautulli"] = f"{base}/search?query={title}" if title else base
-    elif source == "tracearr":
-        base = public_url("tracearr", "tracearr_url")
+            links["radarr"] = f"{base}/movie/{tmdb_id}"
+    if media_type == "tv":
+        base = public_url("sonarr", "sonarr_url")
         if base:
-            links["tracearr"] = f"{base}/history?q={title}" if title else f"{base}/history"
-    elif source == "seerr":
-        base = public_url("seerr", "seerr_url")
-        if base:
-            links["seerr"] = f"{base}/search?query={title}" if title else base
+            links["sonarr"] = f"{base}/add/new?term={quote(str(row.get('title') or ''))}" if row.get("title") else base
     return links
 
 
