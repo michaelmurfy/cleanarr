@@ -1094,7 +1094,7 @@ function Settings() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [usernameLocked, setUsernameLocked] = useState(false);
-  const [envFile, setEnvFile] = useState(false);
+  const [hideSettings, setHideSettings] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
@@ -1168,7 +1168,7 @@ function Settings() {
     setFlags(nextFlags);
     setUsername(data.username);
     setUsernameLocked(data.username_locked);
-    setEnvFile(data.env_file);
+    setHideSettings(Boolean(data.hide_settings));
     setScheduleEnabled((next.sync_schedule_enabled || "0") === "1");
     setIntervalHours(next.sync_interval_hours || "24");
     if (data.maintenance) setMaintenance(data.maintenance);
@@ -1185,15 +1185,20 @@ function Settings() {
       sync_schedule_enabled: scheduleEnabled ? "1" : "0",
       sync_interval_hours: interval,
     };
-    if (!envFile) {
+    if (!hideSettings) {
       for (const [key, value] of Object.entries(values)) {
+        if (flags[`${key}_hidden`] || flags[`${key}_locked`]) continue;
         if (key.endsWith("_api_key") && !value) continue;
         outgoing[key] = value;
       }
     }
-    await api.saveSettings({ values: outgoing, username: envFile ? null : username, password: envFile ? null : password || null });
+    await api.saveSettings({
+      values: outgoing,
+      username: hideSettings || usernameLocked ? null : username,
+      password: hideSettings || usernameLocked ? null : password || null,
+    });
     setPassword("");
-    setMessage(envFile ? "Schedule saved." : "Saved.");
+    setMessage(hideSettings ? "Schedule saved." : "Saved.");
   }
 
   function applyTest(result: ServiceTest) {
@@ -1217,7 +1222,7 @@ function Settings() {
   async function testAll() {
     setTesting(true);
     setError("");
-    for (const service of services) {
+    for (const service of visibleServices) {
       setTests((current) => ({ ...current, [service.id]: { status: "running" } }));
     }
     try {
@@ -1262,6 +1267,17 @@ function Settings() {
     }
   }
 
+  function hiddenKey(key: string) {
+    return hideSettings || Boolean(flags[`${key}_hidden`]);
+  }
+
+  const visibleServices = hideSettings ? services.filter((service) => flags[`${service.urlKey}_set`]) : services;
+  const visibleGroups = hideSettings
+    ? []
+    : groups
+        .map((group) => ({ ...group, fields: group.fields.filter(([key]) => !hiddenKey(key)) }))
+        .filter((group) => group.fields.length > 0);
+
   function field(key: string, label: string) {
     const locked = Boolean(flags[`${key}_locked`]);
     const configured = Boolean(flags[`${key}_set`]);
@@ -1301,35 +1317,42 @@ function Settings() {
   return (
     <div className="page">
       <h2>Settings</h2>
-      {envFile && <p className="muted">A <code>.env</code> file is present, so service URLs and keys are read-only. Automatic sync and maintenance still work from here.</p>}
-      {!envFile && <p className="muted">Values present in the process environment are locked. API keys are never shown after they are saved.</p>}
+      {hideSettings ? (
+        <p className="muted">
+          Service URLs, API keys, and login are hidden because <code>CLEANARR_HIDE_SETTINGS=1</code> is set. Edit <code>.env</code> and restart to change them.
+        </p>
+      ) : (
+        <p className="muted">Values present in the process environment are locked. API keys are never shown after they are saved.</p>
+      )}
       {error && <p className="error">{error}</p>}
       {message && <p className="muted">{message}</p>}
 
-      <section className="settings-section">
-        <div className="settings-head">
-          <div>
-            <h3>Connections</h3>
-            <p className="muted">Probe each service without exposing API keys.</p>
+      {visibleServices.length > 0 && (
+        <section className="settings-section">
+          <div className="settings-head">
+            <div>
+              <h3>Connections</h3>
+              <p className="muted">Probe each service without exposing API keys.</p>
+            </div>
+            <button className="primary" type="button" disabled={testing} onClick={testAll}>{testing ? "Testing…" : "Test all"}</button>
           </div>
-          <button className="primary" type="button" disabled={testing} onClick={testAll}>{testing ? "Testing…" : "Test all"}</button>
-        </div>
-        <div className="test-list">
-          {services.map((service) => {
-            const configured = Boolean(flags[`${service.urlKey}_set`]);
-            return (
-              <div className="test-row" key={service.id}>
-                <div>
-                  <strong>{service.label}</strong>
-                  <div className="muted">{configured ? "Configured" : "Not configured"}</div>
+          <div className="test-list">
+            {visibleServices.map((service) => {
+              const configured = Boolean(flags[`${service.urlKey}_set`]);
+              return (
+                <div className="test-row" key={service.id}>
+                  <div>
+                    <strong>{service.label}</strong>
+                    <div className="muted">{configured ? "Configured" : "Not configured"}</div>
+                  </div>
+                  <span className={`test-status ${testClass(service.id, configured)}`}>{testLabel(service.id, configured)}</span>
+                  <button className="ghost" type="button" disabled={testing || !configured} onClick={() => test(service.id)}>Test</button>
                 </div>
-                <span className={`test-status ${testClass(service.id, configured)}`}>{testLabel(service.id, configured)}</span>
-                <button className="ghost" type="button" disabled={testing || !configured} onClick={() => test(service.id)}>Test</button>
-              </div>
-            );
-          })}
-        </div>
-      </section>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <form onSubmit={save}>
         <section className="settings-section">
@@ -1388,13 +1411,14 @@ function Settings() {
           </div>
         </section>
 
-        {groups.map((group) => (
+        {visibleGroups.map((group) => (
           <section className="settings-section" key={group.title}>
             <h3>{group.title}</h3>
             <p className="muted">{group.copy}</p>
             <div className="form-grid">{group.fields.map(([key, label]) => field(key, label))}</div>
           </section>
         ))}
+        {!hideSettings && (
         <section className="settings-section">
           <h3>Account</h3>
           <div className="form-grid">
@@ -1408,8 +1432,9 @@ function Settings() {
             </label>
           </div>
         </section>
+        )}
         <div className="settings-actions">
-          <button className="primary" type="submit">{envFile ? "Save schedule" : "Save settings"}</button>
+          <button className="primary" type="submit">{hideSettings ? "Save schedule" : "Save settings"}</button>
         </div>
       </form>
     </div>

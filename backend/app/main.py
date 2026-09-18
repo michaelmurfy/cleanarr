@@ -21,7 +21,7 @@ from .auth import (
     verify_password,
     COOKIE,
 )
-from .config import APP_SETTING_KEYS, env_file_present, locked_setting_keys
+from .config import APP_SETTING_KEYS, env_file_present, hide_env_settings, locked_setting_keys
 from .db import all_settings, clear_library, connect, init_db, set_setting
 from .services.clients import KEYS, cfg, public_url, jellystat, radarr, seerr, sonarr, tautulli, tracearr
 from .logs import add_log, list_logs
@@ -103,11 +103,13 @@ def get_settings(request: Request):
     stored = all_settings()
     locked = locked_setting_keys()
     env_locked = env_file_present()
+    hide_settings = hide_env_settings()
     values = {}
     for key in KEYS:
         configured = bool(cfg(key) or stored.get(key))
         values[f"{key}_set"] = configured
-        values[f"{key}_locked"] = env_locked or key in locked
+        values[f"{key}_locked"] = hide_settings or key in locked
+        values[f"{key}_hidden"] = hide_settings
         if key.endswith("_api_key"):
             values[key] = ""
         elif values[f"{key}_locked"]:
@@ -125,8 +127,9 @@ def get_settings(request: Request):
         "values": values,
         "locked": sorted(locked),
         "env_file": env_locked,
+        "hide_settings": hide_settings,
         "username": get_setting("auth_username"),
-        "username_locked": env_locked or "auth_username" in locked,
+        "username_locked": hide_settings or "auth_username" in locked,
         "using_default_password": get_setting("using_default_password") == "1",
         "sync": job_status(),
         "maintenance": {
@@ -155,12 +158,12 @@ def _normalize_app_setting(key: str, value: str) -> str:
 def put_settings(payload: SettingsIn, request: Request):
     current_user(request)
     locked = locked_setting_keys()
-    env_locked = env_file_present()
+    hide_settings = hide_env_settings()
     for key, value in payload.values.items():
         if key in APP_SETTING_KEYS:
             set_setting(key, _normalize_app_setting(key, value))
             continue
-        if env_locked or key not in KEYS or key in locked:
+        if hide_settings or key not in KEYS or key in locked:
             continue
         if key.endswith("_api_key"):
             cleaned = value.strip()
@@ -169,9 +172,9 @@ def put_settings(payload: SettingsIn, request: Request):
             set_setting(key, cleaned)
             continue
         set_setting(key, value.strip())
-    if not env_locked and "auth_username" not in locked and (payload.username or payload.password):
+    if not hide_settings and "auth_username" not in locked and (payload.username or payload.password):
         set_credentials(payload.username or "", payload.password)
-    return {"ok": True, "locked": env_locked}
+    return {"ok": True, "hide_settings": hide_settings}
 
 
 def _probe_service(name: str) -> dict:

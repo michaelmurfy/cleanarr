@@ -112,6 +112,7 @@ export const api = {
       values: Record<string, string | boolean>;
       locked: string[];
       env_file: boolean;
+      hide_settings: boolean;
       username: string;
       username_locked: boolean;
       using_default_password: boolean;

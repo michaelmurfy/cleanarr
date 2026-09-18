@@ -28,6 +28,18 @@ ENV_KEY_MAP = {
 }
 
 
+def env_value(name: str) -> str:
+    return (os.environ.get(name) or dotenv_values().get(name) or "").strip()
+
+
+def env_flag(name: str) -> bool:
+    return env_value(name).lower() in {"1", "true", "yes", "on"}
+
+
+def hide_env_settings() -> bool:
+    return env_flag("CLEANARR_HIDE_SETTINGS")
+
+
 def env_file_paths() -> list[Path]:
     paths = [
         Path("/app/.env"),
@@ -64,13 +76,12 @@ def env_file_present() -> bool:
 
 
 def locked_setting_keys() -> set[str]:
+    if hide_env_settings():
+        return set(ENV_KEY_MAP.keys())
     locked: set[str] = set()
-    file_vals = dotenv_values()
     for field, env_name in ENV_KEY_MAP.items():
-        if env_name in os.environ or env_name in file_vals:
+        if env_value(env_name):
             locked.add(field)
-    if env_file_present():
-        locked.update(ENV_KEY_MAP.keys())
     return locked
 
 

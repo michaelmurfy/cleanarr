@@ -1,29 +1,26 @@
 # Cleanarr
 
-Cleanarr is a small self-hosted UI for reclaiming disk from your *arr stack. It merges watch history from **Tautulli** (Plex), **Tracearr** (Jellyfin/Plex/Emby), and/or **Jellystat** (Jellyfin), shows who requested a title in **Seerr**, and can bulk-delete from **Radarr** / **Sonarr** (including files on disk). A whitelist keeps cult titles like *Stargate* or *Back to the Future* off the chopping block. Ban sends the title to the Seerr blacklist.
+Self-hosted UI to reclaim disk from Radarr and Sonarr. Watch history comes from Tautulli (Plex), Tracearr (Jellyfin/Plex/Emby), and/or Jellystat (Jellyfin). Seerr supplies who requested a title.
 
-## Run with Docker
+## Run
 
 ```bash
 cp .env.example .env
-# set CLEANARR_USERNAME / CLEANARR_PASSWORD / CLEANARR_SECRET
+# set CLEANARR_USERNAME, CLEANARR_PASSWORD, CLEANARR_SECRET
+# fill the services you use; leave the rest blank
 docker compose up -d --build
 ```
 
-Open [http://localhost:7585](http://localhost:7585) and sign in. The login form never prefills a username.
+Open http://localhost:7585
 
-If a `.env` file is present (Docker Compose mounts it read-only), Settings are locked. Change URLs and keys in `.env` and restart. Saved API keys are never shown in the UI.
+`CLEANARR_HIDE_SETTINGS=1` (default in `.env.example`) hides service URLs, API keys, and login from Settings — including unused services. Change them in `.env` and restart. Set it to `0` to manage connections in the UI.
 
-Sync builds the library, ratings, and a local poster cache.
+## Delete
 
-You can leave Tautulli, Tracearr, or Jellystat empty. If more than one is configured, the same play (same person, same title, within two hours) counts once. Jellystat needs an API key from its Settings → API keys page.
-
-## What delete does
-
-- Skips anything matching the whitelist (title substring or TMDB id)
-- Deletes the movie/series in Radarr or Sonarr with `deleteFiles=true`
+- Skips whitelist matches (title substring or TMDB id)
+- Deletes the movie/series in Radarr or Sonarr with files on disk
 - Removes the Seerr media record
-- Optional **Ban in Seerr + delete** also blacklists it in Seerr and adds an import-list exclusion
+- **Ban in Seerr + delete** also blacklists it in Seerr
 
 ## Local development
 
@@ -35,8 +32,4 @@ uvicorn app.main:app --reload --port 7585
 cd frontend && npm install && npm run dev
 ```
 
-Vite proxies `/api` to port 7585. The Docker image serves the built UI from FastAPI.
-
-## Data
-
-SQLite lives in `/data` inside the container (`cleanarr-data` volume). That holds login, settings, whitelist, and the last synced library.
+Vite proxies `/api` to port 7585. SQLite lives in `/data` in Docker (`cleanarr-data` volume).
