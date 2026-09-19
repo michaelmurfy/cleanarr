@@ -545,17 +545,24 @@ def library(
         if watched == "protected":
             if not item["whitelisted"]:
                 continue
-        elif watched == "requested":
-            if (item.get("availability") or "downloaded") != "requested":
+        else:
+            # A protected title is never a deletion candidate, so mixing it into
+            # every other view (including a plain search) is noise the user has
+            # already resolved. The Protected filter above is the one place it
+            # still shows up.
+            if item["whitelisted"]:
                 continue
-        elif watched == "never":
-            if item["play_count"] or not on_disk(item):
+            if watched == "requested":
+                if (item.get("availability") or "downloaded") != "requested":
+                    continue
+            elif watched == "never":
+                if item["play_count"] or not on_disk(item):
+                    continue
+            elif watched == "watched" and not item["play_count"]:
                 continue
-        elif watched == "watched" and not item["play_count"]:
-            continue
-        elif watched == "stale":
-            if not is_stale_unwatched(item, cutoff):
-                continue
+            elif watched == "stale":
+                if not is_stale_unwatched(item, cutoff):
+                    continue
         # Pending Seerr requests stay out of the main lists unless you ask for them.
         if hide_unprocessed and watched != "requested" and not on_disk(item):
             continue

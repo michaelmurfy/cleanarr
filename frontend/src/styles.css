@@ -831,7 +831,6 @@ form + .settings-section { margin-top: 16px; }
   gap: 8px;
   min-width: 0;
   max-width: 100%;
-  max-width: 100%;
   padding: 5px 10px;
   border-radius: 8px;
   border: 1px solid #2a4a32;
@@ -1248,6 +1247,24 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   table, thead, tbody, th, td, tr { display: block; width: 100%; }
   thead { display: none; }
   tbody { display: grid; gap: 8px; }
+  /* A card here is tapped, not read: without this, a card with no click handler
+     (protected rows, info rows) leaves the browser's own tap-and-hold text
+     selection as the only response, which looks like a stray highlighting bug. */
+  tbody tr,
+  .list-item {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  tbody tr input,
+  tbody tr select,
+  tbody tr textarea,
+  .list-item input,
+  .list-item select,
+  .list-item textarea {
+    -webkit-user-select: auto;
+    user-select: auto;
+  }
   tbody tr {
     display: grid;
     grid-template-columns: 24px minmax(0, 1fr);
@@ -1408,6 +1425,23 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     grid-column: 1 / -1;
     text-align: center;
     padding: 28px 12px;
+  }
+
+  /* Whitelist and the Unmatched "ignored" list use plain flex rows, not the
+     table-to-card transform above. That row never wrapped, and the trailing
+     button's flex: none (from .ghost) meant it just ran off the right edge
+     instead of shrinking, hidden by .page's overflow-x: hidden rather than
+     reachable by scrolling. Stacking removes the horizontal fight entirely. */
+  .list-item,
+  .ignored-list li {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .list-item > button,
+  .ignored-list li > button {
+    align-self: flex-end;
+    margin-left: 0;
   }
 
   .bulk {
