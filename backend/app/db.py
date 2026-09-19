@@ -37,6 +37,7 @@ def init_db() -> None:
                 poster_url TEXT NOT NULL DEFAULT '',
                 size_bytes INTEGER NOT NULL DEFAULT 0,
                 radarr_id INTEGER,
+                radarr_4k_id INTEGER,
                 sonarr_id INTEGER,
                 seerr_media_id INTEGER,
                 requested_by TEXT NOT NULL DEFAULT '',
@@ -140,6 +141,8 @@ def init_db() -> None:
             """
         )
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(media)").fetchall()}
+        if "radarr_4k_id" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN radarr_4k_id INTEGER")
         if "title_slug" not in cols:
             conn.execute("ALTER TABLE media ADD COLUMN title_slug TEXT NOT NULL DEFAULT ''")
         if "rating" not in cols:

@@ -235,6 +235,7 @@ function isInteractive(event: MouseEvent) {
 
 const SERVICE_META: Record<string, { label: string; short: string; className: string }> = {
   radarr: { label: "Radarr", short: "Rad", className: "radarr" },
+  radarr_4k: { label: "Radarr 4K", short: "4K", className: "radarr-4k" },
   sonarr: { label: "Sonarr", short: "Son", className: "sonarr" },
   seerr: { label: "Seerr", short: "See", className: "seerr" },
   tautulli: { label: "Tautulli", short: "Tau", className: "tautulli" },
@@ -1542,6 +1543,7 @@ function Settings() {
     { id: "jellystat", label: "Jellystat", urlKey: "jellystat_url" },
     { id: "seerr", label: "Seerr", urlKey: "seerr_url" },
     { id: "radarr", label: "Radarr", urlKey: "radarr_url" },
+    { id: "radarr_4k", label: "Radarr 4K", urlKey: "radarr_4k_url" },
     { id: "sonarr", label: "Sonarr", urlKey: "sonarr_url" },
   ] as const;
   const groups = [
@@ -1559,10 +1561,12 @@ function Settings() {
     },
     {
       title: "Library",
-      copy: "Used to list titles, sizes, ratings, and delete files from disk.",
+      copy: "Used to list titles, sizes, ratings, and delete files from disk. Optional second Radarr for a 4K library.",
       fields: [
         ["radarr_url", "Radarr URL"],
         ["radarr_api_key", "Radarr API key"],
+        ["radarr_4k_url", "Radarr 4K URL"],
+        ["radarr_4k_api_key", "Radarr 4K API key"],
         ["sonarr_url", "Sonarr URL"],
         ["sonarr_api_key", "Sonarr API key"],
       ],
@@ -1581,6 +1585,7 @@ function Settings() {
       fields: [
         ["seerr_external_url", "Seerr public URL"],
         ["radarr_external_url", "Radarr public URL"],
+        ["radarr_4k_external_url", "Radarr 4K public URL"],
         ["sonarr_external_url", "Sonarr public URL"],
         ["tautulli_external_url", "Tautulli public URL"],
         ["tracearr_external_url", "Tracearr public URL"],

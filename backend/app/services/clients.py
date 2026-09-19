@@ -22,8 +22,11 @@ KEYS = [
     "sonarr_api_key",
     "radarr_url",
     "radarr_api_key",
+    "radarr_4k_url",
+    "radarr_4k_api_key",
     "sonarr_external_url",
     "radarr_external_url",
+    "radarr_4k_external_url",
     "seerr_external_url",
     "tautulli_external_url",
     "tracearr_external_url",
@@ -64,6 +67,11 @@ def seerr() -> Seerr | None:
 
 def radarr() -> Radarr | None:
     url, key = cfg("radarr_url"), cfg("radarr_api_key")
+    return Radarr(url, key) if url and key else None
+
+
+def radarr_4k() -> Radarr | None:
+    url, key = cfg("radarr_4k_url"), cfg("radarr_4k_api_key")
     return Radarr(url, key) if url and key else None
 
 

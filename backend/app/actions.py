@@ -9,7 +9,7 @@ from .art import remove_art
 from .auth import current_user
 from .db import connect, ignore_key
 from .logs import add_log
-from .services.clients import radarr, seerr, sonarr
+from .services.clients import radarr, radarr_4k, seerr, sonarr
 from .services.http import ServiceError
 
 router = APIRouter()
@@ -170,14 +170,25 @@ def delete_item(
     blacklist: bool,
     actor: str,
     radarr_client=None,
+    radarr_4k_client=None,
     sonarr_client=None,
     seerr_client=None,
 ) -> dict:
     """Delete one title in Radarr/Sonarr, Seerr and the local library. Raises on *arr failure."""
     if item["media_type"] == "movie":
-        if not item.get("radarr_id") or not radarr_client:
+        deleted = False
+        if item.get("radarr_id"):
+            if not radarr_client:
+                raise RuntimeError("Radarr is not configured")
+            radarr_client.delete(int(item["radarr_id"]), delete_files, blacklist)
+            deleted = True
+        if item.get("radarr_4k_id"):
+            if not radarr_4k_client:
+                raise RuntimeError("Radarr 4K is not configured")
+            radarr_4k_client.delete(int(item["radarr_4k_id"]), delete_files, blacklist)
+            deleted = True
+        if not deleted:
             raise RuntimeError("No Radarr id for this movie")
-        radarr_client.delete(int(item["radarr_id"]), delete_files, blacklist)
     else:
         if not item.get("sonarr_id") or not sonarr_client:
             raise RuntimeError("No Sonarr id for this series")
@@ -211,6 +222,7 @@ def cleanup(payload: CleanupIn, request: Request):
     user = current_user(request)
     results = []
     radarr_client = radarr()
+    radarr_4k_client = radarr_4k()
     sonarr_client = sonarr()
     seerr_client = seerr()
     for raw in payload.items:
@@ -239,6 +251,7 @@ def cleanup(payload: CleanupIn, request: Request):
                     blacklist=payload.blacklist,
                     actor=user,
                     radarr_client=radarr_client,
+                    radarr_4k_client=radarr_4k_client,
                     sonarr_client=sonarr_client,
                     seerr_client=seerr_client,
                 )

@@ -14,6 +14,7 @@ export type MediaItem = {
   art_url: string;
   size_bytes: number;
   radarr_id: number | null;
+  radarr_4k_id: number | null;
   sonarr_id: number | null;
   requested_by: string;
   requested_at: string;

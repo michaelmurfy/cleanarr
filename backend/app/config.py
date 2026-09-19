@@ -18,8 +18,11 @@ ENV_KEY_MAP = {
     "sonarr_api_key": "SONARR_API_KEY",
     "radarr_url": "RADARR_URL",
     "radarr_api_key": "RADARR_API_KEY",
+    "radarr_4k_url": "RADARR_4K_URL",
+    "radarr_4k_api_key": "RADARR_4K_API_KEY",
     "sonarr_external_url": "SONARR_EXTERNAL_URL",
     "radarr_external_url": "RADARR_EXTERNAL_URL",
+    "radarr_4k_external_url": "RADARR_4K_EXTERNAL_URL",
     "seerr_external_url": "SEERR_EXTERNAL_URL",
     "tautulli_external_url": "TAUTULLI_EXTERNAL_URL",
     "tracearr_external_url": "TRACEARR_EXTERNAL_URL",
@@ -106,6 +109,8 @@ class Settings(BaseSettings):
     sonarr_api_key: str = ""
     radarr_url: str = ""
     radarr_api_key: str = ""
+    radarr_4k_url: str = ""
+    radarr_4k_api_key: str = ""
 
 
 APP_SETTING_KEYS = (
