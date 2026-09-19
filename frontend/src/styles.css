@@ -430,6 +430,8 @@ input.tick:disabled {
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 .title-cell { display: flex; gap: 12px; align-items: center; }
 .title-cell strong { font-weight: 600; }
+.title-copy { min-width: 0; }
+.card-stats { display: none; }
 .title-meta {
   display: flex;
   flex-wrap: wrap;
@@ -1128,16 +1130,25 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     cursor: pointer;
     min-height: 46px;
   }
-  .nav-bottom button.active { color: var(--accent); background: rgba(212, 160, 84, 0.14); }
+  .nav-bottom button.active,
+  .nav-bottom button.active:active,
+  .nav-bottom button.active:focus {
+    color: var(--accent-2);
+    background: rgba(212, 160, 84, 0.16);
+  }
   .nav-bottom button.alert { color: #f0a49c; }
-  .nav-bottom button.alert.active { color: #f7c4c0; background: rgba(227, 93, 85, 0.16); }
+  .nav-bottom button.alert.active,
+  .nav-bottom button.alert.active:active,
+  .nav-bottom button.alert.active:focus {
+    color: #f7c4c0;
+    background: rgba(227, 93, 85, 0.16);
+  }
   @media (hover: hover) {
     .nav-bottom button:hover { background: var(--bg-hover); color: var(--text); }
-    .nav-bottom button.active:hover { color: var(--accent); background: rgba(212, 160, 84, 0.22); }
+    .nav-bottom button.active:hover { color: var(--accent-2); background: rgba(212, 160, 84, 0.22); }
     .nav-bottom button.alert.active:hover { color: #f7c4c0; background: rgba(227, 93, 85, 0.24); }
   }
   .nav-bottom button:active { background: var(--bg-hover); }
-  .nav-bottom button.active:active { color: var(--accent); background: rgba(212, 160, 84, 0.22); }
   .nav-bottom .nav-icon { width: 21px; height: 21px; display: block; }
   .nav-bottom-icon { position: relative; display: block; line-height: 0; }
   .nav-bottom-label {
@@ -1185,10 +1196,25 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   .stat > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .stat b { display: inline; margin-top: 0; font-size: 17px; }
 
-  /* 16px keeps iOS Safari from zooming the page when a field takes focus. */
-  input, select, textarea { font-size: 16px; }
-  input, select { padding: 11px 12px; min-height: 44px; }
+  /* 16px keeps iOS Safari from zooming the page when a field takes focus.
+     Checkboxes must stay out of this: the same min-height turns them into tall
+     rectangles beside the poster. */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea { font-size: 16px; }
+  input:not([type="checkbox"]):not([type="radio"]),
+  select { padding: 11px 12px; min-height: 44px; }
   input[type="search"] { min-width: 0; width: 100%; }
+  input.tick {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    min-height: 22px;
+    max-width: 22px;
+    max-height: 22px;
+    padding: 0;
+    flex: none;
+  }
   .nav button, .ghost, .primary, .danger, .danger-ghost, .chip-btn { min-height: 42px; }
   .filters, .toolbar, .pager { gap: 8px; }
   .filters > input[type="search"] { flex: 1 1 100%; }
@@ -1218,69 +1244,151 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   tbody { display: grid; gap: 10px; }
   tbody tr {
     display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 8px 12px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    column-gap: 10px;
+    row-gap: 0;
     padding: 12px;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 14px;
     background: var(--bg-elev);
   }
-  tbody tr td { border: none; padding: 0; }
+  tbody tr.selected,
+  tbody tr.unmatched-row.selected {
+    border-color: rgba(212, 160, 84, 0.55);
+    background: rgba(212, 160, 84, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(212, 160, 84, 0.18);
+  }
+  tbody tr.unmatched-row.selected {
+    border-color: rgba(227, 93, 85, 0.5);
+    background: rgba(227, 93, 85, 0.1);
+    box-shadow: inset 0 0 0 1px rgba(227, 93, 85, 0.18);
+  }
+  /* Selection is on the card, not each cell, or the gold wash stacks into stripes. */
+  tbody tr.selected td,
+  tbody tr.selected:hover td,
+  tbody tr.unmatched-row.selected td,
+  tbody tr.unmatched-row.selected:hover td,
+  tbody tr.clickable:hover td,
+  tbody tr.unmatched-row:hover td,
+  tbody tr.info-row td,
+  tbody tr.info-row:hover td {
+    background: transparent;
+  }
+  tbody tr td { border: none; padding: 0; background: transparent; }
   tbody tr .tick-cell {
-    grid-row: 1 / span 2;
+    grid-row: 1;
+    grid-column: 1;
     align-self: start;
     width: auto;
-    padding: 2px 0 0;
+    padding: 4px 0 0;
   }
   tbody tr td[data-label="Title"],
   tbody tr td[data-label="User"] {
     grid-column: 2;
+    min-width: 0;
   }
-  tbody tr td:not(.tick-cell):not([data-label="Title"]):not([data-label="User"]) {
-    grid-column: 1 / -1;
+  .title-cell { align-items: flex-start; gap: 10px; }
+  .title-copy { display: grid; gap: 5px; }
+  .title-meta { margin-top: 0; }
+  .title-meta .chip.ok {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Compact stats replace the one-field-per-row stack for rating/watched/plays/size. */
+  .card-stats {
     display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 4px 0;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .card-stats > span:not(:last-child)::after {
+    content: "·";
+    margin: 0 7px;
+    opacity: 0.55;
+  }
+  tbody tr td.col-type {
+    display: none;
+  }
+  tbody tr td:not(.tick-cell):not([data-label="Title"]):not([data-label="User"]):not(.col-type) {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 6.75rem minmax(0, 1fr);
+    gap: 8px 12px;
+    align-items: start;
+    margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid rgba(44, 55, 80, 0.55);
+    border-top: 1px solid rgba(44, 55, 80, 0.45);
     font-size: 13px;
   }
-  tbody tr td:not(.tick-cell):not([data-label="Title"]):not([data-label="User"])::before {
+  /* Must follow the generic cell rule so display:none wins over display:grid. */
+  tbody tr:has(.card-stats) td.col-rating,
+  tbody tr:has(.card-stats) td.col-watched,
+  tbody tr:has(.card-stats) td.col-plays,
+  tbody tr:has(.card-stats) td.col-size {
+    display: none;
+  }
+  tbody tr td:not(.tick-cell):not([data-label="Title"]):not([data-label="User"]):not(.col-type)::before {
     content: attr(data-label);
     color: var(--muted);
     font-size: 11px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    flex: none;
     padding-top: 2px;
+  }
+  tbody tr td .cell-value {
+    min-width: 0;
+    text-align: left;
   }
   tbody tr td.col-links,
   tbody tr td[data-label="Links"],
   tbody tr td[data-label="Actions"] {
+    display: flex;
+    grid-template-columns: none;
     justify-content: flex-start;
-    flex-direction: column;
-    gap: 8px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
   }
   tbody tr td.col-links::before,
   tbody tr td[data-label="Links"]::before,
   tbody tr td[data-label="Actions"]::before {
     display: none;
   }
-  .row-actions, .service-links { justify-content: flex-start; }
+  .row-actions, .service-links { justify-content: flex-start; max-width: none; }
   .row-actions > .ghost,
   .row-actions > .danger-ghost { font-size: 13px; padding: 8px 12px; }
-  .poster { width: 52px; height: 78px; }
-  .service-pill-short { display: none; }
-  .service-pill-full { display: inline; }
+  .poster { width: 48px; height: 72px; }
+  .requester { display: grid; gap: 1px; }
+  .requester-name { font-weight: 500; }
+  .requester-when { margin-top: 0; font-size: 11px; }
+  /* Short labels keep the link row from wrapping into a wall of pills. */
+  .service-pill-short { display: inline; }
+  .service-pill-full { display: none; }
   .service-pill {
     min-width: 0;
-    text-transform: none;
-    letter-spacing: 0.01em;
-    padding: 7px 12px;
-    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 5px 9px;
+    border-radius: 8px;
+    font-size: 11px;
   }
-  .col-watchers, .col-where, .col-why, .col-rating, .col-plays, .col-library, .col-type { display: flex; }
+  .col-watchers, .col-where, .col-why, .col-library, .col-requests { display: grid; }
+  tbody tr:has(td.empty) {
+    grid-template-columns: 1fr;
+    border-style: dashed;
+    background: transparent;
+  }
+  tbody tr td.empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 28px 12px;
+  }
 
   .bulk {
     position: fixed;
