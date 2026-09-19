@@ -1,7 +1,7 @@
 services:
   cleanarr:
+    image: ${CLEANARR_IMAGE:-ghcr.io/michaelmurfy/cleanarr:latest}
     build: .
-    image: cleanarr:latest
     container_name: cleanarr
     restart: unless-stopped
     ports:

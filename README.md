@@ -8,10 +8,19 @@ Self-hosted UI to reclaim disk from Radarr and Sonarr. Watch history comes from 
 cp .env.example .env
 # set CLEANARR_USERNAME, CLEANARR_PASSWORD, CLEANARR_SECRET
 # fill the services you use; leave the rest blank
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 Open http://localhost:7585
+
+Images are published to [`ghcr.io/michaelmurfy/cleanarr`](https://ghcr.io/michaelmurfy/cleanarr) on every push to `main` (and on version tags). Override with `CLEANARR_IMAGE=…` if needed. For a private package, `docker login ghcr.io` first.
+
+To build locally instead of pulling:
+
+```bash
+docker compose up -d --build
+```
 
 The container drops to `PUID`/`PGID` (default `1000:1000`) and owns everything in
 `/data`. Set them to your own user if you bind-mount `./data` instead of using the
@@ -62,10 +71,11 @@ Vite proxies `/api` to port 7585. SQLite lives in `/data` in Docker (`cleanarr-d
 ## Make
 
 ```bash
-make up      # build and start, creates .env from .env.example if missing
-make test    # backend suite in a throwaway container
-make pull    # refresh the base images
-make update  # pull, rebuild, restart
+make up      # pull GHCR image and start (creates .env from .env.example if missing)
+make build  # build locally and start
+make test   # backend suite in a throwaway container
+make pull   # refresh the published Cleanarr image
+make update # pull latest published image and restart
 ```
 
 ## Tests
@@ -75,4 +85,4 @@ cd backend && pip install -r requirements-dev.txt
 pytest --cov=app
 ```
 
-CI runs the backend suite plus the frontend typecheck and build on every push and pull request.
+CI runs the backend suite plus the frontend typecheck and build on every push and pull request. Docker images are built on PRs and pushed to GHCR from `main` and version tags.
