@@ -8,8 +8,6 @@ services:
       - "7585:7585"
     env_file:
       - .env
-    environment:
-      DATA_DIR: /data
     volumes:
       - cleanarr-data:/data
       - ./.env:/app/.env:ro
