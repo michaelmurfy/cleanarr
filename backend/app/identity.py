@@ -148,6 +148,8 @@ class UserDirectory:
                         break
             if person is None and text:
                 person = self.add(plex="", display=text, extras=[text])
+            if person is None:
+                return {"canonical": "", "display": "", "plex": "", "email": ""}
         display = person.get("display") or person.get("plex") or ""
         plex = person.get("plex") or ""
         canonical = plex or display

@@ -1,5 +1,7 @@
 # Cleanarr
 
+[![CI](https://github.com/michaelmurfy/cleanarr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/michaelmurfy/cleanarr/actions/workflows/ci.yml)
+
 Self-hosted UI to reclaim disk from Radarr and Sonarr. Watch history comes from Tautulli (Plex), Tracearr (Jellyfin/Plex/Emby), and/or Jellystat (Jellyfin). Seerr supplies who requested a title.
 
 ## Run
@@ -33,3 +35,12 @@ cd frontend && npm install && npm run dev
 ```
 
 Vite proxies `/api` to port 7585. SQLite lives in `/data` in Docker (`cleanarr-data` volume).
+
+## Tests
+
+```bash
+cd backend && pip install -r requirements-dev.txt
+pytest --cov=app
+```
+
+CI runs the backend suite plus the frontend typecheck and build on every push and pull request.

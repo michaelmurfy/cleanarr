@@ -1,11 +1,11 @@
-FROM node:22-alpine AS frontend
+FROM node:24-alpine AS frontend
 WORKDIR /web
 COPY frontend/package.json ./
 RUN npm install
 COPY frontend .
 RUN npm run build
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DATA_DIR=/data
 COPY backend/requirements.txt .
