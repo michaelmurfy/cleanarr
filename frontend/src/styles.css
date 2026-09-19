@@ -231,11 +231,12 @@ a:hover { text-decoration: underline; }
 .muted { color: var(--muted); }
 
 .page {
+  --page-top-padding: 24px;
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   width: 100%;
-  padding: 24px max(28px, calc((100% - 1440px) / 2)) 96px;
+  padding: var(--page-top-padding) max(28px, calc((100% - 1440px) / 2)) 96px;
   background: var(--bg);
   animation: rise 280ms ease;
 }
@@ -330,6 +331,7 @@ input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--bg-elev);
+  overflow: clip;
 }
 table {
   width: 100%;
@@ -346,10 +348,12 @@ th {
   background: var(--bg-elev);
   white-space: nowrap;
   position: sticky;
-  top: 0;
+  top: calc(-1 * var(--page-top-padding));
   z-index: 5;
   border-bottom: 1px solid var(--line);
 }
+thead th:first-child { border-top-left-radius: 13px; }
+thead th:last-child { border-top-right-radius: 13px; }
 tbody {
   position: relative;
   z-index: 0;
