@@ -49,6 +49,25 @@ def _whitelist_rows() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def _whitelist_matches(rule: dict, media: list[dict]) -> list[dict]:
+    """Library titles this one rule currently protects."""
+    matches = []
+    for item in media:
+        if not is_protected(item["title"], item["media_type"], int(item.get("tmdb_id") or 0), [rule]):
+            continue
+        matches.append(
+            {
+                "id": item["id"],
+                "title": item["title"],
+                "year": item.get("year"),
+                "media_type": item["media_type"],
+                "tmdb_id": int(item.get("tmdb_id") or 0),
+            }
+        )
+    matches.sort(key=lambda row: (row["title"] or "").casefold())
+    return matches
+
+
 def is_protected(title: str, media_type: str, tmdb_id: int, rows: list[dict] | None = None) -> dict | None:
     needle = (title or "").lower()
     for row in rows if rows is not None else _whitelist_rows():
@@ -101,7 +120,19 @@ def protect_reason(row: dict) -> str:
 @router.get("/whitelist")
 def list_whitelist(request: Request):
     current_user(request)
-    return {"items": _whitelist_rows()}
+    with connect() as conn:
+        rules = [dict(row) for row in conn.execute("SELECT * FROM whitelist ORDER BY pattern COLLATE NOCASE").fetchall()]
+        media = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT id, title, year, media_type, tmdb_id FROM media ORDER BY title COLLATE NOCASE"
+            ).fetchall()
+        ]
+    items = []
+    for rule in rules:
+        matches = _whitelist_matches(rule, media)
+        items.append({**rule, "matches": matches, "match_count": len(matches)})
+    return {"items": items}
 
 
 @router.post("/whitelist")

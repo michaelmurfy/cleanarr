@@ -236,6 +236,14 @@ export type Maintenance = {
   unmatched_count: number;
 };
 
+export type WhitelistMatch = {
+  id: number;
+  title: string;
+  year: number | null;
+  media_type: string;
+  tmdb_id: number;
+};
+
 export type WhitelistItem = {
   id: number;
   match_type: string;
@@ -243,4 +251,6 @@ export type WhitelistItem = {
   tmdb_id: number;
   pattern: string;
   note: string;
+  matches?: WhitelistMatch[];
+  match_count?: number;
 };
