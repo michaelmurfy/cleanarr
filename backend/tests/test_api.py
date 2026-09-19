@@ -126,6 +126,45 @@ def test_library_returns_empty_payload_before_a_sync(auth_client):
     assert body["items"] == []
 
 
+def test_protected_titles_are_hidden_outside_the_protected_filter(auth_client):
+    """A whitelisted title is never a deletion candidate, so every other view
+    (including a plain search for it) should skip it; only the Protected filter
+    still shows it."""
+    from app.db import connect
+
+    with connect() as conn:
+        conn.execute("DELETE FROM media")
+        conn.execute("DELETE FROM whitelist")
+        conn.execute(
+            "INSERT INTO media (media_type, tmdb_id, title, year, play_count) "
+            "VALUES ('movie', 2157, 'Lost in Space', 1998, 0)"
+        )
+        conn.execute(
+            "INSERT INTO media (media_type, tmdb_id, title, year, play_count) "
+            "VALUES ('movie', 423, 'Jobs', 2013, 0)"
+        )
+        conn.execute(
+            "INSERT INTO whitelist (match_type, media_type, tmdb_id, pattern, note, created_at) "
+            "VALUES ('id', 'any', 2157, '2157', '', 0)"
+        )
+
+    try:
+        default = auth_client.get("/api/library").json()
+        assert [i["title"] for i in default["items"]] == ["Jobs"]
+        assert default["stats"]["count"] == 1
+        assert default["stats"]["whitelisted"] == 1
+
+        searched = auth_client.get("/api/library", params={"q": "Lost in Space"}).json()
+        assert searched["items"] == []
+
+        protected = auth_client.get("/api/library", params={"watched": "protected"}).json()
+        assert [i["title"] for i in protected["items"]] == ["Lost in Space"]
+    finally:
+        with connect() as conn:
+            conn.execute("DELETE FROM media")
+            conn.execute("DELETE FROM whitelist")
+
+
 def test_auto_delete_defaults_to_off(auth_client):
     values = auth_client.get("/api/settings").json()["values"]
     assert values["auto_delete_enabled"] == "0"
