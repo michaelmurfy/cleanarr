@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend /app
 COPY --from=frontend /web/dist /app/static
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+# Stamped from the git tag on a release build; empty falls back to app/version.py.
+ARG VERSION=""
+ENV CLEANARR_VERSION=$VERSION
 EXPOSE 7585
 VOLUME ["/data"]
 ENTRYPOINT ["docker-entrypoint.sh"]
