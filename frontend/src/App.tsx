@@ -730,9 +730,9 @@ function Unmatched({
 
   const staleItems = items.filter((item) => item.kind === "seerr_missing");
   const staleCount = stats.seerr_missing ?? 0;
-  const missingItems = items.filter((item) => item.kind === "no_seerr");
+  const missingItems = items.filter((item) => item.kind === "no_seerr" && item.tmdb_id > 0);
   const missingCount = stats.no_seerr ?? 0;
-  const actionable = items.filter((item) => item.kind === "seerr_missing" || item.kind === "no_seerr");
+  const actionable = items.filter((item) => item.kind === "seerr_missing" || (item.kind === "no_seerr" && item.tmdb_id > 0));
   const selectedStale = staleItems.filter((item) => selected.has(item.id)).map((item) => item.id);
   const selectedMissing = missingItems.filter((item) => selected.has(item.id)).map((item) => item.id);
 
@@ -841,7 +841,7 @@ function Unmatched({
             {items.map((item) => {
               const stale = item.kind === "seerr_missing";
               const missing = item.kind === "no_seerr";
-              const pickable = stale || missing;
+              const pickable = stale || (missing && item.tmdb_id > 0);
               return (
                 <tr
                   key={item.id}
@@ -868,7 +868,17 @@ function Unmatched({
                   <td>
                     <div className="row-actions">
                       {stale && <button className="danger-ghost" type="button" onClick={() => setPending({ mode: "clear", all: false, ids: [item.id] })}>Clear in Seerr</button>}
-                      {missing && <button className="ghost" type="button" onClick={() => setPending({ mode: "add", all: false, ids: [item.id] })}>Add to Seerr</button>}
+                      {missing && (
+                        <button
+                          className="ghost"
+                          type="button"
+                          disabled={!item.tmdb_id}
+                          title={item.tmdb_id ? undefined : "Seerr is keyed on TMDB and this title has no TMDB id"}
+                          onClick={() => setPending({ mode: "add", all: false, ids: [item.id] })}
+                        >
+                          Add to Seerr
+                        </button>
+                      )}
                       <ServiceLinks links={item.links} />
                     </div>
                   </td>

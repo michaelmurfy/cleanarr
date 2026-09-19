@@ -317,8 +317,9 @@ def add_missing_seerr(payload: AddSeerrIn, request: Request):
         raise HTTPException(400, "Nothing selected")
     with connect() as conn:
         if payload.all_missing:
+            # Seerr is keyed on TMDB, so a bulk add skips rows it could never take.
             rows = [dict(row) for row in conn.execute(
-                "SELECT * FROM unmatched WHERE kind = 'no_seerr'"
+                "SELECT * FROM unmatched WHERE kind = 'no_seerr' AND tmdb_id > 0"
             ).fetchall()]
         else:
             placeholders = ",".join("?" for _ in payload.ids)

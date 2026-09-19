@@ -623,7 +623,11 @@ def _run_sync(auto_delete: bool = False) -> None:
                     item["media_type"],
                     title,
                     item.get("year"),
-                    reason="In the library, but not matched to Seerr",
+                    reason=(
+                        "In the library, but not matched to Seerr"
+                        if item.get("tmdb_id")
+                        else "In the library, but Seerr cannot track it: no TMDB id"
+                    ),
                     tmdb_id=item.get("tmdb_id") or 0,
                     tvdb_id=item.get("tvdb_id") or 0,
                     kind="no_seerr",
