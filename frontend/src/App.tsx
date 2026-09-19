@@ -60,7 +60,9 @@ function loadFilters(): Filters {
 }
 
 function scrollResultsTop() {
-  window.scrollTo(0, 0);
+  const page = document.querySelector(".shell > .page");
+  if (page instanceof HTMLElement) page.scrollTo(0, 0);
+  else window.scrollTo(0, 0);
 }
 
 function num(value: number | null | undefined) {
