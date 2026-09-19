@@ -71,6 +71,13 @@ def test_unconfigured_service_probe_reports_not_configured(auth_client):
     body = auth_client.post("/api/settings/test", json={"service": "radarr"}).json()
     assert body["ok"] is False
     assert body["configured"] is False
+    assert body["message"] == "Not configured"
+
+
+def test_test_all_skips_unconfigured_services(auth_client):
+    body = auth_client.post("/api/settings/test-all").json()
+    assert body["results"] == []
+    assert body["ok"] is False
 
 
 def test_library_returns_empty_payload_before_a_sync(auth_client):

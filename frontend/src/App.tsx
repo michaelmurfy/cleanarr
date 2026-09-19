@@ -59,6 +59,10 @@ function loadFilters(): Filters {
   }
 }
 
+function num(value: number | null | undefined) {
+  return (value ?? 0).toLocaleString();
+}
+
 function bytes(value: number) {
   if (!value) return "—";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -84,6 +88,82 @@ function when(ts: number | null) {
 
 function whenFull(ts: number | null) {
   return ts ? new Date(ts * 1000).toLocaleString() : "Never watched";
+}
+
+function whenSync(ts: number | null | undefined) {
+  if (!ts) return "";
+  const diff = Date.now() / 1000 - ts;
+  if (diff < 60) return "Just now";
+  if (diff < 3600) {
+    const mins = Math.max(1, Math.floor(diff / 60));
+    return `${mins}m ago`;
+  }
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function SyncMeter({ sync }: { sync: SyncStatus }) {
+  const running = sync.status === "running";
+  const failed = sync.status === "error";
+  const finishedAt = sync.finished_at ?? null;
+  const ago = whenSync(finishedAt);
+  const exact = finishedAt ? new Date(finishedAt * 1000).toLocaleString() : "";
+
+  if (running) {
+    const label = sync.step || sync.message || "Syncing…";
+    const tip = [sync.message, sync.total ? `${sync.current || 0} / ${sync.total}` : ""]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <div className="sync-meter live" title={tip || label}>
+        <div className="sync-meter-row">
+          <span className="spinner" aria-hidden="true" />
+          <div className="sync-meter-text">
+            <span className="sync-meter-label">{label}</span>
+            {sync.percent != null ? <span className="sync-meter-meta">{sync.percent}%</span> : null}
+          </div>
+        </div>
+        {sync.percent != null ? (
+          <div className="sync-meter-bar" aria-hidden="true">
+            <i style={{ width: `${Math.max(4, sync.percent)}%` }} />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (failed) {
+    return (
+      <div className="sync-meter fail" title={sync.message || "Sync failed"}>
+        <div className="sync-meter-text">
+          <span className="sync-meter-label">Sync failed</span>
+          <span className="sync-meter-meta">{ago || "See logs"}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!finishedAt && !sync.message) {
+    return (
+      <div className="sync-meter">
+        <div className="sync-meter-text">
+          <span className="sync-meter-label">Not synced yet</span>
+          <span className="sync-meter-meta">Run Sync now</span>
+        </div>
+      </div>
+    );
+  }
+
+  const tip = [sync.message, exact].filter(Boolean).join(" · ");
+  return (
+    <div className="sync-meter" title={tip || "Last sync"}>
+      <div className="sync-meter-text">
+        <span className="sync-meter-label">{sync.message || "Synced"}</span>
+        <span className="sync-meter-meta">{ago ? `Synced ${ago}` : "Synced"}</span>
+      </div>
+    </div>
+  );
 }
 
 function parseStamp(value: string | number | null | undefined): number | null {
@@ -120,34 +200,56 @@ function Requester({ name, at }: { name?: string | null; at?: string | number | 
   );
 }
 
+// Seerr's own view of a title, so the row says why it is listed instead of just "unmatched".
+const SEERR_STATE_CHIPS: Record<string, { label: string; tone: string }> = {
+  available: { label: "Seerr says available", tone: "warn" },
+  orphan: { label: "Dead Radarr/Sonarr link", tone: "warn" },
+  requested: { label: "Never arrived", tone: "partial" },
+  deleted: { label: "Deleted in Seerr", tone: "pending" },
+  absent: { label: "Not in Seerr", tone: "partial" },
+};
+
+function stateChip(item: UnmatchedItem) {
+  const known = item.seerr_state ? SEERR_STATE_CHIPS[item.seerr_state] : undefined;
+  if (known) return known;
+  return item.kind === "no_seerr"
+    ? SEERR_STATE_CHIPS.absent
+    : item.kind === "seerr_deleted"
+      ? SEERR_STATE_CHIPS.deleted
+      : { label: "Not in library", tone: "warn" };
+}
+
 function isInteractive(event: MouseEvent) {
   return Boolean((event.target as HTMLElement).closest("a, button, input, label"));
 }
 
-const SERVICE_META: Record<string, { label: string; className: string }> = {
-  seerr: { label: "Seerr", className: "seerr" },
-  tautulli: { label: "Tautulli", className: "tautulli" },
-  tracearr: { label: "Tracearr", className: "tracearr" },
-  jellystat: { label: "Jellystat", className: "jellystat" },
-  radarr: { label: "Radarr", className: "radarr" },
-  sonarr: { label: "Sonarr", className: "sonarr" },
+const SERVICE_META: Record<string, { label: string; short: string; className: string }> = {
+  radarr: { label: "Radarr", short: "Rad", className: "radarr" },
+  sonarr: { label: "Sonarr", short: "Son", className: "sonarr" },
+  seerr: { label: "Seerr", short: "See", className: "seerr" },
+  tautulli: { label: "Tautulli", short: "Tau", className: "tautulli" },
+  tracearr: { label: "Tracearr", short: "Tra", className: "tracearr" },
+  jellystat: { label: "Jellystat", short: "Jel", className: "jellystat" },
 };
 
 function ServiceLinks({ links }: { links?: Record<string, string> }) {
   const entries = Object.entries(SERVICE_META).filter(([key]) => links?.[key]);
   if (!entries.length) return <span className="muted">—</span>;
   return (
-    <div className="service-links">
+    <div className="service-links" role="list">
       {entries.map(([key, meta]) => (
         <a
           key={key}
+          role="listitem"
           className={`service-pill ${meta.className}`}
           href={links?.[key]}
           target="_blank"
           rel="noreferrer"
           title={`Open in ${meta.label}`}
+          aria-label={`Open in ${meta.label}`}
         >
-          {meta.label}
+          <span className="service-pill-short">{meta.short}</span>
+          <span className="service-pill-full">{meta.label}</span>
         </a>
       ))}
     </div>
@@ -250,7 +352,7 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
 
   function refreshUnmatched() {
     api.unmatched({ page_size: "1" }).then((data) => {
-      setUnmatchedCount(data.stats.count || 0);
+      setUnmatchedCount(data.stats.actionable ?? data.stats.count ?? 0);
     }).catch(() => undefined);
   }
 
@@ -279,38 +381,37 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   return (
     <div className="shell">
       <header className="topbar">
-        <Brand compact />
-        <nav className="nav">
-          <button className={page === "library" ? "active" : ""} onClick={() => go("library")}>Library</button>
-          {unmatchedCount > 0 && (
-            <button className={`alert ${page === "unmatched" ? "active" : ""}`} onClick={() => go("unmatched")}>
-              Unmatched<span className="nav-count">{unmatchedCount}</span>
-            </button>
-          )}
-          <button className={page === "users" ? "active" : ""} onClick={() => go("users")}>Users</button>
-          <button className={page === "whitelist" ? "active" : ""} onClick={() => go("whitelist")}>Whitelist</button>
-          <button className={page === "logs" ? "active" : ""} onClick={() => go("logs")}>Logs</button>
-          <button className={page === "settings" ? "active" : ""} onClick={() => go("settings")}>Settings</button>
-        </nav>
-        <div className="spacer" />
-        <div className="topbar-sync">
-          <span className={`sync-status ${sync.status === "running" ? "live" : ""}`} title={sync.message || "Idle"}>
-            {sync.status === "running" && <span className="spinner" aria-hidden="true" />}
-            <span className="sync-copy">
-              {sync.status === "running" ? (sync.message || "Syncing…") : (sync.message || "Idle")}
-              {sync.status === "running" && sync.percent != null && sync.total ? ` · ${sync.percent}%` : ""}
-            </span>
-          </span>
-          <button
-            className="primary"
-            disabled={sync.status === "running"}
-            onClick={async () => { setSync(await api.sync()); }}
-          >
-            {sync.status === "running" ? "Syncing…" : "Sync now"}
-          </button>
+        <div className="topbar-main">
+          <Brand compact />
+          <nav className="nav" aria-label="Primary">
+            <button className={page === "library" ? "active" : ""} onClick={() => go("library")}>Library</button>
+            {unmatchedCount > 0 && (
+              <button className={`alert ${page === "unmatched" ? "active" : ""}`} onClick={() => go("unmatched")}>
+                Unmatched<span className="nav-count">{unmatchedCount}</span>
+              </button>
+            )}
+            <button className={page === "users" ? "active" : ""} onClick={() => go("users")}>Users</button>
+            <button className={page === "whitelist" ? "active" : ""} onClick={() => go("whitelist")}>Whitelist</button>
+            <button className={page === "logs" ? "active" : ""} onClick={() => go("logs")}>Logs</button>
+            <button className={page === "settings" ? "active" : ""} onClick={() => go("settings")}>Settings</button>
+          </nav>
         </div>
-        <span className="muted">{user}</span>
-        <button className="ghost" onClick={async () => { await api.logout(); onLogout(); }}>Sign out</button>
+        <div className="topbar-aside">
+          <div className="topbar-sync">
+            <SyncMeter sync={sync} />
+            <button
+              className="primary"
+              disabled={sync.status === "running"}
+              onClick={async () => { setSync(await api.sync()); }}
+            >
+              {sync.status === "running" ? "Syncing…" : "Sync now"}
+            </button>
+          </div>
+          <div className="topbar-account">
+            <span className="muted account-name">{user}</span>
+            <button className="ghost" onClick={async () => { await api.logout(); onLogout(); }}>Sign out</button>
+          </div>
+        </div>
       </header>
       {page === "library" && <Library sync={sync} setSync={setSync} unmatchedCount={unmatchedCount} onOpenUnmatched={() => go("unmatched")} onUnmatchedCount={setUnmatchedCount} />}
       {page === "unmatched" && unmatchedCount > 0 && (
@@ -467,25 +568,33 @@ function Library({
 
   return (
     <div className="page">
+      <div className="page-head">
+        <div>
+          <h2>Library</h2>
+          <p className="page-intro muted">
+            Everything Radarr and Sonarr hold, with watch history and who requested it. Pick titles to delete, or whitelist the ones to keep.
+          </p>
+        </div>
+      </div>
       <div className="stats">
         <button className={`stat ${!filters.watched && !filters.maxRating ? "active" : ""}`} onClick={() => patch({ watched: "", maxRating: "" })}>
-          <span className="muted">Matching titles</span><b>{stats.count ?? 0}</b>
+          <span className="muted">Matching titles</span><b>{num(stats.count)}</b>
         </button>
         <button className={`stat never ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>
-          <span className="muted">Never watched</span><b>{stats.never_watched ?? 0}</b>
+          <span className="muted">Never watched</span><b>{num(stats.never_watched)}</b>
         </button>
         <button className={`stat stale ${filters.watched === "stale" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>
-          <span className="muted">Stale / unwatched</span><b>{stats.stale ?? 0}</b>
+          <span className="muted">Stale / unwatched</span><b>{num(stats.stale)}</b>
         </button>
         <button className={`stat pending ${filters.watched === "requested" ? "active" : ""}`} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title" })}>
-          <span className="muted">Requested</span><b>{stats.requested ?? 0}</b>
+          <span className="muted">Requested</span><b>{num(stats.requested)}</b>
         </button>
         <button className={`stat ok ${filters.watched === "protected" ? "active" : ""}`} onClick={() => patch(filters.watched === "protected" ? { watched: "" } : { watched: "protected", maxRating: "", sort: "title" })}>
-          <span className="muted">Protected</span><b>{stats.whitelisted ?? 0}</b>
+          <span className="muted">Protected</span><b>{num(stats.whitelisted)}</b>
         </button>
         {unmatchedCount > 0 && (
           <button className="stat warn" onClick={onOpenUnmatched}>
-            <span className="muted">Unmatched</span><b>{unmatchedCount}</b>
+            <span className="muted">Unmatched</span><b>{num(unmatchedCount)}</b>
           </button>
         )}
       </div>
@@ -548,13 +657,13 @@ function Library({
                 />
               </th>
               <th>Title</th>
-              <th>Rating</th>
-              <th>Last watched</th>
-              <th>Plays</th>
-              <th>Watchers</th>
-              <th>Requested by</th>
-              <th>Size</th>
-              <th></th>
+              <th className="col-rating">Rating</th>
+              <th className="col-watched">Last watched</th>
+              <th className="col-plays">Plays</th>
+              <th className="col-watchers">Watchers</th>
+              <th className="col-requested">Requested by</th>
+              <th className="col-size">Size</th>
+              <th className="col-links">Links</th>
             </tr>
           </thead>
           <tbody>
@@ -567,10 +676,10 @@ function Library({
                   toggle(item.id);
                 }}
               >
-                <td className="tick-cell">
+                <td className="tick-cell" data-label="">
                   <input className="tick" type="checkbox" disabled={item.whitelisted} checked={selected.has(item.id)} onChange={() => toggle(item.id)} />
                 </td>
-                <td>
+                <td data-label="Title">
                   <div className="title-cell">
                     {item.art_url ? <img className="poster" src={item.art_url} alt="" /> : <div className="poster placeholder">No art</div>}
                     <div>
@@ -578,7 +687,6 @@ function Library({
                       <div className="title-meta">
                         <span className={`type-chip ${item.media_type}`}>{item.media_type === "movie" ? "Movie" : "TV"}</span>
                         {availabilityLabel(item.availability) ? <span className={`chip ${item.availability === "requested" ? "pending" : "partial"}`}>{availabilityLabel(item.availability)}</span> : null}
-                        {item.sources.length ? <span className="muted">{item.sources.join(" / ")}</span> : null}
                         {item.whitelisted
                           ? <span className="chip ok" title={item.whitelist_reason}>Protected · {item.whitelist_reason}</span>
                           : <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>}
@@ -586,21 +694,21 @@ function Library({
                     </div>
                   </div>
                 </td>
-                <td className="rating" title={item.rating_source ? `${item.rating_source} · ${item.rating_votes} votes` : "No rating"}>
+                <td className="rating col-rating" data-label="Rating" title={item.rating_source ? `${item.rating_source} · ${item.rating_votes} votes` : "No rating"}>
                   {item.rating != null ? <><strong>{Number(item.rating).toFixed(1)}</strong> <span className="muted">/10</span></> : "—"}
                 </td>
-                <td title={item.availability === "requested" ? "Requested, not downloaded yet" : whenFull(item.last_watched_at)}>
+                <td className="col-watched" data-label="Last watched" title={item.availability === "requested" ? "Requested, not downloaded yet" : whenFull(item.last_watched_at)}>
                   {item.availability === "requested" ? "—" : when(item.last_watched_at)}
                 </td>
-                <td>{item.play_count}</td>
-                <td className="watchers" title={item.watchers.map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}>
+                <td className="col-plays" data-label="Plays">{item.play_count}</td>
+                <td className="watchers col-watchers" data-label="Watchers" title={item.watchers.map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}>
                   {item.watchers.length
                     ? `${item.watchers.slice(0, 2).map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}${item.watchers.length > 2 ? ` +${item.watchers.length - 2}` : ""}`
                     : "—"}
                 </td>
-                <td><Requester name={item.requested_by} at={item.requested_at} /></td>
-                <td>{bytes(item.size_bytes)}</td>
-                <td>
+                <td className="col-requested" data-label="Requested by"><Requester name={item.requested_by} at={item.requested_at} /></td>
+                <td className="col-size" data-label="Size">{bytes(item.size_bytes)}</td>
+                <td className="col-links" data-label="Links">
                   <div className="row-actions">
                     <ServiceLinks links={item.links} />
                   </div>
@@ -609,14 +717,29 @@ function Library({
             ))}
             {!items.length && (
               <tr>
-                <td colSpan={9} className="empty">{loading ? "Loading library…" : filters.watched === "protected" ? "No library titles match the current whitelist." : filters.watched === "requested" ? "Nothing is sitting in a requested / not-downloaded state." : "Nothing matches these filters. Try Never watched or Oldest / stale."}</td>
+                <td colSpan={9} className="empty">
+                  {loading ? (
+                    <strong>Loading library…</strong>
+                  ) : (
+                    <>
+                      <strong>Nothing to show here</strong>
+                      <span>
+                        {filters.watched === "protected"
+                          ? "No library titles match the current whitelist."
+                          : filters.watched === "requested"
+                            ? "Nothing is sitting in a requested, not-downloaded state."
+                            : "No titles match these filters. Try Never watched or Oldest / stale."}
+                      </span>
+                    </>
+                  )}
+                </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
       <div className="pager">
-        <span className="muted">{stats.count ?? 0} titles · {bytes(stats.size_bytes || 0)}</span>
+        <span className="muted">{num(stats.count)} titles · {bytes(stats.size_bytes || 0)}</span>
         <div className="spacer" />
         <select value={filters.pageSize} onChange={(e) => patch({ pageSize: e.target.value })}>
           <option value="25">25 / page</option>
@@ -648,7 +771,7 @@ function Library({
               {selectedItems.slice(0, 8).map((item) => <li key={item.id}>{item.title}</li>)}
               {selectedItems.length > 8 && <li>…and {selectedItems.length - 8} more</li>}
             </ul>
-            <div className="filters">
+            <div className="modal-actions">
               <button className="ghost" disabled={busy} onClick={() => setPending(null)}>Cancel</button>
               <button className="danger" disabled={busy} onClick={confirm}>{busy ? "Working…" : "Confirm"}</button>
             </div>
@@ -709,7 +832,7 @@ function Unmatched({
       setTotal(data.total);
       setPages(data.pages || 1);
       setSync(data.sync);
-      onUnmatchedCount(data.stats.count || 0);
+      onUnmatchedCount(data.stats.actionable ?? data.stats.count ?? 0);
       if (data.stats.ignored) {
         setIgnored((await api.ignoredUnmatched()).items);
       } else {
@@ -811,24 +934,24 @@ function Unmatched({
   return (
     <div className="page">
       <h2>Unmatched</h2>
-      <p className="muted">
+      <p className="page-intro muted">
         Gaps between Radarr/Sonarr and Seerr. Clear stale Seerr records so those titles can be requested again, or add
-        library titles Seerr does not track yet.
+        library titles Seerr does not track yet. Titles Seerr has already deleted are listed separately: they need no
+        action because anyone can request them again.
       </p>
       <div className="stats">
         <button className={`stat ${!kind ? "active" : ""}`} onClick={() => { setKind(""); setPage(1); }}>
-          <span className="muted">All gaps</span><b>{stats.count ?? total}</b>
+          <span className="muted">All gaps</span><b>{num(stats.count ?? total)}</b>
         </button>
         <button className={`stat warn ${kind === "seerr_missing" ? "active" : ""}`} onClick={() => { setKind(kind === "seerr_missing" ? "" : "seerr_missing"); setPage(1); }}>
-          <span className="muted">Stale in Seerr</span><b>{staleCount}</b>
+          <span className="muted">Stale in Seerr</span><b>{num(staleCount)}</b>
         </button>
         <button className={`stat ${kind === "no_seerr" ? "active" : ""}`} onClick={() => { setKind(kind === "no_seerr" ? "" : "no_seerr"); setPage(1); }}>
-          <span className="muted">Not in Seerr</span><b>{stats.no_seerr ?? 0}</b>
+          <span className="muted">Not in Seerr</span><b>{num(stats.no_seerr)}</b>
         </button>
-        <div className="stat" style={{ cursor: "default" }}>
-          <span className="muted">Library</span>
-          <b>{(stats.radarr_count ?? 0) + (stats.sonarr_count ?? 0)}</b>
-        </div>
+        <button className={`stat pending ${kind === "seerr_deleted" ? "active" : ""}`} onClick={() => { setKind(kind === "seerr_deleted" ? "" : "seerr_deleted"); setPage(1); }}>
+          <span className="muted">Deleted in Seerr</span><b>{num(stats.seerr_deleted)}</b>
+        </button>
       </div>
       <div className="filters">
         <input type="search" placeholder="Search unmatched titles" value={qInput} onChange={(e) => setQInput(e.target.value)} />
@@ -836,6 +959,7 @@ function Unmatched({
           <option value="">All gaps</option>
           <option value="seerr_missing">Stale in Seerr</option>
           <option value="no_seerr">Library not in Seerr</option>
+          <option value="seerr_deleted">Deleted in Seerr</option>
         </select>
         <select value={mediaType} onChange={(e) => { setMediaType(e.target.value); setPage(1); }}>
           <option value="">Movies & TV</option>
@@ -880,27 +1004,27 @@ function Unmatched({
               return (
                 <tr
                   key={item.id}
-                  className={`unmatched-row ${pickable ? "clickable" : ""} ${selected.has(item.id) ? "selected" : ""}`}
+                  className={`${pickable ? "unmatched-row clickable" : "info-row"} ${selected.has(item.id) ? "selected" : ""}`}
                   onClick={(event) => {
                     if (!pickable || isInteractive(event)) return;
                     toggle(item.id);
                   }}
                 >
-                  <td className="tick-cell">
+                  <td className="tick-cell" data-label="">
                     <input className="tick" type="checkbox" disabled={!pickable} checked={selected.has(item.id)} onChange={() => toggle(item.id)} />
                   </td>
-                  <td>
+                  <td data-label="Title">
                     <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
                     <div className="title-meta">
                       <span className={`type-chip ${item.media_type}`}>{item.media_type === "tv" ? "TV" : "Movie"}</span>
-                      <span className="chip warn">{stale ? "Not in library" : "Not in Seerr"}</span>
+                      <span className={`chip ${stateChip(item).tone}`}>{stateChip(item).label}</span>
                     </div>
                   </td>
-                  <td className="capitalize">{item.source}</td>
-                  <td>{item.media_type === "tv" ? "TV" : "Movie"}</td>
-                  <td><Requester name={item.requested_by} at={item.requested_at} /></td>
-                  <td className="muted">{item.reason}</td>
-                  <td>
+                  <td className="capitalize col-where" data-label="Where">{item.source}</td>
+                  <td className="col-type" data-label="Type">{item.media_type === "tv" ? "TV" : "Movie"}</td>
+                  <td className="col-requested" data-label="Requested by"><Requester name={item.requested_by} at={item.requested_at} /></td>
+                  <td className="muted col-why" data-label="Why">{item.reason}</td>
+                  <td className="col-links" data-label="Actions">
                     <div className="row-actions">
                       {stale && <button className="danger-ghost" type="button" onClick={() => setPending({ mode: "clear", all: false, ids: [item.id] })}>Clear in Seerr</button>}
                       {missing && (
@@ -924,7 +1048,14 @@ function Unmatched({
             {!items.length && (
               <tr>
                 <td colSpan={7} className="empty">
-                  {loading ? "Loading unmatched titles…" : "Radarr, Sonarr, and Seerr agree on the current library."}
+                  {loading ? (
+                    <strong>Loading unmatched titles…</strong>
+                  ) : (
+                    <>
+                      <strong>Nothing to reconcile</strong>
+                      <span>Radarr, Sonarr, and Seerr agree on the current library.</span>
+                    </>
+                  )}
                 </td>
               </tr>
             )}
@@ -950,7 +1081,7 @@ function Unmatched({
         </div>
       )}
       <div className="pager">
-        <span className="muted">{total} unmatched</span>
+        <span className="muted">{num(total)} listed</span>
         <div className="spacer" />
         <span className="muted">Page {page} of {pages}</span>
         <button className="ghost" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Previous</button>
@@ -1000,7 +1131,7 @@ function Unmatched({
               )}
               {!pending.all && pending.ids.length > 8 && <li>…and {pending.ids.length - 8} more</li>}
             </ul>
-            <div className="filters">
+            <div className="modal-actions">
               <button className="ghost" disabled={busy} onClick={() => setPending(null)}>Cancel</button>
               <button className={pending.mode === "add" ? "primary" : "danger"} disabled={busy} onClick={confirm}>
                 {busy ? (pending.mode === "add" ? "Adding…" : "Clearing…") : "Confirm"}
@@ -1047,7 +1178,7 @@ function Logs({ sync }: { sync: SyncStatus }) {
   return (
     <div className="page">
       <h2>Logs</h2>
-      <p className="muted">Sync progress, matching, and deletions. Newest first.</p>
+      <p className="page-intro muted">Sync progress, matching, and deletions. Newest first.</p>
       <div className="filters">
         <input type="search" placeholder="Search logs" value={q} onChange={(e) => setQ(e.target.value)} />
         <select value={category} onChange={(e) => setCategory(e.target.value)}>
@@ -1058,19 +1189,19 @@ function Logs({ sync }: { sync: SyncStatus }) {
           <option value="system">System</option>
         </select>
         <div className="spacer" />
-        <span className="muted">{total} entries</span>
+        <span className="muted">{num(total)} entries</span>
       </div>
       <div className="log-list">
         {items.map((item) => (
           <div className={`log-row ${item.level}`} key={item.id}>
             <span className={`log-level ${item.level}`}>{item.level}</span>
             <div>
-              <div>{item.message}</div>
-              <div className="muted">
-                {new Date(item.created_at * 1000).toLocaleString()}
-                {item.category ? ` · ${item.category}` : ""}
-                {item.action ? ` · ${item.action}` : ""}
-                {item.actor ? ` · ${item.actor}` : ""}
+              <div className="log-message">{item.message}</div>
+              <div className="log-meta">
+                <span title={new Date(item.created_at * 1000).toLocaleString()}>{when(item.created_at)}</span>
+                {item.category ? <span className="log-tag">{item.category}</span> : null}
+                {item.action ? <span className="log-tag">{item.action.replace(/[-_]/g, " ")}</span> : null}
+                {item.actor ? <span>{item.actor}</span> : null}
               </div>
               {Array.isArray((item.detail as { titles?: string[] } | null)?.titles) && (
                 <ul className="log-titles">
@@ -1118,13 +1249,13 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
   return (
     <div className="page">
       <h2>Users</h2>
-      <p className="muted">Seerr requesters and Tautulli/Tracearr/Jellystat watchers are matched across connected services when possible.</p>
+      <p className="page-intro muted">Seerr requesters and Tautulli/Tracearr/Jellystat watchers are matched across connected services when possible.</p>
       <div className="stats">
-        <div className="stat" style={{ cursor: "default" }}><span className="muted">People</span><b>{stats.users ?? 0}</b></div>
-        <div className="stat" style={{ cursor: "default" }}><span className="muted">Requests in library</span><b>{stats.requests ?? 0}</b></div>
-        <div className="stat" style={{ cursor: "default" }}><span className="muted">Plays</span><b>{stats.plays ?? 0}</b></div>
+        <div className="stat static"><span className="muted">People</span><b>{num(stats.users)}</b></div>
+        <div className="stat static"><span className="muted">Requests in library</span><b>{num(stats.requests)}</b></div>
+        <div className="stat static"><span className="muted">Plays</span><b>{num(stats.plays)}</b></div>
         <button className={`stat warn ${onlyUnmatched ? "active" : ""}`} onClick={() => setOnlyUnmatched((current) => !current)}>
-          <span className="muted">Unmatched</span><b>{stats.unmatched ?? 0}</b>
+          <span className="muted">Unmatched</span><b>{num(stats.unmatched)}</b>
         </button>
       </div>
       <div className="filters">
@@ -1142,30 +1273,30 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
           <thead>
             <tr>
               <th>User</th>
-              <th>Requests</th>
-              <th>In library</th>
-              <th>Plays</th>
-              <th>Requested size</th>
-              <th>Last watched</th>
-              <th></th>
+              <th className="col-requests">Requests</th>
+              <th className="col-library">In library</th>
+              <th className="col-plays">Plays</th>
+              <th className="col-size">Requested size</th>
+              <th className="col-watched">Last watched</th>
+              <th className="col-links">Links</th>
             </tr>
           </thead>
           <tbody>
             {visible.map((person) => (
               <tr key={person.canonical} className={person.matched ? "" : "unmatched-row"}>
-                <td>
+                <td data-label="User">
                   <strong>{person.display_name}</strong>
                   <div className="muted">
                     {[person.plex_username !== person.display_name ? person.plex_username : "", person.email].filter(Boolean).join(" · ")}
                   </div>
                   {!person.matched && <span className="chip warn">Unmatched</span>}
                 </td>
-                <td>{person.request_count}</td>
-                <td>{person.library_count}</td>
-                <td>{person.play_count}</td>
-                <td>{bytes(person.library_size)}</td>
-                <td title={whenFull(person.last_watched_at)}>{when(person.last_watched_at)}</td>
-                <td>
+                <td className="col-requests" data-label="Requests">{person.request_count}</td>
+                <td className="col-library" data-label="In library">{person.library_count}</td>
+                <td className="col-plays" data-label="Plays">{person.play_count}</td>
+                <td className="col-size" data-label="Requested size">{bytes(person.library_size)}</td>
+                <td className="col-watched" data-label="Last watched" title={whenFull(person.last_watched_at)}>{when(person.last_watched_at)}</td>
+                <td className="col-links" data-label="Links">
                   <div className="row-actions">
                     <button className="ghost" onClick={() => onOpenLibrary(person.display_name)}>Library</button>
                     <ServiceLinks links={person.links} />
@@ -1174,7 +1305,16 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
               </tr>
             ))}
             {!visible.length && (
-              <tr><td colSpan={7} className="empty">{onlyUnmatched ? "No unmatched users." : "No users yet. Sync the library to pull Seerr, Tautulli, Tracearr, and Jellystat people."}</td></tr>
+              <tr>
+                <td colSpan={7} className="empty">
+                  <strong>{onlyUnmatched ? "Everyone is matched" : "No users yet"}</strong>
+                  <span>
+                    {onlyUnmatched
+                      ? "Every listed person matched across connected services."
+                      : "Run a sync to pull people from Seerr, Tautulli, Tracearr, and Jellystat."}
+                  </span>
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -1206,7 +1346,7 @@ function Whitelist() {
   return (
     <div className="page">
       <h2>Whitelist</h2>
-      <p className="muted">Title matches are case-insensitive substrings. “Stargate” or “Back to the Future” protects the franchise. You can also whitelist a title from the library list.</p>
+      <p className="page-intro muted">Title matches are case-insensitive substrings. “Stargate” or “Back to the Future” protects the franchise. You can also whitelist a title straight from the library list.</p>
       <form className="filters" onSubmit={add}>
         <select value={matchType} onChange={(e) => setMatchType(e.target.value)}>
           <option value="title">Title contains</option>
@@ -1373,7 +1513,8 @@ function Settings() {
         service,
         ok: false,
         configured: true,
-        message: err instanceof Error ? err.message : "failed",
+        message: "Failed",
+        detail: err instanceof Error ? err.message : "failed",
       });
     }
   }
@@ -1388,7 +1529,10 @@ function Settings() {
       const data = await api.testAll();
       for (const result of data.results) applyTest(result);
       const ok = data.results.filter((row) => row.ok).length;
-      setMessage(`Tested ${ok}/${data.results.length} services.`);
+      const total = data.results.length;
+      if (!total) setMessage("No services are configured to test.");
+      else if (ok === total) setMessage(`All ${total} configured service${total === 1 ? "" : "s"} passed.`);
+      else setMessage(`${ok} of ${total} configured services passed.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Tests failed");
     } finally {
@@ -1430,7 +1574,7 @@ function Settings() {
     return hideSettings || Boolean(flags[`${key}_hidden`]);
   }
 
-  const visibleServices = hideSettings ? services.filter((service) => flags[`${service.urlKey}_set`]) : services;
+  const visibleServices = services.filter((service) => flags[`${service.urlKey}_set`]);
   const visibleGroups = hideSettings
     ? []
     : groups
@@ -1457,20 +1601,25 @@ function Settings() {
     );
   }
 
-  function testLabel(service: string, configured: boolean) {
+  function testResult(service: string) {
     const result = tests[service];
-    if (!result) return configured ? "Not tested" : "Not configured";
-    if ("status" in result && result.status === "running") return "Testing…";
-    if ("ok" in result) return result.message;
-    return configured ? "Not tested" : "Not configured";
-  }
-
-  function testClass(service: string, configured: boolean) {
-    const result = tests[service];
-    if (!configured && !result) return "skip";
-    if (result && "status" in result && result.status === "running") return "running";
-    if (result && "ok" in result) return result.ok ? "ok" : "fail";
-    return "skip";
+    if (!result) {
+      return { kind: "idle" as const, label: "Not tested yet", detail: "" };
+    }
+    if ("status" in result && result.status === "running") {
+      return { kind: "running" as const, label: "Testing…", detail: "" };
+    }
+    if ("ok" in result) {
+      if (result.ok) {
+        return { kind: "ok" as const, label: result.message || "Passed", detail: result.detail || "" };
+      }
+      return {
+        kind: "fail" as const,
+        label: result.message || "Failed",
+        detail: result.detail || "",
+      };
+    }
+    return { kind: "idle" as const, label: "Not tested yet", detail: "" };
   }
 
   return (
@@ -1484,28 +1633,40 @@ function Settings() {
         <p className="muted">Values present in the process environment are locked. API keys are never shown after they are saved.</p>
       )}
       {error && <p className="error">{error}</p>}
-      {message && <p className="muted">{message}</p>}
+      {message && <p className="ok-message">{message}</p>}
 
       {visibleServices.length > 0 && (
         <section className="settings-section">
           <div className="settings-head">
             <div>
               <h3>Connections</h3>
-              <p className="muted">Probe each service without exposing API keys.</p>
+              <p className="muted">
+                {visibleServices.length} configured service{visibleServices.length === 1 ? "" : "s"}. Test that Cleanarr can reach each one.
+              </p>
             </div>
             <button className="primary" type="button" disabled={testing} onClick={testAll}>{testing ? "Testing…" : "Test all"}</button>
           </div>
           <div className="test-list">
             {visibleServices.map((service) => {
-              const configured = Boolean(flags[`${service.urlKey}_set`]);
+              const result = testResult(service.id);
               return (
-                <div className="test-row" key={service.id}>
-                  <div>
+                <div className={`test-row ${result.kind}`} key={service.id}>
+                  <div className="test-name">
                     <strong>{service.label}</strong>
-                    <div className="muted">{configured ? "Configured" : "Not configured"}</div>
                   </div>
-                  <span className={`test-status ${testClass(service.id, configured)}`}>{testLabel(service.id, configured)}</span>
-                  <button className="ghost" type="button" disabled={testing || !configured} onClick={() => test(service.id)}>Test</button>
+                  <div className={`test-status ${result.kind}`}>
+                    <span className={`test-badge ${result.kind}`}>
+                      {result.kind === "ok" ? "Passed" : result.kind === "fail" ? "Failed" : result.kind === "running" ? "Testing" : "Idle"}
+                    </span>
+                    <span className="test-detail">
+                      {result.kind === "ok"
+                        ? (result.detail ? `Connected · ${result.detail}` : "Connected")
+                        : result.kind === "fail"
+                          ? (result.detail || result.label)
+                          : result.label}
+                    </span>
+                  </div>
+                  <button className="ghost" type="button" disabled={testing} onClick={() => test(service.id)}>Test</button>
                 </div>
               );
             })}
@@ -1515,81 +1676,87 @@ function Settings() {
 
       <form onSubmit={save}>
         <section className="settings-section">
-          <h3>Automatic sync</h3>
-          <p className="muted">When enabled, Cleanarr syncs the library on this interval while the container is running.</p>
-          <div className="schedule-row">
+          <div className="settings-head">
+            <div>
+              <h3>Automatic sync</h3>
+              <p className="muted">Refresh the library on a timer while Cleanarr is running.</p>
+            </div>
+            <button className="primary" type="submit">Save</button>
+          </div>
+          <div className="settings-controls">
             <label className="toggle">
               <input type="checkbox" checked={scheduleEnabled} onChange={(e) => setScheduleEnabled(e.target.checked)} />
               <span className="toggle-track" />
-              <span>{scheduleEnabled ? "Enabled" : "Disabled"}</span>
+              <span>{scheduleEnabled ? "On" : "Off"}</span>
             </label>
-            <label className="interval-field">
-              Interval
-              <select value={interval} onChange={(e) => setIntervalHours(e.target.value)} disabled={!scheduleEnabled}>
-                <option value="1">Every hour</option>
-                <option value="3">Every 3 hours</option>
-                <option value="6">Every 6 hours</option>
-                <option value="12">Every 12 hours</option>
-                <option value="24">Every day</option>
-                <option value="48">Every 2 days</option>
-                <option value="168">Every week</option>
-              </select>
-            </label>
-            <button className="primary" type="submit">Save schedule</button>
+            <select
+              className="control-select"
+              value={interval}
+              onChange={(e) => setIntervalHours(e.target.value)}
+              disabled={!scheduleEnabled}
+              aria-label="Sync interval"
+            >
+              <option value="1">Every hour</option>
+              <option value="3">Every 3 hours</option>
+              <option value="6">Every 6 hours</option>
+              <option value="12">Every 12 hours</option>
+              <option value="24">Every day</option>
+              <option value="48">Every 2 days</option>
+              <option value="168">Every week</option>
+            </select>
           </div>
 
-          <h4>Automatic delete</h4>
-          <p className="muted">
-            Off by default. When on, each scheduled sync deletes titles Radarr/Sonarr added more than the
-            cutoff ago that nobody has watched since — the Library's Stale / unwatched filter at the same
-            cutoff. Files included. Whitelisted titles are always skipped, nothing is banned in Seerr, and
-            a manual "Sync now" never deletes.
-          </p>
-          <div className="schedule-row">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={autoDelete}
-                onChange={(e) => setAutoDelete(e.target.checked)}
-                disabled={!scheduleEnabled}
-              />
-              <span className="toggle-track" />
-              <span>{autoDelete && scheduleEnabled ? "Deleting" : "Alert only"}</span>
-            </label>
-            <label className="interval-field">
-              Unwatched for
+          <div className="settings-subsection">
+            <div className="settings-head">
+              <div>
+                <h4>Automatic delete</h4>
+                <p className="muted">
+                  After each scheduled sync, remove stale titles from disk. Off by default. Whitelist always wins; Sync now never deletes.
+                </p>
+              </div>
+            </div>
+            <div className="settings-controls">
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={autoDelete}
+                  onChange={(e) => setAutoDelete(e.target.checked)}
+                  disabled={!scheduleEnabled}
+                />
+                <span className="toggle-track" />
+                <span>{autoDelete && scheduleEnabled ? "On" : "Off"}</span>
+              </label>
               <select
+                className="control-select"
                 value={autoDeleteDays}
                 onChange={(e) => setAutoDeleteDays(e.target.value)}
                 disabled={!autoDelete || !scheduleEnabled}
+                aria-label="Unwatched cutoff"
               >
-                <option value="90">90 days</option>
-                <option value="180">6 months</option>
-                <option value="365">1 year</option>
-                <option value="730">2 years</option>
+                <option value="90">Unwatched 90 days</option>
+                <option value="180">Unwatched 6 months</option>
+                <option value="365">Unwatched 1 year</option>
+                <option value="730">Unwatched 2 years</option>
               </select>
-            </label>
-            <label className="interval-field">
-              Delete at most
               <select
+                className="control-select"
                 value={autoDeleteCap}
                 onChange={(e) => setAutoDeleteCap(e.target.value)}
                 disabled={!autoDelete || !scheduleEnabled}
+                aria-label="Delete cap per run"
               >
-                <option value="5">5 per run</option>
-                <option value="10">10 per run</option>
-                <option value="25">25 per run</option>
-                <option value="50">50 per run</option>
+                <option value="5">Up to 5 per run</option>
+                <option value="10">Up to 10 per run</option>
+                <option value="25">Up to 25 per run</option>
+                <option value="50">Up to 50 per run</option>
               </select>
-            </label>
+            </div>
+            {autoDelete && scheduleEnabled && (
+              <p className="settings-note">
+                Skips a run if watch history looks untrustworthy (no source, a failed source, or zero plays).
+              </p>
+            )}
           </div>
-          {autoDelete && scheduleEnabled && (
-            <p className="muted">
-              Titles are deleted from disk with no undo. A run is skipped if the watch history cannot be
-              trusted for it — no source configured, a source that failed during the sync, or no plays
-              reported at all — so an outage cannot make the library look unwatched.
-            </p>
-          )}
         </section>
 
         <section className="settings-section">
@@ -1645,9 +1812,11 @@ function Settings() {
           </div>
         </section>
         )}
-        <div className="settings-actions">
-          <button className="primary" type="submit">{hideSettings ? "Save schedule" : "Save settings"}</button>
-        </div>
+        {!hideSettings && (
+          <div className="settings-actions">
+            <button className="primary" type="submit">Save settings</button>
+          </div>
+        )}
       </form>
     </div>
   );

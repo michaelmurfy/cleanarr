@@ -1,7 +1,13 @@
 COMPOSE ?= docker compose
 TEST_IMAGE ?= python:3.14-slim
 
-.PHONY: up test pull update
+.PHONY: help up test pull update
+
+help:
+	@echo "make up      # build and start (creates .env from .env.example if missing)"
+	@echo "make test    # backend suite in a throwaway container"
+	@echo "make pull    # docker pull the Dockerfile base images"
+	@echo "make update  # pull + build + restart"
 
 .env:
 	cp .env.example .env

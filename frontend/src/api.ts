@@ -38,6 +38,8 @@ export type SyncStatus = {
   current?: number;
   total?: number;
   percent?: number | null;
+  started_at?: number | null;
+  finished_at?: number | null;
 };
 
 export type LogItem = {
@@ -191,6 +193,7 @@ export type UnmatchedItem = {
   requested_by: string;
   requested_at?: string;
   kind: string;
+  seerr_state?: string;
   links: Record<string, string>;
 };
 
@@ -210,6 +213,7 @@ export type ServiceTest = {
   ok: boolean;
   configured: boolean;
   message: string;
+  detail?: string;
 };
 
 export type Maintenance = {

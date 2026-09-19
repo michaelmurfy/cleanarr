@@ -194,18 +194,39 @@ def put_settings(payload: SettingsIn, request: Request):
     return {"ok": True, "hide_settings": hide_settings}
 
 
+def _friendly_probe_detail(raw: object) -> str:
+    text = str(raw or "").strip()
+    if not text or text.lower() in {"ok", "none", "null", "true"}:
+        return ""
+    if text[:1].isdigit() and all(part.isdigit() for part in text.replace("-", ".").split(".")):
+        return f"v{text.lstrip('vV')}"
+    return text
+
+
 def _probe_service(name: str) -> dict:
     factory = SERVICES.get(name)
     if not factory:
-        return {"service": name, "ok": False, "configured": False, "message": "Unknown service"}
+        return {"service": name, "ok": False, "configured": False, "message": "Unknown service", "detail": ""}
     client = factory()
     if not client:
-        return {"service": name, "ok": False, "configured": False, "message": "Not configured"}
+        return {"service": name, "ok": False, "configured": False, "message": "Not configured", "detail": ""}
     try:
-        version = client.test()
-        return {"service": name, "ok": True, "configured": True, "message": str(version)}
+        detail = _friendly_probe_detail(client.test())
+        return {
+            "service": name,
+            "ok": True,
+            "configured": True,
+            "message": "Passed",
+            "detail": detail,
+        }
     except Exception as exc:
-        return {"service": name, "ok": False, "configured": True, "message": str(exc)}
+        return {
+            "service": name,
+            "ok": False,
+            "configured": True,
+            "message": "Failed",
+            "detail": str(exc),
+        }
 
 
 @app.post("/api/settings/test")
@@ -214,8 +235,9 @@ def test_service(payload: TestIn, request: Request):
     if payload.service not in SERVICES:
         raise HTTPException(400, "Unknown service")
     result = _probe_service(payload.service)
+    summary = result["message"] if not result.get("detail") else f"{result['message']}: {result['detail']}"
     add_log(
-        f"Tested {payload.service}: {result['message']}",
+        f"Tested {payload.service}: {summary}",
         level="info" if result["ok"] else "error",
         category="system",
         action="test",
@@ -227,7 +249,11 @@ def test_service(payload: TestIn, request: Request):
 @app.post("/api/settings/test-all")
 def test_all_services(request: Request):
     user = current_user(request)
-    results = [_probe_service(name) for name in SERVICES]
+    results = []
+    for name in SERVICES:
+        row = _probe_service(name)
+        if row["configured"]:
+            results.append(row)
     ok_count = sum(1 for row in results if row["ok"])
     add_log(
         f"Tested {ok_count}/{len(results)} services",
@@ -236,7 +262,7 @@ def test_all_services(request: Request):
         actor=user,
         detail={"results": results},
     )
-    return {"results": results, "ok": all(row["ok"] for row in results if row["configured"])}
+    return {"results": results, "ok": bool(results) and all(row["ok"] for row in results)}
 
 
 @app.post("/api/settings/clear-cache")
@@ -391,8 +417,12 @@ def unmatched(
         "pages": max(1, (total + page_size - 1) // page_size),
         "stats": {
             "count": len(rows),
+            # seerr_deleted rows are history, not something to fix, so they stay out of the
+            # count the nav badge and Library card use.
+            "actionable": len(rows) - (by_kind.get("seerr_deleted") or 0),
             **{f"{key}_count": value for key, value in by_source.items()},
             "seerr_missing": by_kind.get("seerr_missing") or 0,
+            "seerr_deleted": by_kind.get("seerr_deleted") or 0,
             "no_seerr": by_kind.get("no_seerr") or 0,
             "ignored": ignored_count,
         },
@@ -425,7 +455,9 @@ def library(
     with connect() as conn:
         rows = [dict(row) for row in conn.execute("SELECT * FROM media").fetchall()]
         whitelist = [dict(row) for row in conn.execute("SELECT * FROM whitelist").fetchall()]
-        unmatched_count = conn.execute("SELECT COUNT(*) AS n FROM unmatched").fetchone()["n"]
+        unmatched_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM unmatched WHERE kind != 'seerr_deleted'"
+        ).fetchone()["n"]
 
     cutoff = int(time.time()) - stale_days * 24 * 3600
     pool = []

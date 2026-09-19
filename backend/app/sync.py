@@ -219,6 +219,7 @@ def _run_sync(auto_delete: bool = False) -> None:
             requested_by: str = "",
             requested_at: str = "",
             kind: str = "",
+            seerr_state: str = "",
         ) -> None:
             label = _usable_title(title, tmdb_id)
             if not label:
@@ -245,6 +246,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     "requested_by": requested_by or "",
                     "requested_at": requested_at or "",
                     "kind": kind,
+                    "seerr_state": seerr_state,
                 },
             )
             row["plays"] += plays
@@ -546,46 +548,10 @@ def _run_sync(auto_delete: bool = False) -> None:
             blocked = 0
             deleted = 0
             lookups = 0
-            for bucket in seerr_seen.values():
-                if bucket.get("catalog_key"):
-                    continue
-                key = (bucket.get("media_type") or "movie", int(bucket.get("tmdb_id") or 0))
-                if bucket.get("blocked") or (key[1] and key in blocked_keys):
-                    blocked += 1
-                    continue
-                claimed = bucket.get("claimed")
-                if bucket.get("deleted") and not claimed:
-                    deleted += 1
-                    continue
-                requested = request_was_made(bucket.get("requests"))
-                if bucket.get("in_flight") and not claimed:
-                    continue
-                if not claimed and not requested:
-                    continue
-                title = _usable_title(bucket.get("title"), bucket.get("tmdb_id") or 0)
-                if not title:
-                    continue
-                requester = ""
-                requested_at = ""
-                for req in bucket.get("requests") or []:
-                    created = str(req.get("createdAt") or req.get("created_at") or "")
-                    if created and (not requested_at or created < requested_at):
-                        requested_at = created
-                    requested_by = req.get("requestedBy") or req.get("requested_by") or req.get("user") or {}
-                    if isinstance(requested_by, (int, float)) or (isinstance(requested_by, str) and requested_by.isdigit()):
-                        requested_by = seerr_users_by_id.get(int(requested_by)) or {}
-                    if isinstance(requested_by, dict):
-                        identity = directory.resolve(requested_by)
-                        requester = identity["display"] or requester
-                    if requester:
-                        break
-                orphan_service = bool(bucket.get("service_link")) and not bucket.get("available")
-                if claimed and orphan_service:
-                    reason = "Seerr still points at a Radarr/Sonarr entry that no longer exists"
-                elif claimed:
-                    reason = "Seerr still lists this as available, but it is not in Radarr/Sonarr"
-                else:
-                    reason = "Requested in Seerr, but it is not in the library"
+
+            def seerr_label(bucket: dict[str, Any]) -> str | None:
+                """Name a Seerr-only row, asking Seerr's TMDB proxy when the row itself is unnamed."""
+                nonlocal lookups
                 if not bucket.get("title") and bucket.get("tmdb_id") and lookups < SEERR_TITLE_LOOKUPS:
                     lookups += 1
                     try:
@@ -595,6 +561,80 @@ def _run_sync(auto_delete: bool = False) -> None:
                     bucket["title"] = info.get("title") or info.get("name") or ""
                     if not bucket.get("year"):
                         bucket["year"] = parse_year(str(info.get("releaseDate") or info.get("firstAirDate") or "")[:4])
+                return _usable_title(bucket.get("title"), bucket.get("tmdb_id") or 0)
+
+            def seerr_requester(bucket: dict[str, Any]) -> tuple[str, str]:
+                requester = ""
+                first_requested = ""
+                for req in bucket.get("requests") or []:
+                    created = str(req.get("createdAt") or req.get("created_at") or "")
+                    if created and (not first_requested or created < first_requested):
+                        first_requested = created
+                    requested_by = req.get("requestedBy") or req.get("requested_by") or req.get("user") or {}
+                    if isinstance(requested_by, (int, float)) or (isinstance(requested_by, str) and requested_by.isdigit()):
+                        requested_by = seerr_users_by_id.get(int(requested_by)) or {}
+                    if isinstance(requested_by, dict):
+                        identity = directory.resolve(requested_by)
+                        requester = identity["display"] or requester
+                    if requester:
+                        break
+                return requester, first_requested
+
+            for bucket in seerr_seen.values():
+                if bucket.get("catalog_key"):
+                    continue
+                key = (bucket.get("media_type") or "movie", int(bucket.get("tmdb_id") or 0))
+                if bucket.get("blocked") or (key[1] and key in blocked_keys):
+                    blocked += 1
+                    continue
+                requested = request_was_made(bucket.get("requests"))
+                # A deleted media row is the current truth even when another payload in this sync
+                # still carried an available status or a dangling *arr id. Nothing needs clearing:
+                # Seerr has let the title go, so anyone can request it again. Report it as history
+                # rather than as a stale record.
+                if bucket.get("deleted"):
+                    deleted += 1
+                    if not requested:
+                        continue
+                    title = seerr_label(bucket)
+                    if not title:
+                        continue
+                    requester, requested_at = seerr_requester(bucket)
+                    note_unmatched(
+                        "seerr",
+                        bucket["media_type"],
+                        title,
+                        bucket.get("year"),
+                        reason="Deleted in Seerr, so it can be requested again",
+                        plays=max(1, len(bucket.get("requests") or [])),
+                        tmdb_id=bucket.get("tmdb_id") or 0,
+                        tvdb_id=bucket.get("tvdb_id") or 0,
+                        seerr_media_id=bucket.get("seerr_media_id"),
+                        requested_by=requester,
+                        requested_at=requested_at,
+                        kind="seerr_deleted",
+                        seerr_state="deleted",
+                    )
+                    continue
+                claimed = bucket.get("claimed")
+                if bucket.get("in_flight") and not claimed:
+                    continue
+                if not claimed and not requested:
+                    continue
+                title = seerr_label(bucket)
+                if not title:
+                    continue
+                requester, requested_at = seerr_requester(bucket)
+                orphan_service = bool(bucket.get("service_link")) and not bucket.get("available")
+                if claimed and orphan_service:
+                    state = "orphan"
+                    reason = "Seerr still points at a Radarr/Sonarr entry that no longer exists"
+                elif claimed:
+                    state = "available"
+                    reason = "Seerr still lists this as available, but it is not in Radarr/Sonarr"
+                else:
+                    state = "requested"
+                    reason = "Requested in Seerr, but it never arrived in the library"
                 note_unmatched(
                     "seerr",
                     bucket["media_type"],
@@ -608,6 +648,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     requested_by=requester,
                     requested_at=requested_at,
                     kind="seerr_missing",
+                    seerr_state=state,
                 )
                 stale += 1
 
@@ -634,6 +675,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     tmdb_id=item.get("tmdb_id") or 0,
                     tvdb_id=item.get("tvdb_id") or 0,
                     kind="no_seerr",
+                    seerr_state="absent",
                 )
                 missing_seerr += 1
 
@@ -1109,23 +1151,33 @@ def _run_sync(auto_delete: bool = False) -> None:
                     """
                     INSERT INTO unmatched (
                         source, media_type, title, year, plays, reason,
-                        tmdb_id, tvdb_id, seerr_media_id, requested_by, requested_at, kind
+                        tmdb_id, tvdb_id, seerr_media_id, requested_by, requested_at, kind, seerr_state
                     )
                     VALUES (
                         :source, :media_type, :title, :year, :plays, :reason,
-                        :tmdb_id, :tvdb_id, :seerr_media_id, :requested_by, :requested_at, :kind
+                        :tmdb_id, :tvdb_id, :seerr_media_id, :requested_by, :requested_at, :kind, :seerr_state
                     )
                     """,
                     list(unmatched_rows.values()),
                 )
         watched = sum(1 for row in records if row["play_count"])
-        message = f"Synced {len(records)} titles ({watched} with watch history, {len(unmatched_rows)} unmatched)"
-        _set_job(status="idle", message=message, step="", current=0, total=0, finished_at=int(time.time()))
+        unmatched = len(unmatched_rows)
+        message = f"{len(records):,} titles"
+        if unmatched:
+            message += f" · {unmatched:,} unmatched"
+        _set_job(
+            status="idle",
+            message=message,
+            step="",
+            current=0,
+            total=0,
+            finished_at=int(time.time()),
+        )
         add_log(
-            message,
+            f"Synced {len(records)} titles ({watched} with watch history, {unmatched} unmatched)",
             category="sync",
             action="complete",
-            detail={"titles": len(records), "watched": watched, "unmatched": len(unmatched_rows)},
+            detail={"titles": len(records), "watched": watched, "unmatched": unmatched},
         )
         if auto_delete:
             run_auto_delete(history_health)
