@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import time
 from contextlib import asynccontextmanager
@@ -26,9 +27,11 @@ from .auth import (
 )
 from .config import APP_SETTING_KEYS, env_file_present, hide_env_settings, locked_setting_keys
 from .db import all_settings, clear_library, connect, init_db, set_setting
+from .security import SecurityMiddleware, client_key, login_throttle, redact
 from .services.clients import KEYS, cfg, public_url, jellystat, radarr, radarr_4k, seerr, sonarr, tautulli, tracearr
 from .logs import add_log, list_logs
 from .sync import job_status, reset_job, restore_job, start_scheduler, start_sync
+from .version import current_version, version_info
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -42,13 +45,20 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Cleanarr", lifespan=lifespan)
+app = FastAPI(title="Cleanarr", version=current_version(), lifespan=lifespan)
+app.add_middleware(SecurityMiddleware)
 app.include_router(actions_router, prefix="/api")
 
 
 @app.get("/api/health")
 def health():
-    return {"ok": True}
+    return {"ok": True, "version": current_version()}
+
+
+@app.get("/api/version")
+def version(request: Request, refresh: bool = False):
+    current_user(request)
+    return version_info(force=refresh)
 
 
 SERVICES = {
@@ -83,19 +93,39 @@ def auth_status():
 
 
 @app.post("/api/auth/setup")
-def setup(payload: LoginIn):
+def setup(payload: LoginIn, request: Request):
     complete_setup(payload.username, payload.password)
-    return login_response(get_setting("auth_username"))
+    return login_response(get_setting("auth_username"), request)
 
 
 @app.post("/api/auth/login")
-def login(payload: LoginIn):
+def login(payload: LoginIn, request: Request):
     if needs_setup():
         raise HTTPException(status_code=403, detail="Create an admin account first")
+    throttle_key = client_key(request, payload.username)
+    wait = login_throttle.retry_after(throttle_key)
+    if wait:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed sign-ins. Try again in {wait} seconds.",
+            headers={"Retry-After": str(wait)},
+        )
     username = get_setting("auth_username")
-    if payload.username != username or not verify_password(payload.password):
+    # Both checks always run so a wrong username is not faster than a wrong password.
+    name_ok = hmac.compare_digest(payload.username or "", username or "")
+    password_ok = verify_password(payload.password)
+    if not (name_ok and password_ok):
+        locked = login_throttle.record_failure(throttle_key)
+        add_log(
+            f"Failed sign-in for “{payload.username}”" + (" — temporarily locked out" if locked else ""),
+            level="warn",
+            category="audit",
+            action="login_failed",
+            detail={"client": request.client.host if request.client else "unknown"},
+        )
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    return login_response(username)
+    login_throttle.record_success(throttle_key)
+    return login_response(username, request)
 
 
 @app.post("/api/auth/logout")
@@ -241,7 +271,7 @@ def _probe_service(name: str) -> dict:
             "ok": False,
             "configured": True,
             "message": "Failed",
-            "detail": str(exc),
+            "detail": redact(exc),
         }
 
 
@@ -647,12 +677,33 @@ def _links(row: dict) -> dict:
     return links
 
 
+def _static_file(full_path: str) -> Path | None:
+    """Resolve a request path inside STATIC_DIR, or None if it escapes or is hidden.
+
+    The route is a catch-all, so `full_path` is attacker-controlled and can carry
+    encoded `..` segments or an absolute path. Resolving and then confirming the
+    result is still under STATIC_DIR is what keeps this from serving /data or .env.
+    """
+    if not full_path:
+        return None
+    root = STATIC_DIR.resolve()
+    candidate = (root / full_path).resolve()
+    if candidate == root or root not in candidate.parents:
+        return None
+    if any(part.startswith(".") for part in candidate.relative_to(root).parts):
+        return None
+    return candidate if candidate.is_file() else None
+
+
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
     @app.get("/{full_path:path}")
     def spa(full_path: str):
-        candidate = STATIC_DIR / full_path
-        if full_path and candidate.exists() and candidate.is_file():
+        # Unknown API routes must not fall through to the HTML shell.
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        candidate = _static_file(full_path)
+        if candidate:
             return FileResponse(candidate)
         return FileResponse(STATIC_DIR / "index.html")

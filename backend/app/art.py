@@ -13,7 +13,9 @@ from .db import connect
 
 ART_DIR = Path(settings.data_dir) / "art"
 ALLOWED_SCHEMES = {"http", "https"}
-CACHE_HEADERS = {"Cache-Control": "public, max-age=2592000, immutable"}
+CACHE_HEADERS = {"Cache-Control": "private, max-age=2592000, immutable"}
+MAX_ART_BYTES = 12 * 1024 * 1024
+ALLOWED_ART_TYPES = ("image/",)
 _warming = False
 
 
@@ -87,22 +89,28 @@ def _download(url: str, cached: Path) -> tuple[bytes, str]:
     if parsed.scheme not in ALLOWED_SCHEMES or not parsed.netloc:
         raise HTTPException(status_code=400, detail="Invalid artwork URL")
     try:
-        with httpx.Client(timeout=20.0, follow_redirects=True) as client:
+        # Poster URLs come from *arr metadata, so cap the redirect chain and the
+        # response size rather than trusting whatever they point at.
+        with httpx.Client(timeout=20.0, follow_redirects=True, max_redirects=3) as client:
             response = client.get(url, headers={"User-Agent": "Cleanarr"})
             response.raise_for_status()
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Artwork fetch failed: {exc}") from exc
+    declared = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if declared and not declared.startswith(ALLOWED_ART_TYPES):
+        raise HTTPException(status_code=502, detail="Artwork URL did not return an image")
     data = response.content
     if not data:
         raise HTTPException(status_code=502, detail="Empty artwork")
+    if len(data) > MAX_ART_BYTES:
+        raise HTTPException(status_code=502, detail="Artwork is too large")
     ART_DIR.mkdir(parents=True, exist_ok=True)
     tmp = cached.with_suffix(".tmp")
     tmp.write_bytes(data)
     tmp.replace(cached)
-    media_type = (response.headers.get("content-type") or "image/jpeg").split(";")[0]
-    return data, media_type
+    return data, declared or "image/jpeg"
 
 
 def cache_stats() -> dict[str, int]:
@@ -127,7 +135,8 @@ def clear_cache() -> int:
 
 
 def _guess_type(path: Path) -> str:
-    head = path.read_bytes()[:16]
+    with path.open("rb") as handle:
+        head = handle.read(16)
     if head.startswith(b"\x89PNG"):
         return "image/png"
     if head.startswith(b"GIF"):

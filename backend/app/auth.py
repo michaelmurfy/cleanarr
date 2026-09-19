@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import time
 from functools import wraps
 
 from fastapi import HTTPException, Request
@@ -15,6 +16,8 @@ from .db import get_setting, set_setting
 COOKIE = "cleanarr_session"
 PBKDF_ITERS = 120_000
 PLACEHOLDER_SECRETS = {"", "change-me", "change-this-to-a-long-random-string"}
+SESSION_MAX_AGE = 60 * 60 * 24 * 14
+MIN_PASSWORD_LENGTH = 8
 
 
 def _hash_password(password: str, salt: str) -> str:
@@ -89,6 +92,11 @@ def set_credentials(username: str, password: str | None) -> None:
     if username:
         set_setting("auth_username", username.strip())
     if password:
+        if len(password) < MIN_PASSWORD_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters",
+            )
         salt = secrets.token_hex(16)
         set_setting("auth_salt", salt)
         set_setting("auth_password_hash", _hash_password(password, salt))
@@ -101,8 +109,11 @@ def complete_setup(username: str, password: str) -> None:
     name = username.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Username is required")
-    if len(password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters",
+        )
     # Re-check immediately before write in case another request finished setup.
     if get_setting("auth_password_hash"):
         raise HTTPException(status_code=403, detail="Admin account already configured")
@@ -114,23 +125,40 @@ def session_secret() -> str:
     return ensure_session_secret()
 
 
+def _session_key() -> bytes:
+    """Signing key bound to the stored credentials.
+
+    Because the password hash is part of the key material, changing the password
+    or the username invalidates every cookie handed out before the change.
+    """
+    material = f"{session_secret()}|{get_setting('auth_username')}|{get_setting('auth_password_hash')}"
+    return hashlib.sha256(material.encode()).digest()
+
+
 def sign_session(username: str) -> str:
     nonce = secrets.token_hex(8)
-    payload = f"{username}:{nonce}"
-    sig = hmac.new(session_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
+    payload = f"{username}:{int(time.time())}:{nonce}"
+    sig = hmac.new(_session_key(), payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}:{sig}"
 
 
 def read_session(token: str | None) -> str | None:
     if not token:
         return None
-    parts = token.split(":")
-    if len(parts) != 3:
+    # Split from the right so a username containing ":" still parses.
+    parts = token.rsplit(":", 3)
+    if len(parts) != 4:
         return None
-    username, nonce, sig = parts
-    payload = f"{username}:{nonce}"
-    expected = hmac.new(session_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
+    username, issued, nonce, sig = parts
+    payload = f"{username}:{issued}:{nonce}"
+    expected = hmac.new(_session_key(), payload.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, sig):
+        return None
+    if not issued.isdigit():
+        return None
+    age = time.time() - int(issued)
+    # A little slack for clock skew, then a hard expiry.
+    if age < -300 or age > SESSION_MAX_AGE:
         return None
     if username != get_setting("auth_username"):
         return None
@@ -144,7 +172,20 @@ def current_user(request: Request) -> str:
     return user
 
 
-def login_response(username: str) -> JSONResponse:
+def _secure_cookie(request: Request | None) -> bool:
+    """Mark the cookie Secure when asked to, or whenever the request arrived over TLS."""
+    setting = os.environ.get("CLEANARR_SECURE_COOKIE", "").strip().lower()
+    if setting in {"1", "true", "yes", "on"}:
+        return True
+    if setting in {"0", "false", "no", "off"}:
+        return False
+    if request is None:
+        return False
+    forwarded = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return forwarded == "https" or request.url.scheme == "https"
+
+
+def login_response(username: str, request: Request | None = None) -> JSONResponse:
     response = JSONResponse(
         {
             "ok": True,
@@ -152,14 +193,13 @@ def login_response(username: str) -> JSONResponse:
             "using_default_password": get_setting("using_default_password") == "1",
         }
     )
-    secure = os.environ.get("CLEANARR_SECURE_COOKIE", "").lower() in {"1", "true", "yes"}
     response.set_cookie(
         COOKIE,
         sign_session(username),
         httponly=True,
         samesite="lax",
-        secure=secure,
-        max_age=60 * 60 * 24 * 14,
+        secure=_secure_cookie(request),
+        max_age=SESSION_MAX_AGE,
         path="/",
     )
     return response
