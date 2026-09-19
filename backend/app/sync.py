@@ -1074,7 +1074,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     {
                         "canonical": key,
                         "display_name": ident.get("display") or key,
-                        "plex_username": ident.get("plex") or "",
+                        "account_username": ident.get("account") or "",
                         "email": ident.get("email") or "",
                         "aliases": [],
                         "seerr_id": None,
@@ -1110,10 +1110,10 @@ def _run_sync(auto_delete: bool = False) -> None:
             conn.executemany(
                 """
                 INSERT INTO people (
-                    canonical, display_name, plex_username, email, aliases_json, tautulli_id, jellystat_id, seerr_id,
+                    canonical, display_name, account_username, email, aliases_json, tautulli_id, jellystat_id, seerr_id,
                     request_count, library_count, library_size, play_count, last_watched_at, sources_json
                 ) VALUES (
-                    :canonical, :display_name, :plex_username, :email, :aliases_json, :tautulli_id, :jellystat_id, :seerr_id,
+                    :canonical, :display_name, :account_username, :email, :aliases_json, :tautulli_id, :jellystat_id, :seerr_id,
                     :request_count, :library_count, :library_size, :play_count, :last_watched_at, :sources_json
                 )
                 """,
@@ -1121,7 +1121,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     {
                         "canonical": row["canonical"],
                         "display_name": row.get("display_name") or row["canonical"],
-                        "plex_username": row.get("plex_username") or "",
+                        "account_username": row.get("account_username") or "",
                         "email": row.get("email") or "",
                         "aliases_json": json.dumps(row.get("aliases") or []),
                         "tautulli_id": str(row.get("tautulli_id") or ""),

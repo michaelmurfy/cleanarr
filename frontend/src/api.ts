@@ -166,7 +166,7 @@ export const api = {
 export type Person = {
   canonical: string;
   display_name: string;
-  plex_username: string;
+  account_username: string;
   email: string;
   aliases: string[];
   request_count: number;

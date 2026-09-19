@@ -1,19 +1,19 @@
 from app.identity import UserDirectory
 
 
-def test_seerr_and_tautulli_merge_on_plex_username():
+def test_seerr_and_tautulli_merge_on_account_username():
     directory = UserDirectory()
     directory.ingest_seerr({"id": 3, "plexUsername": "dan", "displayName": "Dan M", "email": "dan@example.com"})
     directory.ingest_tautulli({"user_id": 11, "username": "dan", "friendly_name": "Danny"})
 
     assert len(directory.people) == 1
     person = directory.people[0]
-    assert person["plex"] == "dan"
+    assert person["account"] == "dan"
     assert person["seerr_id"] == 3
     assert person["tautulli_id"] == 11
 
 
-def test_merge_on_email_when_plex_username_differs():
+def test_merge_on_email_when_account_username_differs():
     directory = UserDirectory()
     directory.ingest_seerr({"id": 1, "username": "d.mason", "email": "dan@example.com"})
     directory.ingest_tautulli({"user_id": 2, "username": "dmason", "email": "dan@example.com"})
@@ -33,19 +33,33 @@ def test_jellystat_user_resolves_by_name():
     resolved = directory.resolve("Carol")
     assert resolved["display"] == "Carol"
     assert resolved["canonical"] == "Carol"
+    assert resolved["account"] == "Carol"
+
+
+def test_seerr_jellyfin_login_merges_with_jellystat():
+    directory = UserDirectory()
+    directory.ingest_seerr({"id": 4, "jellyfinUsername": "carol", "displayName": "Carol", "email": "carol@example.com"})
+    directory.ingest_jellystat({"Id": "abc123", "Name": "carol"})
+
+    assert len(directory.people) == 1
+    person = directory.people[0]
+    assert person["account"] == "carol"
+    assert person["seerr_id"] == 4
+    assert person["jellystat_id"] == "abc123"
+    assert directory.snapshot()[0]["account_username"] == "carol"
 
 
 def test_resolve_is_case_and_whitespace_insensitive():
     directory = UserDirectory()
     directory.ingest_tautulli({"user_id": 5, "username": "dan", "friendly_name": "Dan M"})
-    assert directory.resolve("  DAN  ")["plex"] == "dan"
-    assert directory.resolve("dan m")["plex"] == "dan"
+    assert directory.resolve("  DAN  ")["account"] == "dan"
+    assert directory.resolve("dan m")["account"] == "dan"
 
 
 def test_resolve_unknown_name_creates_display_only_person():
     directory = UserDirectory()
     resolved = directory.resolve("Ghost")
-    assert resolved == {"canonical": "Ghost", "display": "Ghost", "plex": "", "email": ""}
+    assert resolved == {"canonical": "Ghost", "display": "Ghost", "account": "", "email": ""}
     assert len(directory.people) == 1
 
 
@@ -66,7 +80,7 @@ def test_snapshot_sorted_and_skips_anonymous():
     assert sorted(rows[0]["aliases"]) == rows[0]["aliases"]
 
 
-def test_seerr_nested_plex_user_object_uses_username():
+def test_seerr_nested_user_object_uses_username():
     directory = UserDirectory()
     directory.ingest_seerr(
         {
@@ -80,12 +94,12 @@ def test_seerr_nested_plex_user_object_uses_username():
         }
     )
     person = directory.people[0]
-    assert person["plex"] == "Corey___"
+    assert person["account"] == "Corey___"
     assert person["display"] == "Corey___"
-    assert "{" not in person["plex"]
+    assert "{" not in person["account"]
 
 
-def test_resolve_recovers_stringified_plex_user_object():
+def test_resolve_recovers_stringified_user_object():
     directory = UserDirectory()
     raw = (
         "{'id': '66fc6ce2-f607-4cef-8120-73fd31a66a4a', 'username': 'Corey___', "
@@ -95,4 +109,4 @@ def test_resolve_recovers_stringified_plex_user_object():
     resolved = directory.resolve(raw)
     assert resolved["display"] == "Corey___"
     assert resolved["canonical"] == "Corey___"
-    assert resolved["plex"] == "Corey___"
+    assert resolved["account"] == "Corey___"

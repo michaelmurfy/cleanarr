@@ -61,7 +61,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS people (
                 canonical TEXT PRIMARY KEY,
                 display_name TEXT NOT NULL DEFAULT '',
-                plex_username TEXT NOT NULL DEFAULT '',
+                account_username TEXT NOT NULL DEFAULT '',
                 email TEXT NOT NULL DEFAULT '',
                 aliases_json TEXT NOT NULL DEFAULT '[]',
                 tautulli_id TEXT NOT NULL DEFAULT '',
@@ -166,6 +166,11 @@ def init_db() -> None:
         people_cols = {row["name"] for row in conn.execute("PRAGMA table_info(people)").fetchall()}
         if "jellystat_id" not in people_cols:
             conn.execute("ALTER TABLE people ADD COLUMN jellystat_id TEXT NOT NULL DEFAULT ''")
+        if "account_username" not in people_cols:
+            if "plex_username" in people_cols:
+                conn.execute("ALTER TABLE people RENAME COLUMN plex_username TO account_username")
+            else:
+                conn.execute("ALTER TABLE people ADD COLUMN account_username TEXT NOT NULL DEFAULT ''")
         unmatched_cols = {row["name"] for row in conn.execute("PRAGMA table_info(unmatched)").fetchall()}
         if "tmdb_id" not in unmatched_cols:
             conn.execute("ALTER TABLE unmatched ADD COLUMN tmdb_id INTEGER NOT NULL DEFAULT 0")
