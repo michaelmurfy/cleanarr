@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
 
@@ -29,21 +30,23 @@ from .sync import job_status, reset_job, restore_job, start_scheduler, start_syn
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
-app = FastAPI(title="Cleanarr")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    bootstrap_auth()
+    restore_job()
+    start_scheduler()
+    yield
+
+
+app = FastAPI(title="Cleanarr", lifespan=lifespan)
 app.include_router(actions_router, prefix="/api")
 
 
 @app.get("/api/health")
 def health():
     return {"ok": True}
-
-
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
-    bootstrap_auth()
-    restore_job()
-    start_scheduler()
 
 
 SERVICES = {
