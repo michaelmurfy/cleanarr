@@ -1,11 +1,38 @@
 from __future__ import annotations
 
+import ast
 import re
 from typing import Any
 
 
+def _unwrap_user(value: Any) -> Any:
+    """Pull a username out of nested Plex/Seerr user objects (or their str() form)."""
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("{") and text.endswith("}") and ("username" in text or "displayName" in text):
+            try:
+                parsed = ast.literal_eval(text)
+            except (ValueError, SyntaxError):
+                parsed = None
+            if isinstance(parsed, dict):
+                value = parsed
+    if isinstance(value, dict):
+        return (
+            value.get("displayName")
+            or value.get("friendly_name")
+            or value.get("username")
+            or value.get("user")
+            or value.get("Name")
+            or value.get("UserName")
+            or value.get("name")
+            or value.get("email")
+            or ""
+        )
+    return value
+
+
 def _clean(value: Any) -> str:
-    return re.sub(r"\s+", " ", str(value or "")).strip()
+    return re.sub(r"\s+", " ", str(_unwrap_user(value) or "")).strip()
 
 
 def _key(value: Any) -> str:
@@ -147,7 +174,9 @@ class UserDirectory:
                         person = candidate
                         break
             if person is None and text:
-                person = self.add(plex="", display=text, extras=[text])
+                # Stringified Plex/Seerr user objects should land as plex usernames.
+                as_plex = isinstance(raw, str) and raw.strip().startswith("{") and text != raw.strip()
+                person = self.add(plex=text if as_plex else "", display=text, extras=[text])
             if person is None:
                 return {"canonical": "", "display": "", "plex": "", "email": ""}
         display = person.get("display") or person.get("plex") or ""
