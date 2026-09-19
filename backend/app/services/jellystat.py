@@ -51,10 +51,10 @@ def expand_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 class Jellystat:
     def __init__(self, url: str, api_key: str):
         self.url = tidy_url(url)
+        # Only x-api-token: sending it twice trips Jellystat's duplicate-header
+        # check (403), and an Authorization header makes it reject the request (401).
         self.headers = {
-            "X-API-Token": api_key,
             "x-api-token": api_key,
-            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
