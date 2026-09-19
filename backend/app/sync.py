@@ -186,6 +186,9 @@ def _progress(message: str, *, step: str, current: int = 0, total: int = 0) -> N
 
 def _run_sync(auto_delete: bool = False) -> None:
     try:
+        # Auto-delete reads "no plays" as "delete me", so it must not run on a sync
+        # where a history source was configured but did not report properly.
+        history_health: dict[str, Any] = {"configured": [], "degraded": [], "rows": 0}
         catalog: dict[tuple[str, int, int], dict[str, Any]] = {}
         index = CatalogIndex()
         directory = UserDirectory()
@@ -622,6 +625,7 @@ def _run_sync(auto_delete: bool = False) -> None:
 
         _progress("Loading Tautulli history…", step="tautulli")
         if client := tautulli():
+            history_health["configured"].append("tautulli")
             rating_map = {}
             tautulli_hits: dict[tuple[str, int, int], dict[str, dict[str, Any]]] = defaultdict(dict)
 
@@ -643,6 +647,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 rating_map = client.rating_map()
             except Exception as exc:
                 rating_map = {}
+                history_health["degraded"].append("tautulli")
                 add_log(f"Tautulli library map failed: {exc}", level="warn", category="sync", action="tautulli")
             for rating_key, meta in rating_map.items():
                 mapped_type = _media_type(meta.get("media_type"), "movie")
@@ -660,6 +665,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 _progress(f"Fetching Tautulli history… {fetched}", step="tautulli", current=fetched, total=0)
 
             rows = client.history(on_progress=tautulli_progress)
+            history_health["rows"] += len(rows)
             total = len(rows)
             matched = 0
             _progress(f"Matching Tautulli history… 0/{total}", step="tautulli", current=0, total=total)
@@ -740,10 +746,13 @@ def _run_sync(auto_delete: bool = False) -> None:
 
         _progress("Loading Tracearr history…", step="tracearr")
         if client := tracearr():
+            history_health["configured"].append("tracearr")
+
             def tracearr_progress(fetched: int) -> None:
                 _progress(f"Fetching Tracearr history… {fetched}", step="tracearr", current=fetched, total=0)
 
             rows = client.history(on_progress=tracearr_progress)
+            history_health["rows"] += len(rows)
             total = len(rows)
             matched = 0
             _progress(f"Matching Tracearr history… 0/{total}", step="tracearr", current=0, total=total)
@@ -824,11 +833,13 @@ def _run_sync(auto_delete: bool = False) -> None:
 
         _progress("Loading Jellystat history…", step="jellystat")
         if client := jellystat():
+            history_health["configured"].append("jellystat")
             library_map: dict[str, dict[str, Any]] = {}
             try:
                 _progress("Loading Jellystat library…", step="jellystat")
                 library_map = client.library_map()
             except Exception as exc:
+                history_health["degraded"].append("jellystat")
                 add_log(f"Jellystat library map failed: {exc}", level="warn", category="sync", action="jellystat")
             for item_id, meta in library_map.items():
                 mapped_type = _media_type(meta.get("media_type"), "movie")
@@ -847,6 +858,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 _progress(f"Fetching Jellystat history… {fetched}", step="jellystat", current=fetched, total=0)
 
             rows = client.history(on_progress=jellystat_progress)
+            history_health["rows"] += len(rows)
             total = len(rows)
             matched = 0
             _progress(f"Matching Jellystat history… 0/{total}", step="jellystat", current=0, total=total)
@@ -1074,7 +1086,7 @@ def _run_sync(auto_delete: bool = False) -> None:
             detail={"titles": len(records), "watched": watched, "unmatched": len(unmatched_rows)},
         )
         if auto_delete:
-            run_auto_delete()
+            run_auto_delete(history_health)
         warm_cache()
     except Exception as exc:
         _set_job(status="error", message=str(exc), step="", current=0, total=0, finished_at=int(time.time()))
@@ -1132,11 +1144,37 @@ def auto_delete_candidates(stale_days: int, limit: int) -> list[dict[str, Any]]:
     return candidates
 
 
-def run_auto_delete() -> dict[str, Any]:
+def history_block_reason(history: dict[str, Any] | None) -> str:
+    """Why this sync's watch history cannot be trusted to mark a title unwatched, if so."""
+    if not history:
+        return "no watch history was collected"
+    configured = history.get("configured") or []
+    degraded = history.get("degraded") or []
+    if not configured:
+        return "no watch history source is configured"
+    if degraded:
+        return f"{', '.join(sorted(set(degraded)))} did not respond properly"
+    if not history.get("rows"):
+        return f"{', '.join(configured)} reported no plays at all"
+    return ""
+
+
+def run_auto_delete(history: dict[str, Any] | None = None) -> dict[str, Any]:
     """Delete never-watched stale titles after a scheduled sync. Off unless enabled."""
     config = auto_delete_settings()
     if not config["enabled"]:
-        return {"enabled": False, "deleted": 0, "failed": 0, "capped": False}
+        return {"enabled": False, "deleted": 0, "failed": 0, "capped": False, "skipped": ""}
+
+    blocked = history_block_reason(history)
+    if blocked:
+        add_log(
+            f"Automatic delete skipped: {blocked}",
+            level="warn",
+            category="audit",
+            action="auto_delete_skipped",
+            actor="automatic",
+        )
+        return {"enabled": True, "deleted": 0, "failed": 0, "capped": False, "skipped": blocked}
 
     candidates = auto_delete_candidates(config["stale_days"], config["max_per_run"])
     if not candidates:
@@ -1146,7 +1184,7 @@ def run_auto_delete() -> dict[str, Any]:
             action="auto_delete",
             actor="automatic",
         )
-        return {"enabled": True, "deleted": 0, "failed": 0, "capped": False}
+        return {"enabled": True, "deleted": 0, "failed": 0, "capped": False, "skipped": ""}
 
     radarr_client = radarr()
     sonarr_client = sonarr()
@@ -1187,7 +1225,7 @@ def run_auto_delete() -> dict[str, Any]:
         actor="automatic",
         detail={"deleted": deleted, "failed": failed, "freed_bytes": freed, "capped": capped},
     )
-    return {"enabled": True, "deleted": deleted, "failed": failed, "capped": capped}
+    return {"enabled": True, "deleted": deleted, "failed": failed, "capped": capped, "skipped": ""}
 
 
 def reset_job(message: str = "Idle") -> dict[str, Any]:

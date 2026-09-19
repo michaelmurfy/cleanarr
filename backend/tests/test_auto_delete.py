@@ -6,6 +6,7 @@ from app import sync
 from app.db import connect, set_setting
 
 DAY = 24 * 3600
+HEALTHY = {"configured": ["jellystat"], "degraded": [], "rows": 120}
 
 
 @pytest.fixture(autouse=True)
@@ -91,7 +92,13 @@ def test_run_auto_delete_is_a_no_op_when_disabled(library, monkeypatch):
         raise AssertionError("delete_item must not be called while disabled")
 
     monkeypatch.setattr(sync, "delete_item", fail)
-    assert sync.run_auto_delete() == {"enabled": False, "deleted": 0, "failed": 0, "capped": False}
+    assert sync.run_auto_delete(HEALTHY) == {
+        "enabled": False,
+        "deleted": 0,
+        "failed": 0,
+        "capped": False,
+        "skipped": "",
+    }
     with connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM media").fetchone()[0] == 1
 
@@ -115,9 +122,9 @@ def test_run_auto_delete_deletes_candidates_and_reports_the_cap(library, monkeyp
         return {"title": item["title"], "ok": True}
 
     monkeypatch.setattr(sync, "delete_item", fake_delete)
-    result = sync.run_auto_delete()
+    result = sync.run_auto_delete(HEALTHY)
 
-    assert result == {"enabled": True, "deleted": 2, "failed": 0, "capped": True}
+    assert result == {"enabled": True, "deleted": 2, "failed": 0, "capped": True, "skipped": ""}
     assert sorted(deleted) == ["Film 500", "Film 600"]
     with connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM media").fetchone()[0] == 1
@@ -135,7 +142,7 @@ def test_a_failed_delete_does_not_stop_the_run(library, monkeypatch):
         return {"title": item["title"], "ok": True}
 
     monkeypatch.setattr(sync, "delete_item", fake_delete)
-    result = sync.run_auto_delete()
+    result = sync.run_auto_delete(HEALTHY)
     assert result["deleted"] == 1
     assert result["failed"] == 1
 
@@ -179,3 +186,33 @@ def test_manual_sync_never_auto_deletes_but_scheduled_does(monkeypatch):
     sync.reset_job()
 
     assert started == [False, True]
+
+
+@pytest.mark.parametrize(
+    "history, reason",
+    [
+        (None, "no watch history was collected"),
+        ({"configured": [], "degraded": [], "rows": 0}, "no watch history source is configured"),
+        ({"configured": ["jellystat"], "degraded": ["jellystat"], "rows": 90}, "jellystat did not respond properly"),
+        ({"configured": ["jellystat"], "degraded": [], "rows": 0}, "jellystat reported no plays at all"),
+    ],
+)
+def test_untrustworthy_history_blocks_the_run(history, reason, monkeypatch):
+    set_setting("auto_delete_enabled", "1")
+    add_title("Old And Unwatched", added_days_ago=400)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("delete_item must not be called on an untrustworthy sync")
+
+    monkeypatch.setattr(sync, "delete_item", fail)
+    result = sync.run_auto_delete(history)
+
+    assert result["deleted"] == 0
+    assert result["skipped"] == reason
+    with connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM media").fetchone()[0] == 1
+
+
+def test_healthy_history_does_not_block(monkeypatch):
+    assert sync.history_block_reason(HEALTHY) == ""
+    assert sync.history_block_reason({"configured": ["tautulli", "jellystat"], "degraded": [], "rows": 1}) == ""

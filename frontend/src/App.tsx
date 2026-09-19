@@ -1445,9 +1445,9 @@ function Settings() {
           </div>
           {autoDelete && scheduleEnabled && (
             <p className="muted">
-              Titles are deleted from disk with no undo. Cleanarr only counts a title as never watched
-              if a watch-history source reported no plays, so check Settings shows Tautulli, Tracearr or
-              Jellystat connected before leaving this on.
+              Titles are deleted from disk with no undo. A run is skipped if the watch history cannot be
+              trusted for it — no source configured, a source that failed during the sync, or no plays
+              reported at all — so an outage cannot make the library look unwatched.
             </p>
           )}
         </section>
