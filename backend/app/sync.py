@@ -14,7 +14,7 @@ from .actions import delete_item, is_protected, is_stale_unwatched
 from .logs import add_log
 from .match import CatalogIndex, parse_year
 from .services.arr import movie_availability, pick_rating, poster_from, series_availability
-from .services.clients import jellystat, radarr, seerr, sonarr, tautulli, tracearr
+from .services.clients import jellystat, radarr, radarr_4k, seerr, sonarr, tautulli, tracearr
 from .services.jellystat import play_title
 from .services.seerr import (
     media_available,
@@ -272,6 +272,8 @@ def _run_sync(auto_delete: bool = False) -> None:
             except Exception as exc:
                 add_log(f"Seerr users failed: {exc}", level="warn", category="sync", action="users")
 
+        _AVAIL_RANK = {"requested": 0, "partial": 1, "downloaded": 2}
+
         def upsert_base(item: dict[str, Any], extra_titles: list[str] | None = None) -> tuple[str, int, int]:
             media_type = item["media_type"]
             tmdb_id = int(item.get("tmdb_id") or 0)
@@ -287,6 +289,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 "poster_url": "",
                 "size_bytes": 0,
                 "radarr_id": None,
+                "radarr_4k_id": None,
                 "sonarr_id": None,
                 "seerr_media_id": None,
                 "requested_by": "",
@@ -301,18 +304,38 @@ def _run_sync(auto_delete: bool = False) -> None:
                 "availability": "downloaded",
                 "added_at": None,
             }
+            # Same TMDB title can live in both Radarr and Radarr 4K — keep both ids and sum disk.
+            summing_size = bool(
+                (item.get("radarr_4k_id") and current.get("radarr_id") and not current.get("radarr_4k_id"))
+                or (item.get("radarr_id") and current.get("radarr_4k_id") and not current.get("radarr_id"))
+            )
             for field in current:
+                if field == "size_bytes" and summing_size:
+                    current["size_bytes"] = int(current.get("size_bytes") or 0) + int(item.get("size_bytes") or 0)
+                    continue
+                if field == "availability":
+                    new_av = item.get("availability")
+                    if new_av and _AVAIL_RANK.get(str(new_av), 0) >= _AVAIL_RANK.get(
+                        str(current.get("availability") or ""), 0
+                    ):
+                        current["availability"] = new_av
+                    continue
+                if field == "added_at":
+                    new_added = item.get("added_at")
+                    if new_added:
+                        old = current.get("added_at")
+                        current["added_at"] = min(int(old), int(new_added)) if old else new_added
+                    continue
                 if item.get(field) not in (None, "", 0, []):
                     current[field] = item[field]
             catalog[key] = current
             index.add(key, current, extra_titles or [])
             return key
 
-        _progress("Loading Radarr…", step="radarr")
-        if client := radarr():
+        def load_radarr_movies(client, *, id_field: str, label: str, step: str) -> None:
             movies = client.movies()
             total = len(movies)
-            _progress(f"Loading Radarr… 0/{total}", step="radarr", current=0, total=total)
+            _progress(f"Loading {label}… 0/{total}", step=step, current=0, total=total)
             for i, movie in enumerate(movies, 1):
                 rating, votes, source = pick_rating(movie.get("ratings"))
                 upsert_base(
@@ -325,7 +348,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                         "year": movie.get("year"),
                         "poster_url": poster_from(movie.get("images")),
                         "size_bytes": movie.get("sizeOnDisk") or 0,
-                        "radarr_id": movie.get("id"),
+                        id_field: movie.get("id"),
                         "path": movie.get("path") or "",
                         "title_slug": movie.get("titleSlug") or "",
                         "rating": rating,
@@ -337,8 +360,16 @@ def _run_sync(auto_delete: bool = False) -> None:
                     _alt_titles(movie),
                 )
                 if i == total or i % 75 == 0:
-                    _progress(f"Loading Radarr… {i}/{total}", step="radarr", current=i, total=total)
-            add_log(f"Loaded {total} movies from Radarr", category="sync", action="radarr")
+                    _progress(f"Loading {label}… {i}/{total}", step=step, current=i, total=total)
+            add_log(f"Loaded {total} movies from {label}", category="sync", action=step)
+
+        _progress("Loading Radarr…", step="radarr")
+        if client := radarr():
+            load_radarr_movies(client, id_field="radarr_id", label="Radarr", step="radarr")
+
+        _progress("Loading Radarr 4K…", step="radarr_4k")
+        if client := radarr_4k():
+            load_radarr_movies(client, id_field="radarr_4k_id", label="Radarr 4K", step="radarr_4k")
 
         _progress("Loading Sonarr…", step="sonarr")
         if client := sonarr():
@@ -646,14 +677,19 @@ def _run_sync(auto_delete: bool = False) -> None:
 
             missing_seerr = 0
             for item in catalog.values():
-                if not (item.get("radarr_id") or item.get("sonarr_id")):
+                if not (item.get("radarr_id") or item.get("radarr_4k_id") or item.get("sonarr_id")):
                     continue
                 if item.get("seerr_media_id"):
                     continue
                 title = _usable_title(item.get("title"), item.get("tmdb_id") or 0)
                 if not title:
                     continue
-                source = "radarr" if item.get("radarr_id") else "sonarr"
+                if item.get("radarr_id"):
+                    source = "radarr"
+                elif item.get("radarr_4k_id"):
+                    source = "radarr_4k"
+                else:
+                    source = "sonarr"
                 note_unmatched(
                     source,
                     item["media_type"],
@@ -1020,6 +1056,9 @@ def _run_sync(auto_delete: bool = False) -> None:
             records.append(
                 {
                     **item,
+                    "radarr_id": item.get("radarr_id"),
+                    "radarr_4k_id": item.get("radarr_4k_id"),
+                    "sonarr_id": item.get("sonarr_id"),
                     "tautulli_rating_key": item.get("tautulli_rating_key") or "",
                     "jellystat_item_id": item.get("jellystat_item_id") or "",
                     "availability": item.get("availability") or "downloaded",
@@ -1039,13 +1078,13 @@ def _run_sync(auto_delete: bool = False) -> None:
                 """
                 INSERT INTO media (
                     media_type, tmdb_id, tvdb_id, imdb_id, title, year, poster_url, size_bytes,
-                    radarr_id, sonarr_id, seerr_media_id, requested_by, requested_at,
+                    radarr_id, radarr_4k_id, sonarr_id, seerr_media_id, requested_by, requested_at,
                     last_watched_at, play_count, watcher_count, watchers_json, sources_json, path, title_slug,
                     rating, rating_votes, rating_source, tautulli_rating_key, jellystat_item_id, availability,
                     added_at
                 ) VALUES (
                     :media_type, :tmdb_id, :tvdb_id, :imdb_id, :title, :year, :poster_url, :size_bytes,
-                    :radarr_id, :sonarr_id, :seerr_media_id, :requested_by, :requested_at,
+                    :radarr_id, :radarr_4k_id, :sonarr_id, :seerr_media_id, :requested_by, :requested_at,
                     :last_watched_at, :play_count, :watcher_count, :watchers_json, :sources_json, :path, :title_slug,
                     :rating, :rating_votes, :rating_source, :tautulli_rating_key, :jellystat_item_id, :availability,
                     :added_at
@@ -1264,6 +1303,7 @@ def run_auto_delete(history: dict[str, Any] | None = None) -> dict[str, Any]:
         return {"enabled": True, "deleted": 0, "failed": 0, "capped": False, "skipped": ""}
 
     radarr_client = radarr()
+    radarr_4k_client = radarr_4k()
     sonarr_client = sonarr()
     seerr_client = seerr()
     deleted = 0
@@ -1277,6 +1317,7 @@ def run_auto_delete(history: dict[str, Any] | None = None) -> dict[str, Any]:
                 blacklist=False,
                 actor="automatic",
                 radarr_client=radarr_client,
+                radarr_4k_client=radarr_4k_client,
                 sonarr_client=sonarr_client,
                 seerr_client=seerr_client,
             )

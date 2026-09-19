@@ -496,6 +496,7 @@ input.tick:disabled {
 .service-pill-full { display: none; }
 .service-pill:hover { text-decoration: none; filter: brightness(1.14); transform: translateY(-1px); }
 .service-pill.radarr { color: #ffc107; border-color: #5a4a14; background: linear-gradient(180deg, #2f2812, #1f1a0d); }
+.service-pill.radarr-4k { color: #ffdb6e; border-color: #6a5418; background: linear-gradient(180deg, #3a3014, #241c0c); }
 .service-pill.sonarr { color: #35c5f0; border-color: #1a4d5c; background: linear-gradient(180deg, #16303a, #0f1d24); }
 .service-pill.seerr { color: #e5a1ff; border-color: #523366; background: linear-gradient(180deg, #2a1a36, #1a1022); }
 .service-pill.tautulli { color: #f4a261; border-color: #5c3d1f; background: linear-gradient(180deg, #302014, #1f140c); }

@@ -26,7 +26,7 @@ from .auth import (
 )
 from .config import APP_SETTING_KEYS, env_file_present, hide_env_settings, locked_setting_keys
 from .db import all_settings, clear_library, connect, init_db, set_setting
-from .services.clients import KEYS, cfg, public_url, jellystat, radarr, seerr, sonarr, tautulli, tracearr
+from .services.clients import KEYS, cfg, public_url, jellystat, radarr, radarr_4k, seerr, sonarr, tautulli, tracearr
 from .logs import add_log, list_logs
 from .sync import job_status, reset_job, restore_job, start_scheduler, start_sync
 
@@ -57,6 +57,7 @@ SERVICES = {
     "jellystat": jellystat,
     "seerr": seerr,
     "radarr": radarr,
+    "radarr_4k": radarr_4k,
     "sonarr": sonarr,
 }
 
@@ -597,6 +598,9 @@ def _unmatched_links(row: dict) -> dict:
         base = public_url("radarr", "radarr_url")
         if base:
             links["radarr"] = f"{base}/movie/{tmdb_id}"
+        base_4k = public_url("radarr_4k", "radarr_4k_url")
+        if base_4k:
+            links["radarr_4k"] = f"{base_4k}/movie/{tmdb_id}"
     if media_type == "tv":
         base = public_url("sonarr", "sonarr_url")
         if base:
@@ -606,10 +610,15 @@ def _unmatched_links(row: dict) -> dict:
 
 def _links(row: dict) -> dict:
     links = {}
-    if row["media_type"] == "movie" and row.get("radarr_id"):
-        base = public_url("radarr", "radarr_url")
-        if base:
-            links["radarr"] = f"{base}/movie/{row['tmdb_id']}"
+    if row["media_type"] == "movie":
+        if row.get("radarr_id"):
+            base = public_url("radarr", "radarr_url")
+            if base:
+                links["radarr"] = f"{base}/movie/{row['tmdb_id']}"
+        if row.get("radarr_4k_id"):
+            base = public_url("radarr_4k", "radarr_4k_url")
+            if base:
+                links["radarr_4k"] = f"{base}/movie/{row['tmdb_id']}"
     if row["media_type"] == "tv" and row.get("sonarr_id"):
         base = public_url("sonarr", "sonarr_url")
         if base:

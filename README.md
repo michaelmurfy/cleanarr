@@ -27,7 +27,7 @@ Open http://localhost:7585. On first launch with no `.env`, Cleanarr generates a
 
 ### 2. Connect your services
 
-No `.env` file is required. With none present (or with `CLEANARR_HIDE_SETTINGS=0`), open **Settings** and enter URLs and API keys for the apps you use — Radarr, Sonarr, Seerr, and at least one watch-history source (Tautulli, Tracearr, and/or Jellystat). Leave unused services blank. Use **Test** on each row, then **Sync now**.
+No `.env` file is required. With none present (or with `CLEANARR_HIDE_SETTINGS=0`), open **Settings** and enter URLs and API keys for the apps you use — Radarr (optional second instance for 4K), Sonarr, Seerr, and at least one watch-history source (Tautulli, Tracearr, and/or Jellystat). Leave unused services blank. Use **Test** on each row, then **Sync now**.
 
 ### 3. Optional `.env` (lock config to the host)
 
