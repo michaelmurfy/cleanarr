@@ -81,6 +81,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   me: () => request<{ username: string; using_default_password: boolean }>("/api/auth/me"),
+  authStatus: () => request<{ setup_required: boolean }>("/api/auth/status"),
+  setup: (username: string, password: string) =>
+    request<{ username: string }>("/api/auth/setup", { method: "POST", body: JSON.stringify({ username, password }) }),
   login: (username: string, password: string) =>
     request<{ username: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   logout: () => request("/api/auth/logout", { method: "POST" }),

@@ -268,10 +268,26 @@ function ServiceLinks({ links }: { links?: Record<string, string> }) {
 
 export function App() {
   const [user, setUser] = useState<string | null>(null);
+  const [setupRequired, setSetupRequired] = useState(false);
   const [booting, setBooting] = useState(true);
 
   useEffect(() => {
-    api.me().then((me) => setUser(me.username)).catch(() => setUser(null)).finally(() => setBooting(false));
+    api.authStatus()
+      .then(async (status) => {
+        setSetupRequired(status.setup_required);
+        if (status.setup_required) {
+          setUser(null);
+          return;
+        }
+        try {
+          const me = await api.me();
+          setUser(me.username);
+        } catch {
+          setUser(null);
+        }
+      })
+      .catch(() => setUser(null))
+      .finally(() => setBooting(false));
   }, []);
 
   if (booting) {
@@ -281,8 +297,89 @@ export function App() {
       </div>
     );
   }
+  if (setupRequired) {
+    return (
+      <Setup
+        onDone={(name) => {
+          setSetupRequired(false);
+          setUser(name);
+        }}
+      />
+    );
+  }
   if (!user) return <Login onDone={setUser} />;
   return <Shell user={user} onLogout={() => setUser(null)} />;
+}
+
+function Setup({ onDone }: { onDone: (user: string) => void }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (password !== confirm) {
+      setError("Passwords do not match");
+      return;
+    }
+    try {
+      const result = await api.setup(username, password);
+      onDone(result.username);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create account");
+    }
+  }
+
+  return (
+    <div className="login">
+      <form className="login-card" onSubmit={submit}>
+        <Brand />
+        <h1>Create admin account</h1>
+        <p className="muted">Set a username and password before using Cleanarr. There is no default login.</p>
+        <div className="stack">
+          <label>Username
+            <input
+              name="username"
+              value={username}
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              autoFocus
+              required
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </label>
+          <label>Password
+            <input
+              type="password"
+              name="password"
+              value={password}
+              autoComplete="new-password"
+              minLength={8}
+              required
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </label>
+          <label>Confirm password
+            <input
+              type="password"
+              name="confirm"
+              value={confirm}
+              autoComplete="new-password"
+              minLength={8}
+              required
+              onChange={(e) => setConfirm(e.target.value)}
+            />
+          </label>
+        </div>
+        {error && <p className="error">{error}</p>}
+        <button className="primary" type="submit">Create account</button>
+      </form>
+    </div>
+  );
 }
 
 function Login({ onDone }: { onDone: (user: string) => void }) {
