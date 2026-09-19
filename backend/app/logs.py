@@ -83,7 +83,7 @@ def list_logs(
             f"""
             SELECT * FROM logs
             WHERE {clause}
-            ORDER BY id DESC
+            ORDER BY created_at DESC, id DESC
             LIMIT ? OFFSET ?
             """,
             [*params, page_size, (page - 1) * page_size],
