@@ -55,7 +55,7 @@ def test_setup_creates_account_and_signs_in(client, monkeypatch):
 
 
 def test_setup_stays_closed_even_if_setup_flag_is_cleared(client, monkeypatch):
-    """A password hash alone must block /api/auth/setup — the flag is not enough."""
+    """A password hash alone must block /api/auth/setup, because the flag alone is not enough."""
     _fresh_client(client, monkeypatch)
     assert client.post("/api/auth/setup", json={"username": "admin", "password": "correct-horse"}).status_code == 200
 

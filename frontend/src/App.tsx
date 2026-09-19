@@ -144,7 +144,7 @@ function num(value: number | null | undefined) {
 }
 
 function bytes(value: number) {
-  if (!value) return "—";
+  if (!value) return "–";
   const units = ["B", "KB", "MB", "GB", "TB"];
   let size = value;
   let i = 0;
@@ -266,7 +266,7 @@ function availabilityLabel(value?: string | null) {
 }
 
 function Requester({ name, at }: { name?: string | null; at?: string | number | null }) {
-  if (!name) return <span className="muted">—</span>;
+  if (!name) return <span className="muted">–</span>;
   const ts = parseStamp(at);
   return (
     <div className="requester">
@@ -315,7 +315,7 @@ const SERVICE_META: Record<string, { label: string; short: string; className: st
 
 function ServiceLinks({ links }: { links?: Record<string, string> }) {
   const entries = Object.entries(SERVICE_META).filter(([key]) => links?.[key]);
-  if (!entries.length) return <span className="muted">—</span>;
+  if (!entries.length) return <span className="muted">–</span>;
   return (
     <div className="service-links" role="list">
       {entries.map(([key, meta]) => (
@@ -408,7 +408,6 @@ function Setup({ onDone }: { onDone: (user: string) => void }) {
       <form className="login-card" onSubmit={submit}>
         <Brand />
         <h1>Create admin account</h1>
-        <p className="muted">Set a username and password before using Cleanarr. There is no default login.</p>
         <div className="stack">
           <label>Username
             <input
@@ -917,16 +916,16 @@ function Library({
                   </div>
                 </td>
                 <td className="rating col-rating" data-label="Rating" title={item.rating_source ? `${item.rating_source} · ${item.rating_votes} votes` : "No rating"}>
-                  {item.rating != null ? <><strong>{Number(item.rating).toFixed(1)}</strong> <span className="muted">/10</span></> : "—"}
+                  {item.rating != null ? <><strong>{Number(item.rating).toFixed(1)}</strong> <span className="muted">/10</span></> : "–"}
                 </td>
                 <td className="col-watched" data-label="Last watched" title={item.availability === "requested" ? "Requested, not downloaded yet" : whenFull(item.last_watched_at)}>
-                  {item.availability === "requested" ? "—" : when(item.last_watched_at)}
+                  {item.availability === "requested" ? "–" : when(item.last_watched_at)}
                 </td>
                 <td className="col-plays" data-label="Plays">{item.play_count}</td>
                 <td className="watchers col-watchers" data-label="Watchers" title={item.watchers.map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}>
                   {item.watchers.length
                     ? `${item.watchers.slice(0, 2).map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}${item.watchers.length > 2 ? ` +${item.watchers.length - 2}` : ""}`
-                    : "—"}
+                    : "–"}
                 </td>
                 <td className="col-requested" data-label="Requested by"><Requester name={item.requested_by} at={item.requested_at} /></td>
                 <td className="col-size" data-label="Size">{bytes(item.size_bytes)}</td>
@@ -1374,7 +1373,7 @@ function humanKey(key: string) {
 }
 
 function humanValue(key: string, value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") return "–";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") {
     if (BYTE_KEYS.has(key)) return bytes(value);
@@ -1431,12 +1430,12 @@ function LogList({ items }: { items: unknown[] }) {
 }
 
 function describeEntry(entry: unknown): string {
-  if (entry === null || entry === undefined) return "—";
+  if (entry === null || entry === undefined) return "–";
   if (typeof entry !== "object") return String(entry);
   const row = entry as Record<string, unknown>;
   const name = row.service ?? row.title ?? row.name ?? "";
   const outcome = row.ok === false ? row.error || row.detail || "failed" : row.message ?? row.detail ?? (row.ok === true ? "ok" : "");
-  return [name, outcome].filter(Boolean).map(String).join(" — ") || JSON.stringify(entry);
+  return [name, outcome].filter(Boolean).map(String).join(": ") || JSON.stringify(entry);
 }
 
 function dayHeading(ts: number) {
@@ -1814,7 +1813,7 @@ function About() {
     if (info.error) return { tone: "idle", label: "Check failed", detail: info.error };
     if (info.update_available) return { tone: "fail", label: `Update available · ${info.latest}`, detail: "Pull the new image and restart to upgrade." };
     if (info.latest) return { tone: "ok", label: "Up to date", detail: `Latest release is ${info.latest}.` };
-    return { tone: "idle", label: "No releases published", detail: "Nothing tagged on GitHub to compare against yet." };
+    return { tone: "idle", label: "No releases published", detail: "No tagged release to compare against." };
   })();
 
   return (
@@ -1822,7 +1821,7 @@ function About() {
       <div className="settings-head">
         <div>
           <h3>About Cleanarr</h3>
-          <p className="muted">Which build is running, and whether a newer one has been published.</p>
+          <p className="muted">Version, update check, and project links.</p>
         </div>
         <button className="ghost" type="button" disabled={checking || info?.check_enabled === false} onClick={() => load(true)}>
           {checking ? "Checking…" : "Check for updates"}
@@ -2099,7 +2098,7 @@ function Settings() {
           value={secret ? (locked ? "" : values[key] || "") : values[key] || ""}
           disabled={locked}
           autoComplete="off"
-          placeholder={secret ? (configured ? "Configured — leave blank" : "API key") : "https://"}
+          placeholder={secret ? (configured ? "Configured, leave blank" : "API key") : "https://"}
           onChange={(e) => setValues((current) => ({ ...current, [key]: e.target.value }))}
         />
       </label>

@@ -271,13 +271,13 @@ def _run_sync(auto_delete: bool = False) -> None:
                 for user in client.users():
                     directory.ingest_tautulli(user)
             except Exception as exc:
-                add_log(f"Tautulli: could not load users — {exc}", level="warn", category="sync", action="users")
+                add_log(f"Tautulli: could not load users: {exc}", level="warn", category="sync", action="users")
         if client := jellystat():
             try:
                 for user in client.users():
                     directory.ingest_jellystat(user)
             except Exception as exc:
-                add_log(f"Jellystat: could not load users — {exc}", level="warn", category="sync", action="users")
+                add_log(f"Jellystat: could not load users: {exc}", level="warn", category="sync", action="users")
         seerr_users_by_id: dict[int, dict[str, Any]] = {}
         if client := seerr():
             try:
@@ -286,7 +286,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     if user.get("id") is not None:
                         seerr_users_by_id[int(user["id"])] = user
             except Exception as exc:
-                add_log(f"Seerr: could not load users — {exc}", level="warn", category="sync", action="users")
+                add_log(f"Seerr: could not load users: {exc}", level="warn", category="sync", action="users")
 
         _AVAIL_RANK = {"requested": 0, "partial": 1, "downloaded": 2}
 
@@ -320,7 +320,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 "availability": "downloaded",
                 "added_at": None,
             }
-            # Same TMDB title can live in both Radarr and Radarr 4K — keep both ids and sum disk.
+            # Same TMDB title can live in both Radarr and Radarr 4K, so keep both ids and sum disk.
             summing_size = bool(
                 (item.get("radarr_4k_id") and current.get("radarr_id") and not current.get("radarr_4k_id"))
                 or (item.get("radarr_id") and current.get("radarr_4k_id") and not current.get("radarr_id"))
@@ -545,7 +545,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     )
                     blocked_keys.add((media_type, tmdb_id))
             except Exception as exc:
-                add_log(f"Seerr: could not load the blocklist — {exc}", level="warn", category="sync", action="seerr")
+                add_log(f"Seerr: could not load the blocklist: {exc}", level="warn", category="sync", action="seerr")
             _progress(f"Matching Seerr requests… 0/{seerr_total}", step="seerr", current=0, total=seerr_total or 0)
             for i, req in enumerate(requests, 1):
                 if attach_requester(req):
@@ -776,7 +776,7 @@ def _run_sync(auto_delete: bool = False) -> None:
             except Exception as exc:
                 rating_map = {}
                 history_health["degraded"].append("tautulli")
-                add_log(f"Tautulli: could not map the library — {exc}", level="warn", category="sync", action="tautulli")
+                add_log(f"Tautulli: could not map the library: {exc}", level="warn", category="sync", action="tautulli")
             for rating_key, meta in rating_map.items():
                 mapped_type = _media_type(meta.get("media_type"), "movie")
                 key = index.resolve(
@@ -968,7 +968,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 library_map = client.library_map()
             except Exception as exc:
                 history_health["degraded"].append("jellystat")
-                add_log(f"Jellystat: could not map the library — {exc}", level="warn", category="sync", action="jellystat")
+                add_log(f"Jellystat: could not map the library: {exc}", level="warn", category="sync", action="jellystat")
             for item_id, meta in library_map.items():
                 mapped_type = _media_type(meta.get("media_type"), "movie")
                 key = index.resolve(
@@ -1226,7 +1226,7 @@ def _run_sync(auto_delete: bool = False) -> None:
         if unmatched:
             summary += f", {unmatched:,} unmatched"
         add_log(
-            f"Sync finished in {elapsed} — {summary}",
+            f"Sync finished in {elapsed}: {summary}",
             category="sync",
             action="complete",
             detail={
