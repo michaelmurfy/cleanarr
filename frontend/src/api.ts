@@ -54,6 +54,14 @@ export type LogItem = {
   actor: string;
 };
 
+export type LogsResponse = {
+  items: LogItem[];
+  total: number;
+  page: number;
+  pages: number;
+  levels: { info: number; warn: number; error: number };
+};
+
 export type LibraryResponse = {
   items: MediaItem[];
   stats: Record<string, number>;
@@ -102,7 +110,7 @@ export const api = {
     for (const [key, value] of Object.entries(params)) {
       if (value) query.set(key, value);
     }
-    return request<{ items: LogItem[]; total: number; page: number; pages: number }>(`/api/logs?${query}`);
+    return request<LogsResponse>(`/api/logs?${query}`);
   },
   cleanup: (items: Partial<MediaItem>[], blacklist: boolean) =>
     request<{ results: { title: string; ok: boolean; error?: string }[] }>("/api/cleanup", {

@@ -16,7 +16,7 @@ help:
 env:
 	@test -f .env || cp .env.example .env
 
-# Pull the published image and start the stack. No .env required — configure in Settings.
+# Pull the published image and start the stack. No .env required, configure in Settings.
 up:
 	$(COMPOSE) pull
 	$(COMPOSE) up -d
@@ -27,12 +27,15 @@ build:
 	$(COMPOSE) up -d
 
 # Run the backend suite in a throwaway container. Pip cache persists between runs.
+# backend is copied so the suite can write; frontend is mounted read-only because
+# test_icons.py checks the committed icons against the generator.
 test:
 	docker run --rm \
 		-v cleanarr-pip-cache:/root/.cache/pip \
 		-v $(CURDIR)/backend:/src:ro \
+		-v $(CURDIR)/frontend:/app/frontend:ro \
 		$(TEST_IMAGE) \
-		sh -c 'cp -r /src /app && cd /app && pip install -q -r requirements-dev.txt && pytest'
+		sh -c 'cp -r /src /app/backend && cd /app/backend && pip install -q -r requirements-dev.txt && pytest'
 
 # Refresh the published Cleanarr image from GHCR.
 pull:

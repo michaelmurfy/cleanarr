@@ -6,6 +6,76 @@ const PAGES = ["library", "unmatched", "users", "whitelist", "logs", "settings"]
 
 type Page = (typeof PAGES)[number];
 
+const NAV_ITEMS: { id: Page; label: string }[] = [
+  { id: "library", label: "Library" },
+  { id: "unmatched", label: "Unmatched" },
+  { id: "users", label: "Users" },
+  { id: "whitelist", label: "Whitelist" },
+  { id: "logs", label: "Logs" },
+  { id: "settings", label: "Settings" },
+];
+
+// The bottom bar on a phone is icon-first, so each tab needs a glyph as well as a word.
+function NavIcon({ page }: { page: Page }) {
+  const shared = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+  if (page === "library") {
+    return (
+      <svg className="nav-icon" {...shared}>
+        <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+        <path d="M8 4.5v15M16 4.5v15M3 9.5h5M3 14.5h5M16 9.5h5M16 14.5h5" />
+      </svg>
+    );
+  }
+  if (page === "unmatched") {
+    return (
+      <svg className="nav-icon" {...shared}>
+        <path d="M12 4.2 2.9 19.8h18.2z" />
+        <path d="M12 10v4.2M12 17.2h.01" />
+      </svg>
+    );
+  }
+  if (page === "users") {
+    return (
+      <svg className="nav-icon" {...shared}>
+        <path d="M15.5 19.5V18a3.5 3.5 0 0 0-3.5-3.5H7A3.5 3.5 0 0 0 3.5 18v1.5" />
+        <circle cx="9.5" cy="7.5" r="3.3" />
+        <path d="M20.5 19.5V18a3.5 3.5 0 0 0-2.6-3.4M15.4 4.4a3.3 3.3 0 0 1 0 6.2" />
+      </svg>
+    );
+  }
+  if (page === "whitelist") {
+    return (
+      <svg className="nav-icon" {...shared}>
+        <path d="M12 3.2 19.2 6v5.5c0 4.3-2.9 7.5-7.2 9.3-4.3-1.8-7.2-5-7.2-9.3V6z" />
+        <path d="m8.9 11.9 2.2 2.2 4-4.3" />
+      </svg>
+    );
+  }
+  if (page === "logs") {
+    return (
+      <svg className="nav-icon" {...shared}>
+        <path d="M4 6.5h16M4 12h16M4 17.5h10" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="nav-icon" {...shared}>
+      <path d="M4 7h7M15 7h5M4 17h5M13 17h7M4 12h13M21 12h-1" />
+      <circle cx="13" cy="7" r="2" />
+      <circle cx="11" cy="17" r="2" />
+      <circle cx="19" cy="12" r="2" />
+    </svg>
+  );
+}
+
 function isPage(value: string): value is Page {
   return (PAGES as readonly string[]).includes(value);
 }
@@ -74,7 +144,7 @@ function num(value: number | null | undefined) {
 }
 
 function bytes(value: number) {
-  if (!value) return "—";
+  if (!value) return "–";
   const units = ["B", "KB", "MB", "GB", "TB"];
   let size = value;
   let i = 0;
@@ -196,7 +266,7 @@ function availabilityLabel(value?: string | null) {
 }
 
 function Requester({ name, at }: { name?: string | null; at?: string | number | null }) {
-  if (!name) return <span className="muted">—</span>;
+  if (!name) return <span className="muted">–</span>;
   const ts = parseStamp(at);
   return (
     <div className="requester">
@@ -245,7 +315,7 @@ const SERVICE_META: Record<string, { label: string; short: string; className: st
 
 function ServiceLinks({ links }: { links?: Record<string, string> }) {
   const entries = Object.entries(SERVICE_META).filter(([key]) => links?.[key]);
-  if (!entries.length) return <span className="muted">—</span>;
+  if (!entries.length) return <span className="muted">–</span>;
   return (
     <div className="service-links" role="list">
       {entries.map(([key, meta]) => (
@@ -338,7 +408,6 @@ function Setup({ onDone }: { onDone: (user: string) => void }) {
       <form className="login-card" onSubmit={submit}>
         <Brand />
         <h1>Create admin account</h1>
-        <p className="muted">Set a username and password before using Cleanarr. There is no default login.</p>
         <div className="stack">
           <label>Username
             <input
@@ -486,29 +555,32 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
     prevSync.current = sync.status;
   }, [sync.status]);
 
+  const navItems = NAV_ITEMS.filter((item) => item.id !== "unmatched" || unmatchedCount > 0);
+
   return (
     <div className="shell">
       <header className="topbar">
         <div className="topbar-main">
           <Brand compact />
-          <nav className="nav" aria-label="Primary">
-            <button className={page === "library" ? "active" : ""} onClick={() => go("library")}>Library</button>
-            {unmatchedCount > 0 && (
-              <button className={`alert ${page === "unmatched" ? "active" : ""}`} onClick={() => go("unmatched")}>
-                Unmatched<span className="nav-count">{unmatchedCount}</span>
+          <nav className="nav nav-top" aria-label="Primary">
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                className={`${item.id === "unmatched" ? "alert " : ""}${page === item.id ? "active" : ""}`}
+                aria-current={page === item.id ? "page" : undefined}
+                onClick={() => go(item.id)}
+              >
+                {item.label}
+                {item.id === "unmatched" ? <span className="nav-count">{unmatchedCount}</span> : null}
               </button>
-            )}
-            <button className={page === "users" ? "active" : ""} onClick={() => go("users")}>Users</button>
-            <button className={page === "whitelist" ? "active" : ""} onClick={() => go("whitelist")}>Whitelist</button>
-            <button className={page === "logs" ? "active" : ""} onClick={() => go("logs")}>Logs</button>
-            <button className={page === "settings" ? "active" : ""} onClick={() => go("settings")}>Settings</button>
+            ))}
           </nav>
         </div>
         <div className="topbar-aside">
           <div className="topbar-sync">
             <SyncMeter sync={sync} />
             <button
-              className="primary"
+              className="primary sync-button"
               disabled={sync.status === "running"}
               onClick={async () => { setSync(await api.sync()); }}
             >
@@ -546,6 +618,22 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
       {page === "whitelist" && <Whitelist />}
       {page === "logs" && <Logs sync={sync} />}
       {page === "settings" && <Settings />}
+      <nav className="nav-bottom" aria-label="Primary">
+        {navItems.map((item) => (
+          <button
+            key={item.id}
+            className={`${item.id === "unmatched" ? "alert " : ""}${page === item.id ? "active" : ""}`}
+            aria-current={page === item.id ? "page" : undefined}
+            onClick={() => go(item.id)}
+          >
+            <span className="nav-bottom-icon">
+              <NavIcon page={item.id} />
+              {item.id === "unmatched" ? <span className="nav-bubble">{unmatchedCount > 99 ? "99+" : unmatchedCount}</span> : null}
+            </span>
+            <span className="nav-bottom-label">{item.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }
@@ -719,7 +807,7 @@ function Library({
           </button>
         )}
       </div>
-      <div className="filters">
+      <div className="filters chips">
         <button className={`chip-btn ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>Never watched</button>
         <button className={`chip-btn ${filters.watched === "stale" && filters.sort === "oldest" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>Oldest / stale</button>
         <button className={`chip-btn pending ${filters.watched === "requested" ? "active" : ""}`} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title" })}>Requested</button>
@@ -828,16 +916,16 @@ function Library({
                   </div>
                 </td>
                 <td className="rating col-rating" data-label="Rating" title={item.rating_source ? `${item.rating_source} · ${item.rating_votes} votes` : "No rating"}>
-                  {item.rating != null ? <><strong>{Number(item.rating).toFixed(1)}</strong> <span className="muted">/10</span></> : "—"}
+                  {item.rating != null ? <><strong>{Number(item.rating).toFixed(1)}</strong> <span className="muted">/10</span></> : "–"}
                 </td>
                 <td className="col-watched" data-label="Last watched" title={item.availability === "requested" ? "Requested, not downloaded yet" : whenFull(item.last_watched_at)}>
-                  {item.availability === "requested" ? "—" : when(item.last_watched_at)}
+                  {item.availability === "requested" ? "–" : when(item.last_watched_at)}
                 </td>
                 <td className="col-plays" data-label="Plays">{item.play_count}</td>
                 <td className="watchers col-watchers" data-label="Watchers" title={item.watchers.map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}>
                   {item.watchers.length
                     ? `${item.watchers.slice(0, 2).map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}${item.watchers.length > 2 ? ` +${item.watchers.length - 2}` : ""}`
-                    : "—"}
+                    : "–"}
                 </td>
                 <td className="col-requested" data-label="Requested by"><Requester name={item.requested_by} at={item.requested_at} /></td>
                 <td className="col-size" data-label="Size">{bytes(item.size_bytes)}</td>
@@ -1277,80 +1365,250 @@ function Unmatched({
   );
 }
 
+const BYTE_KEYS = new Set(["bytes", "freed_bytes", "cache_bytes", "size_bytes", "library_size"]);
+
+function humanKey(key: string) {
+  const words = key.replace(/[-_]/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function humanValue(key: string, value: unknown): string {
+  if (value === null || value === undefined || value === "") return "–";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") {
+    if (BYTE_KEYS.has(key)) return bytes(value);
+    if (key === "seconds") return value < 60 ? `${value}s` : `${Math.floor(value / 60)}m ${String(value % 60).padStart(2, "0")}s`;
+    return num(value);
+  }
+  return String(value);
+}
+
+// Detail is free-form JSON from add_log, so render scalars as a fact grid and
+// lists underneath rather than dumping raw JSON at the reader.
+function LogDetail({ detail }: { detail: unknown }) {
+  if (detail === null || detail === undefined || detail === "") return null;
+  if (typeof detail === "string") return <p className="log-detail-text">{detail}</p>;
+  if (Array.isArray(detail)) return <LogList items={detail} />;
+  if (typeof detail !== "object") return <p className="log-detail-text">{String(detail)}</p>;
+
+  const entries = Object.entries(detail as Record<string, unknown>);
+  const facts = entries.filter(([, value]) => value === null || typeof value !== "object");
+  const lists = entries.filter(([, value]) => Array.isArray(value) && (value as unknown[]).length > 0);
+  if (!facts.length && !lists.length) return null;
+  return (
+    <div className="log-detail">
+      {facts.length > 0 && (
+        <dl className="log-facts">
+          {facts.map(([key, value]) => (
+            <div key={key}>
+              <dt>{humanKey(key)}</dt>
+              <dd>{humanValue(key, value)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {lists.map(([key, value]) => (
+        <div className="log-sublist" key={key}>
+          <span className="log-sublist-title">{humanKey(key)}</span>
+          <LogList items={value as unknown[]} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LogList({ items }: { items: unknown[] }) {
+  const shown = items.slice(0, 25);
+  return (
+    <ul className="log-titles">
+      {shown.map((entry, index) => (
+        <li key={index}>{describeEntry(entry)}</li>
+      ))}
+      {items.length > shown.length ? <li className="muted">…and {num(items.length - shown.length)} more</li> : null}
+    </ul>
+  );
+}
+
+function describeEntry(entry: unknown): string {
+  if (entry === null || entry === undefined) return "–";
+  if (typeof entry !== "object") return String(entry);
+  const row = entry as Record<string, unknown>;
+  const name = row.service ?? row.title ?? row.name ?? "";
+  const outcome = row.ok === false ? row.error || row.detail || "failed" : row.message ?? row.detail ?? (row.ok === true ? "ok" : "");
+  return [name, outcome].filter(Boolean).map(String).join(": ") || JSON.stringify(entry);
+}
+
+function dayHeading(ts: number) {
+  const date = new Date(ts * 1000);
+  const today = new Date();
+  const yesterday = new Date(today.getTime() - 86400000);
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  if (sameDay(date, today)) return "Today";
+  if (sameDay(date, yesterday)) return "Yesterday";
+  return date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: date.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+}
+
+function clockTime(ts: number) {
+  return new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+const LOG_LEVEL_LABEL: Record<string, string> = { info: "Info", warn: "Warning", error: "Error" };
+
 function Logs({ sync }: { sync: SyncStatus }) {
   const [items, setItems] = useState<LogItem[]>([]);
   const [category, setCategory] = useState("");
+  const [level, setLevel] = useState("");
+  const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [levels, setLevels] = useState({ info: 0, warn: 0, error: 0 });
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const [loading, setLoading] = useState(true);
 
-  async function load(nextPage = page) {
-    const data = await api.logs({
-      q,
-      category,
-      page: String(nextPage),
-      page_size: "80",
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQ(qInput), 250);
+    return () => window.clearTimeout(timer);
+  }, [qInput]);
+
+  const load = useCallback(
+    async (nextPage: number) => {
+      const data = await api.logs({
+        q,
+        category,
+        level,
+        page: String(nextPage),
+        page_size: "80",
+      });
+      setItems(data.items);
+      setPages(data.pages || 1);
+      setTotal(data.total || 0);
+      setPage(data.page || nextPage);
+      if (data.levels) setLevels(data.levels);
+      setLoading(false);
+    },
+    [q, category, level],
+  );
+
+  useEffect(() => {
+    setLoading(true);
+    load(1).catch(() => setLoading(false));
+  }, [load]);
+
+  // Follow a running sync live; the log is the only place its steps are recorded.
+  useEffect(() => {
+    if (sync.status !== "running" || page !== 1) return;
+    const timer = setInterval(() => load(1).catch(() => undefined), 1500);
+    return () => clearInterval(timer);
+  }, [sync.status, page, load]);
+
+  function toggle(id: number) {
+    setOpen((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-    setItems(data.items);
-    setPages(data.pages || 1);
-    setTotal(data.total || 0);
-    setPage(data.page || nextPage);
   }
 
-  useEffect(() => {
-    load(1).catch(() => undefined);
-  }, [category, q]);
+  function pickLevel(next: string) {
+    setLevel((current) => (current === next ? "" : next));
+    setPage(1);
+  }
 
-  useEffect(() => {
-    if (sync.status !== "running") return;
-    const timer = setInterval(() => load(page).catch(() => undefined), 1500);
-    return () => clearInterval(timer);
-  }, [sync.status, page, category, q]);
+  let lastDay = "";
 
   return (
     <div className="page">
       <h2>Logs</h2>
-      <p className="page-intro muted">Sync progress, matching, and deletions. Newest first.</p>
+      <p className="page-intro muted">
+        Every sync step, match, and deletion, newest first. Open an entry to see the numbers behind it.
+      </p>
+      <div className="stats">
+        <button className={`stat ${!level ? "active" : ""}`} onClick={() => pickLevel("")}>
+          <span className="muted">All entries</span><b>{num(levels.info + levels.warn + levels.error)}</b>
+        </button>
+        <button className={`stat stale ${level === "warn" ? "active" : ""}`} onClick={() => pickLevel("warn")}>
+          <span className="muted">Warnings</span><b>{num(levels.warn)}</b>
+        </button>
+        <button className={`stat warn ${level === "error" ? "active" : ""}`} onClick={() => pickLevel("error")}>
+          <span className="muted">Errors</span><b>{num(levels.error)}</b>
+        </button>
+      </div>
       <div className="filters">
-        <input type="search" placeholder="Search logs" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+        <input type="search" placeholder="Search logs" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }} aria-label="Category">
           <option value="">All categories</option>
           <option value="sync">Sync</option>
           <option value="match">Matching</option>
           <option value="audit">Audit</option>
           <option value="system">System</option>
         </select>
+        <select value={level} onChange={(e) => { setLevel(e.target.value); setPage(1); }} aria-label="Level">
+          <option value="">Any level</option>
+          <option value="info">Info</option>
+          <option value="warn">Warnings</option>
+          <option value="error">Errors</option>
+        </select>
         <div className="spacer" />
-        <span className="muted">{num(total)} entries</span>
+        <button className="ghost" type="button" onClick={() => load(page).catch(() => undefined)}>Refresh</button>
+        <span className="muted">{num(total)} shown</span>
       </div>
       <div className="log-list">
-        {items.map((item) => (
-          <div className={`log-row ${item.level}`} key={item.id}>
-            <span className={`log-level ${item.level}`}>{item.level}</span>
-            <div>
-              <div className="log-message">{item.message}</div>
-              <div className="log-meta">
-                <span title={new Date(item.created_at * 1000).toLocaleString()}>{when(item.created_at)}</span>
-                {item.category ? <span className="log-tag">{item.category}</span> : null}
-                {item.action ? <span className="log-tag">{item.action.replace(/[-_]/g, " ")}</span> : null}
-                {item.actor ? <span>{item.actor}</span> : null}
+        {items.map((item) => {
+          const heading = dayHeading(item.created_at);
+          const showHeading = heading !== lastDay;
+          lastDay = heading;
+          const hasDetail = Boolean(item.detail) && (typeof item.detail !== "object" || Object.keys(item.detail as object).length > 0);
+          const expanded = open.has(item.id);
+          return (
+            <div key={item.id}>
+              {showHeading && <div className="log-day">{heading}</div>}
+              <div className={`log-row ${item.level} ${expanded ? "open" : ""}`}>
+                <time className="log-time" dateTime={new Date(item.created_at * 1000).toISOString()} title={new Date(item.created_at * 1000).toLocaleString()}>
+                  {clockTime(item.created_at)}
+                </time>
+                <div className="log-body">
+                  <div className="log-message">
+                    <span className={`log-dot ${item.level}`} aria-hidden="true" />
+                    <span>{item.message}</span>
+                  </div>
+                  <div className="log-meta">
+                    {item.level !== "info" ? <span className={`log-level ${item.level}`}>{LOG_LEVEL_LABEL[item.level] || item.level}</span> : null}
+                    {item.category ? <span className="log-tag">{item.category}</span> : null}
+                    {item.action ? <span className="log-tag subtle">{item.action.replace(/[-_]/g, " ")}</span> : null}
+                    {item.actor ? <span className="log-actor">by {item.actor}</span> : null}
+                    <span className="log-ago">{when(item.created_at)}</span>
+                  </div>
+                  {hasDetail && expanded ? <LogDetail detail={item.detail} /> : null}
+                </div>
+                {hasDetail ? (
+                  <button
+                    className="log-toggle"
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-label={expanded ? "Hide details" : "Show details"}
+                    onClick={() => toggle(item.id)}
+                  >
+                    {expanded ? "Less" : "Details"}
+                  </button>
+                ) : null}
               </div>
-              {Array.isArray((item.detail as { titles?: string[] } | null)?.titles) && (
-                <ul className="log-titles">
-                  {((item.detail as { titles: string[] }).titles || []).slice(0, 20).map((title) => (
-                    <li key={title}>{title}</li>
-                  ))}
-                </ul>
-              )}
             </div>
+          );
+        })}
+        {!items.length && (
+          <div className="empty log-empty">
+            <strong>{loading ? "Loading logs…" : "Nothing logged yet"}</strong>
+            {!loading && <span>{q || category || level ? "No entries match these filters." : "Run a sync and the steps will show up here."}</span>}
           </div>
-        ))}
-        {!items.length && <p className="muted">No log entries yet. Run a sync to populate this.</p>}
+        )}
       </div>
       <div className="pager">
-        <button className="ghost" disabled={page <= 1} onClick={() => { load(page - 1); scrollResultsTop(); }}>Previous</button>
         <span className="muted">Page {page} of {pages}</span>
+        <div className="spacer" />
+        <button className="ghost" disabled={page <= 1} onClick={() => { load(page - 1); scrollResultsTop(); }}>Previous</button>
         <button className="ghost" disabled={page >= pages} onClick={() => { load(page + 1); scrollResultsTop(); }}>Next</button>
       </div>
     </div>
@@ -1517,6 +1775,29 @@ function Whitelist() {
   );
 }
 
+function GithubIcon() {
+  return (
+    <svg className="inline-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.49c-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+    </svg>
+  );
+}
+
+const GITHUB_REPO = "https://github.com/michaelmurfy/cleanarr";
+
+function About() {
+  return (
+    <section className="settings-section">
+      <h3>About</h3>
+      <div className="settings-actions about-links">
+        <a className="ghost link-button" href={GITHUB_REPO} target="_blank" rel="noreferrer">
+          <GithubIcon /> GitHub repository
+        </a>
+      </div>
+    </section>
+  );
+}
+
 function Settings() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [flags, setFlags] = useState<Record<string, boolean>>({});
@@ -1524,6 +1805,7 @@ function Settings() {
   const [password, setPassword] = useState("");
   const [usernameLocked, setUsernameLocked] = useState(false);
   const [hideSettings, setHideSettings] = useState(false);
+  const [defaultPassword, setDefaultPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
@@ -1607,6 +1889,7 @@ function Settings() {
     setUsername(data.username);
     setUsernameLocked(data.username_locked);
     setHideSettings(Boolean(data.hide_settings));
+    setDefaultPassword(Boolean(data.using_default_password));
     setScheduleEnabled((next.sync_schedule_enabled || "0") === "1");
     setIntervalHours(next.sync_interval_hours || "24");
     setAutoDelete((next.auto_delete_enabled || "0") === "1");
@@ -1760,7 +2043,7 @@ function Settings() {
           value={secret ? (locked ? "" : values[key] || "") : values[key] || ""}
           disabled={locked}
           autoComplete="off"
-          placeholder={secret ? (configured ? "Configured — leave blank" : "API key") : "https://"}
+          placeholder={secret ? (configured ? "Configured, leave blank" : "API key") : "https://"}
           onChange={(e) => setValues((current) => ({ ...current, [key]: e.target.value }))}
         />
       </label>
@@ -1797,6 +2080,12 @@ function Settings() {
         </p>
       ) : (
         <p className="muted">Values present in the process environment are locked. API keys are never shown after they are saved.</p>
+      )}
+      {defaultPassword && (
+        <p className="warn-banner" role="alert">
+          Cleanarr is still using the default password. Set a real one
+          {hideSettings ? " in your .env file (CLEANARR_PASSWORD) and restart." : " under Account below."}
+        </p>
       )}
       {error && <p className="error">{error}</p>}
       {message && <p className="ok-message">{message}</p>}
@@ -1995,6 +2284,7 @@ function Settings() {
           <p className="ok-message" role="status">{message || "Saved."}</p>
         )}
       </form>
+      <About />
     </div>
   );
 }

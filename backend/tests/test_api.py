@@ -1,7 +1,9 @@
 def test_health_needs_no_auth(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"ok": True}
+    body = response.json()
+    assert body["ok"] is True
+    assert body["version"]
 
 
 def test_protected_routes_reject_anonymous_callers(client):

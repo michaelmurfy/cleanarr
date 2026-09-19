@@ -121,10 +121,26 @@ def start_sync(scheduled: bool = False) -> dict[str, Any]:
             started_at=int(time.time()),
             finished_at=None,
         )
-    add_log("Library sync started", category="sync", action="start")
+    add_log(
+        f"Sync started ({'scheduled' if scheduled else 'manual'})",
+        category="sync",
+        action="start",
+        actor="scheduler" if scheduled else "",
+    )
     thread = threading.Thread(target=_run_sync, kwargs={"auto_delete": scheduled}, daemon=True)
     thread.start()
     return job_status()
+
+
+def _duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, rest = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {rest:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m"
 
 
 def _unix(value: Any) -> int | None:
@@ -255,13 +271,13 @@ def _run_sync(auto_delete: bool = False) -> None:
                 for user in client.users():
                     directory.ingest_tautulli(user)
             except Exception as exc:
-                add_log(f"Tautulli users failed: {exc}", level="warn", category="sync", action="users")
+                add_log(f"Tautulli: could not load users: {exc}", level="warn", category="sync", action="users")
         if client := jellystat():
             try:
                 for user in client.users():
                     directory.ingest_jellystat(user)
             except Exception as exc:
-                add_log(f"Jellystat users failed: {exc}", level="warn", category="sync", action="users")
+                add_log(f"Jellystat: could not load users: {exc}", level="warn", category="sync", action="users")
         seerr_users_by_id: dict[int, dict[str, Any]] = {}
         if client := seerr():
             try:
@@ -270,7 +286,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     if user.get("id") is not None:
                         seerr_users_by_id[int(user["id"])] = user
             except Exception as exc:
-                add_log(f"Seerr users failed: {exc}", level="warn", category="sync", action="users")
+                add_log(f"Seerr: could not load users: {exc}", level="warn", category="sync", action="users")
 
         _AVAIL_RANK = {"requested": 0, "partial": 1, "downloaded": 2}
 
@@ -304,7 +320,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 "availability": "downloaded",
                 "added_at": None,
             }
-            # Same TMDB title can live in both Radarr and Radarr 4K — keep both ids and sum disk.
+            # Same TMDB title can live in both Radarr and Radarr 4K, so keep both ids and sum disk.
             summing_size = bool(
                 (item.get("radarr_4k_id") and current.get("radarr_id") and not current.get("radarr_4k_id"))
                 or (item.get("radarr_id") and current.get("radarr_4k_id") and not current.get("radarr_id"))
@@ -361,7 +377,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 )
                 if i == total or i % 75 == 0:
                     _progress(f"Loading {label}… {i}/{total}", step=step, current=i, total=total)
-            add_log(f"Loaded {total} movies from {label}", category="sync", action=step)
+            add_log(f"{label}: loaded {total:,} movies", category="sync", action=step, detail={"movies": total})
 
         _progress("Loading Radarr…", step="radarr")
         if client := radarr():
@@ -402,7 +418,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 )
                 if i == total or i % 40 == 0:
                     _progress(f"Loading Sonarr… {i}/{total}", step="sonarr", current=i, total=total)
-            add_log(f"Loaded {total} series from Sonarr", category="sync", action="sonarr")
+            add_log(f"Sonarr: loaded {total:,} series", category="sync", action="sonarr", detail={"series": total})
 
         _progress("Loading Seerr requests…", step="seerr")
         seerr_matched = 0
@@ -529,7 +545,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     )
                     blocked_keys.add((media_type, tmdb_id))
             except Exception as exc:
-                add_log(f"Seerr blocklist failed: {exc}", level="warn", category="sync", action="seerr")
+                add_log(f"Seerr: could not load the blocklist: {exc}", level="warn", category="sync", action="seerr")
             _progress(f"Matching Seerr requests… 0/{seerr_total}", step="seerr", current=0, total=seerr_total or 0)
             for i, req in enumerate(requests, 1):
                 if attach_requester(req):
@@ -708,7 +724,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 missing_seerr += 1
 
             add_log(
-                f"Attached Seerr requesters to {seerr_matched} library titles from {seerr_total} requests",
+                f"Seerr: matched {seerr_matched:,} of {seerr_total:,} requests to library titles",
                 category="sync",
                 action="seerr",
                 detail={
@@ -729,7 +745,7 @@ def _run_sync(auto_delete: bool = False) -> None:
 
         def log_history_match(source: str, matched: int, total: int) -> None:
             add_log(
-                f"Matched {matched}/{total} {source} plays",
+                f"{source.title()}: matched {matched:,} of {total:,} plays",
                 category="sync",
                 action=f"{source}_match",
                 detail={"matched": matched, "total": total, "ignored": max(0, total - matched)},
@@ -760,7 +776,7 @@ def _run_sync(auto_delete: bool = False) -> None:
             except Exception as exc:
                 rating_map = {}
                 history_health["degraded"].append("tautulli")
-                add_log(f"Tautulli library map failed: {exc}", level="warn", category="sync", action="tautulli")
+                add_log(f"Tautulli: could not map the library: {exc}", level="warn", category="sync", action="tautulli")
             for rating_key, meta in rating_map.items():
                 mapped_type = _media_type(meta.get("media_type"), "movie")
                 key = index.resolve(
@@ -952,7 +968,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 library_map = client.library_map()
             except Exception as exc:
                 history_health["degraded"].append("jellystat")
-                add_log(f"Jellystat library map failed: {exc}", level="warn", category="sync", action="jellystat")
+                add_log(f"Jellystat: could not map the library: {exc}", level="warn", category="sync", action="jellystat")
             for item_id, meta in library_map.items():
                 mapped_type = _media_type(meta.get("media_type"), "movie")
                 key = index.resolve(
@@ -1196,26 +1212,36 @@ def _run_sync(auto_delete: bool = False) -> None:
         message = f"{len(records):,} titles"
         if unmatched:
             message += f" · {unmatched:,} unmatched"
+        finished_at = int(time.time())
+        elapsed = _duration(finished_at - int(_job.get("started_at") or finished_at))
         _set_job(
             status="idle",
             message=message,
             step="",
             current=0,
             total=0,
-            finished_at=int(time.time()),
+            finished_at=finished_at,
         )
+        summary = f"{len(records):,} titles, {watched:,} watched"
+        if unmatched:
+            summary += f", {unmatched:,} unmatched"
         add_log(
-            f"Synced {len(records)} titles ({watched} with watch history, {unmatched} unmatched)",
+            f"Sync finished in {elapsed}: {summary}",
             category="sync",
             action="complete",
-            detail={"titles": len(records), "watched": watched, "unmatched": unmatched},
+            detail={
+                "titles": len(records),
+                "watched": watched,
+                "unmatched": unmatched,
+                "seconds": finished_at - int(_job.get("started_at") or finished_at),
+            },
         )
         if auto_delete:
             run_auto_delete(history_health)
         warm_cache()
     except Exception as exc:
         _set_job(status="error", message=str(exc), step="", current=0, total=0, finished_at=int(time.time()))
-        add_log(str(exc), level="error", category="sync", action="error")
+        add_log(f"Sync failed: {exc}", level="error", category="sync", action="error")
 
 
 AUTO_DELETE_DEFAULTS = {"enabled": "0", "max_per_run": "10", "stale_days": "365"}
@@ -1383,7 +1409,7 @@ def start_scheduler() -> None:
                 last = int(_job.get("finished_at") or 0)
                 if last and (time.time() - last) < hours * 3600:
                     continue
-                add_log(f"Scheduled sync every {hours}h", category="sync", action="schedule")
+                # start_sync already records the run; a second line here just doubles it.
                 start_sync(scheduled=True)
             except Exception:
                 continue
