@@ -11,13 +11,15 @@ Self-hosted UI to reclaim disk from Radarr and Sonarr. Watch history comes from 
 ### 1. Start the container
 
 ```bash
+mkdir -p cleanarr && cd cleanarr
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/michaelmurfy/cleanarr/main/docker-compose.yml
 docker compose pull
 docker compose up -d
 ```
 
-Only `docker-compose.yml` is required — Compose pulls `ghcr.io/michaelmurfy/cleanarr:latest` and does not need a local Dockerfile.
+Use `docker compose up -d` — **not** `up --build`. This file only pulls `ghcr.io/michaelmurfy/cleanarr:latest`; there is no Dockerfile in a compose-only install.
 
-Or with Make: `make up`.
+Or with Make from a full checkout: `make up`.
 
 Images are published to [`ghcr.io/michaelmurfy/cleanarr`](https://ghcr.io/michaelmurfy/cleanarr) on every push to `main` (and on version tags). For a private package, `docker login ghcr.io` first. Override the image with `CLEANARR_IMAGE=…` if needed.
 
