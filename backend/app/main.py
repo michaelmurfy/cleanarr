@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .actions import is_protected, protect_reason, router as actions_router
+from .actions import is_protected, is_stale_unwatched, protect_reason, router as actions_router
 from .art import art_url, cache_stats, clear_cache, serve_art
 from .auth import (
     bootstrap_auth,
@@ -458,9 +458,7 @@ def library(
         return (item.get("availability") or "downloaded") != "requested"
 
     never_watched = sum(1 for item in pool if on_disk(item) and not item["play_count"])
-    stale_count = sum(
-        1 for item in pool if on_disk(item) and (not item["play_count"] or (item["last_watched_at"] or 0) <= cutoff)
-    )
+    stale_count = sum(1 for item in pool if is_stale_unwatched(item, cutoff))
     protected_count = sum(1 for item in pool if item["whitelisted"])
     requested_count = sum(1 for item in pool if (item.get("availability") or "downloaded") == "requested")
     items = []
@@ -477,9 +475,7 @@ def library(
         elif watched == "watched" and not item["play_count"]:
             continue
         elif watched == "stale":
-            if not on_disk(item):
-                continue
-            if item["play_count"] and (item["last_watched_at"] or 0) > cutoff:
+            if not is_stale_unwatched(item, cutoff):
                 continue
         items.append(item)
 

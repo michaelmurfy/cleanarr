@@ -30,6 +30,10 @@ Age comes from the Radarr/Sonarr `added` date, stored on the next sync. Titles
 without one are never auto-deleted, so an upgraded install deletes nothing until it
 has synced.
 
+The Library tab's **Stale / unwatched** filter uses the same rule, so with automatic
+delete off it shows exactly the set a run would remove — set the same cutoff to
+preview it.
+
 A run is skipped entirely if the watch history cannot be trusted: no history source
 configured, one that failed during the sync, or all of them reporting zero plays.
 That stops a Jellystat/Tautulli outage from making the whole library look unwatched.

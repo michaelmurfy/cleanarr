@@ -216,3 +216,30 @@ def test_untrustworthy_history_blocks_the_run(history, reason, monkeypatch):
 def test_healthy_history_does_not_block(monkeypatch):
     assert sync.history_block_reason(HEALTHY) == ""
     assert sync.history_block_reason({"configured": ["tautulli", "jellystat"], "degraded": [], "rows": 1}) == ""
+
+
+def test_library_stale_filter_matches_the_auto_delete_set(auth_client):
+    """The Stale / unwatched list is exactly what a scheduled run would delete."""
+    add_title("Old Never Watched", added_days_ago=400)
+    add_title("Added Recently", added_days_ago=10)
+    add_title("Watched Long Ago", plays=2, last_watched=int(time.time()) - 900 * DAY, added_days_ago=900)
+    add_title("No Added Date", added_days_ago=None)
+    add_title("Still Requested", added_days_ago=400, availability="requested")
+
+    listed = auth_client.get("/api/library?watched=stale&stale_days=365&page_size=200").json()
+    assert sorted(item["title"] for item in listed["items"]) == ["Old Never Watched"]
+    assert listed["stats"]["stale"] == 1
+    assert titles(sync.auto_delete_candidates(365, 200)) == sorted(
+        item["title"] for item in listed["items"]
+    )
+
+
+def test_library_stale_filter_follows_the_cutoff(auth_client):
+    add_title("Six Months Old", added_days_ago=200)
+
+    year = auth_client.get("/api/library?watched=stale&stale_days=365&page_size=200").json()
+    assert year["items"] == []
+
+    ninety = auth_client.get("/api/library?watched=stale&stale_days=90&page_size=200").json()
+    assert [item["title"] for item in ninety["items"]] == ["Six Months Old"]
+    assert titles(sync.auto_delete_candidates(90, 200)) == ["Six Months Old"]
