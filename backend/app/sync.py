@@ -15,8 +15,18 @@ from .match import CatalogIndex, parse_year
 from .services.arr import movie_availability, pick_rating, poster_from, series_availability
 from .services.clients import jellystat, radarr, seerr, sonarr, tautulli, tracearr
 from .services.jellystat import play_title
-from .services.seerr import media_blocked, media_claimed, media_in_flight, request_is_open, request_was_made
+from .services.seerr import (
+    media_available,
+    media_blocked,
+    media_claimed,
+    media_deleted,
+    media_in_flight,
+    request_is_open,
+    request_was_made,
+)
 from .services.tautulli import as_int, parse_ids, pick_live_rating_key
+
+SEERR_TITLE_LOOKUPS = 200  # cap the per-sync TMDB lookups used to name Seerr-only rows
 
 UNKNOWN_LABELS = {"unknown", "unknown title", "unknown request", "n/a", "none", "null"}
 
@@ -403,6 +413,9 @@ def _run_sync() -> None:
                         "claimed": False,
                         "in_flight": False,
                         "blocked": False,
+                        "deleted": False,
+                        "available": False,
+                        "service_link": False,
                         "catalog_key": None,
                     },
                 )
@@ -413,6 +426,11 @@ def _run_sync() -> None:
                 row["claimed"] = row["claimed"] or media_claimed(media)
                 row["in_flight"] = row.get("in_flight") or media_in_flight(media)
                 row["blocked"] = row.get("blocked") or media_blocked(media)
+                row["deleted"] = row.get("deleted") or media_deleted(media)
+                row["available"] = row.get("available") or media_available(media)
+                row["service_link"] = row.get("service_link") or bool(
+                    media.get("externalServiceId") or media.get("externalServiceId4k")
+                )
                 if req:
                     req_id = req.get("id")
                     seen_ids = {item.get("id") for item in row["requests"] if isinstance(item, dict)}
@@ -516,6 +534,8 @@ def _run_sync() -> None:
 
             stale = 0
             blocked = 0
+            deleted = 0
+            lookups = 0
             for bucket in seerr_seen.values():
                 if bucket.get("catalog_key"):
                     continue
@@ -524,6 +544,9 @@ def _run_sync() -> None:
                     blocked += 1
                     continue
                 claimed = bucket.get("claimed")
+                if bucket.get("deleted") and not claimed:
+                    deleted += 1
+                    continue
                 requested = request_was_made(bucket.get("requests"))
                 if bucket.get("in_flight") and not claimed:
                     continue
@@ -546,11 +569,22 @@ def _run_sync() -> None:
                         requester = identity["display"] or requester
                     if requester:
                         break
-                reason = (
-                    "Seerr still lists this as available, but it is not in Radarr/Sonarr"
-                    if claimed
-                    else "Requested in Seerr, but it is not in the library"
-                )
+                orphan_service = bool(bucket.get("service_link")) and not bucket.get("available")
+                if claimed and orphan_service:
+                    reason = "Seerr still points at a Radarr/Sonarr entry that no longer exists"
+                elif claimed:
+                    reason = "Seerr still lists this as available, but it is not in Radarr/Sonarr"
+                else:
+                    reason = "Requested in Seerr, but it is not in the library"
+                if not bucket.get("title") and bucket.get("tmdb_id") and lookups < SEERR_TITLE_LOOKUPS:
+                    lookups += 1
+                    try:
+                        info = client.detail(bucket["media_type"], int(bucket["tmdb_id"]))
+                    except Exception:
+                        info = {}
+                    bucket["title"] = info.get("title") or info.get("name") or ""
+                    if not bucket.get("year"):
+                        bucket["year"] = parse_year(str(info.get("releaseDate") or info.get("firstAirDate") or "")[:4])
                 note_unmatched(
                     "seerr",
                     bucket["media_type"],
@@ -598,6 +632,7 @@ def _run_sync() -> None:
                     "requests": seerr_total,
                     "seerr_missing": stale,
                     "seerr_blocked": blocked,
+                    "seerr_deleted": deleted,
                     "library_no_seerr": missing_seerr,
                 },
             )
