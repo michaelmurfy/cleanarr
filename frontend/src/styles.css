@@ -438,6 +438,7 @@ input.tick:disabled {
   align-items: center;
   gap: 6px;
   margin-top: 6px;
+  min-width: 0;
 }
 .type-chip {
   font-size: 11px;
@@ -828,6 +829,8 @@ form + .settings-section { margin-top: 16px; }
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   max-width: 100%;
   padding: 5px 10px;
   border-radius: 8px;
@@ -1177,6 +1180,9 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
 
   .page {
     padding: 16px max(14px, var(--safe-left)) calc(28px + var(--bottom-nav-height) + var(--safe-bottom)) max(14px, var(--safe-right));
+    /* A stray wide child (a long chip, a title) should clip, not turn the whole
+       page into a horizontal scroller. */
+    overflow-x: hidden;
   }
   /* The bulk bar is fixed, so make room for it or it covers the last card. */
   .page:has(.bulk) {
@@ -1241,16 +1247,18 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   }
   table, thead, tbody, th, td, tr { display: block; width: 100%; }
   thead { display: none; }
-  tbody { display: grid; gap: 10px; }
+  tbody { display: grid; gap: 8px; }
   tbody tr {
     display: grid;
-    grid-template-columns: 28px minmax(0, 1fr);
+    grid-template-columns: 24px minmax(0, 1fr);
     column-gap: 10px;
     row-gap: 0;
-    padding: 12px;
+    padding: 11px;
     border: 1px solid var(--line);
     border-radius: 14px;
     background: var(--bg-elev);
+    max-width: 100%;
+    overflow: hidden;
   }
   tbody tr.selected,
   tbody tr.unmatched-row.selected {
@@ -1288,9 +1296,12 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     min-width: 0;
   }
   .title-cell { align-items: flex-start; gap: 10px; }
-  .title-copy { display: grid; gap: 5px; }
+  .title-copy { display: grid; gap: 4px; min-width: 0; }
   .title-meta { margin-top: 0; }
+  /* min-width: 0 lets it shrink instead of forcing the card wider if a future
+     label ever runs long; it doesn't force the pill to grow when short. */
   .title-meta .chip.ok {
+    min-width: 0;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1311,10 +1322,20 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     margin: 0 7px;
     opacity: 0.55;
   }
-  tbody tr td.col-type {
+  /* Rows without a compact stats line (Users, Unmatched) still spell out every
+     field. Rows with one (Library) already show rating/watched/plays/size there,
+     so those four columns are dropped entirely instead of rendered twice. */
+  tbody tr td.col-type,
+  tbody tr:has(.card-stats) td.col-rating,
+  tbody tr:has(.card-stats) td.col-watched,
+  tbody tr:has(.card-stats) td.col-plays,
+  tbody tr:has(.card-stats) td.col-size {
     display: none;
   }
-  tbody tr td:not(.tick-cell):not([data-label="Title"]):not([data-label="User"]):not(.col-type) {
+  /* Links/Actions gets its own flex layout below, so it is excluded here rather
+     than fighting that rule for specificity. */
+  tbody tr:not(:has(.card-stats)) td:not(.tick-cell):not([data-label="Title"]):not([data-label="User"]):not(.col-type):not(.col-links):not([data-label="Links"]):not([data-label="Actions"]),
+  tbody tr:has(.card-stats) td:not(.tick-cell):not([data-label="Title"]):not([data-label="User"]):not(.col-type):not(.col-rating):not(.col-watched):not(.col-plays):not(.col-size):not(.col-links):not([data-label="Links"]):not([data-label="Actions"]) {
     grid-column: 1 / -1;
     display: grid;
     grid-template-columns: 6.75rem minmax(0, 1fr);
@@ -1325,14 +1346,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     border-top: 1px solid rgba(44, 55, 80, 0.45);
     font-size: 13px;
   }
-  /* Must follow the generic cell rule so display:none wins over display:grid. */
-  tbody tr:has(.card-stats) td.col-rating,
-  tbody tr:has(.card-stats) td.col-watched,
-  tbody tr:has(.card-stats) td.col-plays,
-  tbody tr:has(.card-stats) td.col-size {
-    display: none;
-  }
-  tbody tr td:not(.tick-cell):not([data-label="Title"]):not([data-label="User"]):not(.col-type)::before {
+  tbody tr:not(:has(.card-stats)) td:not(.tick-cell):not([data-label="Title"]):not([data-label="User"]):not(.col-type):not(.col-links):not([data-label="Links"]):not([data-label="Actions"])::before,
+  tbody tr:has(.card-stats) td:not(.tick-cell):not([data-label="Title"]):not([data-label="User"]):not(.col-type):not(.col-rating):not(.col-watched):not(.col-plays):not(.col-size):not(.col-links):not([data-label="Links"]):not([data-label="Actions"])::before {
     content: attr(data-label);
     color: var(--muted);
     font-size: 11px;
@@ -1344,23 +1359,28 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     min-width: 0;
     text-align: left;
   }
+  /* An empty "Watchers –" or "Requested by –" row is pure vertical padding on a
+     phone; the desktop table keeps it for column alignment. !important because
+     this utility class has to win over the detail-row selector's much longer,
+     higher-specificity :not() chain above. */
+  tbody tr td.cell-empty {
+    display: none !important;
+  }
   tbody tr td.col-links,
   tbody tr td[data-label="Links"],
   tbody tr td[data-label="Actions"] {
+    grid-column: 1 / -1;
     display: flex;
-    grid-template-columns: none;
     justify-content: flex-start;
     flex-direction: row;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
     align-items: center;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(44, 55, 80, 0.45);
   }
-  tbody tr td.col-links::before,
-  tbody tr td[data-label="Links"]::before,
-  tbody tr td[data-label="Actions"]::before {
-    display: none;
-  }
-  .row-actions, .service-links { justify-content: flex-start; max-width: none; }
+  .row-actions, .service-links { justify-content: flex-start; max-width: none; gap: 8px; }
   .row-actions > .ghost,
   .row-actions > .danger-ghost { font-size: 13px; padding: 8px 12px; }
   .poster { width: 48px; height: 72px; }
@@ -1374,7 +1394,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     min-width: 0;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    padding: 5px 9px;
+    padding: 6px 10px;
     border-radius: 8px;
     font-size: 11px;
   }

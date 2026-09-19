@@ -916,7 +916,7 @@ function Library({
                         <span className={`type-chip ${item.media_type}`}>{item.media_type === "movie" ? "Movie" : "TV"}</span>
                         {availabilityLabel(item.availability) ? <span className={`chip ${item.availability === "requested" ? "pending" : "partial"}`}>{availabilityLabel(item.availability)}</span> : null}
                         {item.whitelisted
-                          ? <span className="chip ok" title={item.whitelist_reason}>Protected · {item.whitelist_reason}</span>
+                          ? <span className="chip ok" title={item.whitelist_reason}>Release Whitelisted</span>
                           : <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>}
                       </div>
                       <div className="card-stats" aria-hidden="true">
@@ -935,14 +935,18 @@ function Library({
                   <span className="cell-value">{item.availability === "requested" ? "–" : when(item.last_watched_at)}</span>
                 </td>
                 <td className="col-plays" data-label="Plays"><span className="cell-value">{item.play_count}</span></td>
-                <td className="watchers col-watchers" data-label="Watchers" title={item.watchers.map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}>
+                <td
+                  className={`watchers col-watchers${item.watchers.length ? "" : " cell-empty"}`}
+                  data-label="Watchers"
+                  title={item.watchers.map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}
+                >
                   <span className="cell-value">
                     {item.watchers.length
                       ? `${item.watchers.slice(0, 2).map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}${item.watchers.length > 2 ? ` +${item.watchers.length - 2}` : ""}`
                       : "–"}
                   </span>
                 </td>
-                <td className="col-requested" data-label="Requested by"><span className="cell-value"><Requester name={item.requested_by} at={item.requested_at} /></span></td>
+                <td className={`col-requested${item.requested_by ? "" : " cell-empty"}`} data-label="Requested by"><span className="cell-value"><Requester name={item.requested_by} at={item.requested_at} /></span></td>
                 <td className="col-size" data-label="Size"><span className="cell-value">{bytes(item.size_bytes)}</span></td>
                 <td className="col-links" data-label="Links">
                   <div className="row-actions">
