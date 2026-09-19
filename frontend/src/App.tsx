@@ -35,6 +35,8 @@ type Filters = {
   sort: string;
   staleDays: string;
   maxRating: string;
+  requester: string;
+  hideUnprocessed: boolean;
   page: number;
   pageSize: string;
 };
@@ -46,6 +48,8 @@ const defaultFilters: Filters = {
   sort: "oldest",
   staleDays: "365",
   maxRating: "",
+  requester: "",
+  hideUnprocessed: true,
   page: 1,
   pageSize: "50",
 };
@@ -426,10 +430,21 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
           if (!count) go("library", true);
         }} />
       )}
-      {page === "users" && <Users onOpenLibrary={(q) => {
-        sessionStorage.setItem(FILTERS_KEY, JSON.stringify({ ...defaultFilters, q }));
-        go("library");
-      }} />}
+      {page === "users" && <Users
+        onOpenLibrary={(q) => {
+          sessionStorage.setItem(FILTERS_KEY, JSON.stringify({ ...defaultFilters, q }));
+          go("library");
+        }}
+        onOpenRequests={(name) => {
+          sessionStorage.setItem(FILTERS_KEY, JSON.stringify({
+            ...defaultFilters,
+            requester: name,
+            sort: "requests",
+            hideUnprocessed: true,
+          }));
+          go("library");
+        }}
+      />}
       {page === "whitelist" && <Whitelist />}
       {page === "logs" && <Logs sync={sync} />}
       {page === "settings" && <Settings />}
@@ -484,6 +499,8 @@ function Library({
         page_size: next.pageSize,
         stale_days: next.staleDays,
         max_rating: next.maxRating,
+        requester: next.requester,
+        hide_unprocessed: next.hideUnprocessed ? "true" : "false",
       });
       const pages = data.stats.pages || 1;
       if (next.page > pages) {
@@ -501,11 +518,11 @@ function Library({
 
   useEffect(() => {
     load().catch((err) => setError(err.message));
-  }, [filters.q, filters.mediaType, filters.watched, filters.sort, filters.page, filters.pageSize, filters.staleDays, filters.maxRating]);
+  }, [filters.q, filters.mediaType, filters.watched, filters.sort, filters.page, filters.pageSize, filters.staleDays, filters.maxRating, filters.requester, filters.hideUnprocessed]);
 
   useEffect(() => {
     setSelected(new Set());
-  }, [filters.q, filters.mediaType, filters.watched, filters.sort, filters.page, filters.pageSize, filters.staleDays, filters.maxRating]);
+  }, [filters.q, filters.mediaType, filters.watched, filters.sort, filters.page, filters.pageSize, filters.staleDays, filters.maxRating, filters.requester, filters.hideUnprocessed]);
 
   useEffect(() => {
     if (prevSync.current === "running" && sync.status !== "running") {
@@ -611,6 +628,17 @@ function Library({
         <button className={`chip-btn ok ${filters.watched === "protected" ? "active" : ""}`} onClick={() => patch(filters.watched === "protected" ? { watched: "" } : { watched: "protected", maxRating: "", sort: "title" })}>Protected</button>
         <button className={`chip-btn ${filters.sort === "rating" ? "active" : ""}`} onClick={() => patch({ sort: filters.sort === "rating" ? "oldest" : "rating" })}>Lowest rated</button>
         <button className={`chip-btn ${filters.sort === "size" ? "active" : ""}`} onClick={() => patch({ sort: filters.sort === "size" ? "oldest" : "size" })}>Largest</button>
+        <button
+          className={`chip-btn ${filters.hideUnprocessed ? "active" : ""}`}
+          onClick={() => patch({ hideUnprocessed: !filters.hideUnprocessed })}
+        >
+          Hide unprocessed
+        </button>
+        {filters.requester ? (
+          <button className="chip-btn active" onClick={() => patch({ requester: "", sort: "oldest" })}>
+            Requester: {filters.requester} ×
+          </button>
+        ) : null}
       </div>
       <div className="filters">
         <input type="search" placeholder="Search title, requester, watcher, requested" value={qInput} onChange={(e) => setQInput(e.target.value)} />
@@ -641,6 +669,7 @@ function Library({
         </select>
         <select value={filters.sort} onChange={(e) => patch({ sort: e.target.value })}>
           <option value="oldest">Oldest first</option>
+          <option value="requests">Never watched, then oldest request</option>
           <option value="last_watched">Recently watched</option>
           <option value="rating">Lowest rating</option>
           <option value="plays">Play count</option>
@@ -1230,7 +1259,13 @@ function Logs({ sync }: { sync: SyncStatus }) {
   );
 }
 
-function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
+function Users({
+  onOpenLibrary,
+  onOpenRequests,
+}: {
+  onOpenLibrary: (q: string) => void;
+  onOpenRequests: (name: string) => void;
+}) {
   const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("requests");
@@ -1304,6 +1339,7 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
                 <td className="col-watched" data-label="Last watched" title={whenFull(person.last_watched_at)}>{when(person.last_watched_at)}</td>
                 <td className="col-links" data-label="Links">
                   <div className="row-actions">
+                    <button className="ghost" onClick={() => onOpenRequests(person.display_name)}>Requests</button>
                     <button className="ghost" onClick={() => onOpenLibrary(person.display_name)}>Library</button>
                     <ServiceLinks links={person.links} />
                   </div>
