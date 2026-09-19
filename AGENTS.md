@@ -18,7 +18,7 @@ cd backend && pip install -r requirements-dev.txt && pytest --cov=app
 cd frontend && npm ci && npm run typecheck && npm run build
 ```
 
-Local run: API `uvicorn app.main:app --reload --port 7585` from `backend/`; UI `npm run dev` from `frontend/` (Vite proxies `/api` to 7585). Docker: `make up` (creates `.env` from `.env.example` if missing).
+Local run: API `uvicorn app.main:app --reload --port 7585` from `backend/`; UI `npm run dev` from `frontend/` (Vite proxies `/api` to 7585). Docker: `make up` (optional `make env` copies `.env.example`).
 
 CI (`.github/workflows/ci.yml`) runs backend pytest + frontend typecheck/build on every push and PR. Python 3.14, Node 24.
 

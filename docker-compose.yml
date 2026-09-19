@@ -7,11 +7,11 @@ services:
     ports:
       - "7585:7585"
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
       - cleanarr-data:/data
       # - ./data:/data  # For those who want to see the data locally
-      - ./.env:/app/.env:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7585/api/health')"]
       interval: 30s

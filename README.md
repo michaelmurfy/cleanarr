@@ -2,31 +2,50 @@
 
 Self-hosted UI to reclaim disk from Radarr and Sonarr. Watch history comes from Tautulli (Plex), Tracearr (Jellyfin/Plex/Emby), and/or Jellystat (Jellyfin). Seerr supplies who requested a title.
 
-## Run
+## Security
+
+**Do not expose Cleanarr to the public internet.** It is meant for your LAN or a VPN. Keep port `7585` off the open web — no port-forwarding, no public reverse proxy without strong auth in front of it. Prefer Tailscale/WireGuard, or bind to localhost and reach it over an SSH tunnel. Change the default login as soon as you start it.
+
+## Setup
+
+### 1. Start the container
 
 ```bash
-cp .env.example .env
-# set CLEANARR_USERNAME, CLEANARR_PASSWORD, CLEANARR_SECRET
-# fill the services you use; leave the rest blank
 docker compose pull
 docker compose up -d
 ```
 
-Open http://localhost:7585
+Or with Make: `make up`.
 
-Images are published to [`ghcr.io/michaelmurfy/cleanarr`](https://ghcr.io/michaelmurfy/cleanarr) on every push to `main` (and on version tags). Override with `CLEANARR_IMAGE=…` if needed. For a private package, `docker login ghcr.io` first.
+Images are published to [`ghcr.io/michaelmurfy/cleanarr`](https://ghcr.io/michaelmurfy/cleanarr) on every push to `main` (and on version tags). For a private package, `docker login ghcr.io` first. Override the image with `CLEANARR_IMAGE=…` if needed.
 
-To build locally instead of pulling:
+Open http://localhost:7585 and sign in with the defaults (`admin` / `changeme`), then change the password under Settings.
+
+### 2. Connect your services
+
+No `.env` file is required. With none present (or with `CLEANARR_HIDE_SETTINGS=0`), open **Settings** and enter URLs and API keys for the apps you use — Radarr, Sonarr, Seerr, and at least one watch-history source (Tautulli, Tracearr, and/or Jellystat). Leave unused services blank. Use **Test** on each row, then **Sync now**.
+
+### 3. Optional `.env` (lock config to the host)
+
+To keep secrets out of the UI, or to set `PUID`/`PGID`:
+
+```bash
+cp .env.example .env
+# edit CLEANARR_USERNAME / CLEANARR_PASSWORD / CLEANARR_SECRET
+# fill the services you want managed from the file
+docker compose up -d
+```
+
+Any value set in the environment (including from `.env`) is locked in Settings. Set `CLEANARR_HIDE_SETTINGS=1` to hide service URLs, API keys, public links, and login from Settings entirely — including unused services — and manage them only via `.env`.
+
+The container drops to `PUID`/`PGID` (default `1000:1000`) and owns everything in `/data`. Set them to your own user if you bind-mount `./data` instead of using the named volume.
+
+### Build locally
 
 ```bash
 docker compose up -d --build
+# or: make build
 ```
-
-The container drops to `PUID`/`PGID` (default `1000:1000`) and owns everything in
-`/data`. Set them to your own user if you bind-mount `./data` instead of using the
-named volume.
-
-`CLEANARR_HIDE_SETTINGS=1` (default in `.env.example`) hides service URLs, API keys, and login from Settings — including unused services. Change them in `.env` and restart. Set it to `0` to manage connections in the UI.
 
 ## Automatic delete
 
@@ -71,7 +90,8 @@ Vite proxies `/api` to port 7585. SQLite lives in `/data` in Docker (`cleanarr-d
 ## Make
 
 ```bash
-make up      # pull GHCR image and start (creates .env from .env.example if missing)
+make up      # pull GHCR image and start
+make env    # create .env from .env.example if missing
 make build  # build locally and start
 make test   # backend suite in a throwaway container
 make pull   # refresh the published Cleanarr image

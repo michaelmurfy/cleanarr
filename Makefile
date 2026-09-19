@@ -2,25 +2,27 @@ COMPOSE ?= docker compose
 TEST_IMAGE ?= python:3.14-slim
 IMAGE ?= ghcr.io/michaelmurfy/cleanarr:latest
 
-.PHONY: help up build test pull update
+.PHONY: help up build test pull update env
 
 help:
-	@echo "make up      # pull GHCR image and start (creates .env from .env.example if missing)"
+	@echo "make up      # pull GHCR image and start"
+	@echo "make env    # create .env from .env.example if missing"
 	@echo "make build  # build the image locally and start"
 	@echo "make test   # backend suite in a throwaway container"
 	@echo "make pull   # docker pull the published Cleanarr image"
 	@echo "make update # pull the latest published image and restart"
 
-.env:
-	cp .env.example .env
+# Optional: copy the example env so you can lock credentials / services via file.
+env:
+	@test -f .env || cp .env.example .env
 
-# Pull the published image and start the stack.
-up: .env
+# Pull the published image and start the stack. No .env required — configure in Settings.
+up:
 	$(COMPOSE) pull
 	$(COMPOSE) up -d
 
 # Build the image locally and start.
-build: .env
+build:
 	$(COMPOSE) up -d --build
 
 # Run the backend suite in a throwaway container. Pip cache persists between runs.
@@ -36,6 +38,6 @@ pull:
 	docker pull $(IMAGE)
 
 # Pull the latest published image and restart.
-update: .env
+update:
 	$(COMPOSE) pull
 	$(COMPOSE) up -d
