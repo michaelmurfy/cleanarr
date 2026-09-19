@@ -6,6 +6,16 @@ type Page = "library" | "unmatched" | "users" | "whitelist" | "logs" | "settings
 
 const FILTERS_KEY = "cleanarr.library";
 
+// Sent from their own form state below, so the service-settings loop must not resend
+// the values loaded from the API over the top of them.
+const APP_SETTING_KEYS = [
+  "sync_schedule_enabled",
+  "sync_interval_hours",
+  "auto_delete_enabled",
+  "auto_delete_max_per_run",
+  "auto_delete_stale_days",
+];
+
 type Filters = {
   q: string;
   mediaType: string;
@@ -1098,6 +1108,9 @@ function Settings() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [autoDelete, setAutoDelete] = useState(false);
+  const [autoDeleteCap, setAutoDeleteCap] = useState("10");
+  const [autoDeleteDays, setAutoDeleteDays] = useState("365");
   const [interval, setIntervalHours] = useState("24");
   const [tests, setTests] = useState<Record<string, ServiceTest | { status: string }>>({});
   const [testing, setTesting] = useState(false);
@@ -1171,6 +1184,9 @@ function Settings() {
     setHideSettings(Boolean(data.hide_settings));
     setScheduleEnabled((next.sync_schedule_enabled || "0") === "1");
     setIntervalHours(next.sync_interval_hours || "24");
+    setAutoDelete((next.auto_delete_enabled || "0") === "1");
+    setAutoDeleteCap(next.auto_delete_max_per_run || "10");
+    setAutoDeleteDays(next.auto_delete_stale_days || "365");
     if (data.maintenance) setMaintenance(data.maintenance);
   }
 
@@ -1184,9 +1200,13 @@ function Settings() {
     const outgoing: Record<string, string> = {
       sync_schedule_enabled: scheduleEnabled ? "1" : "0",
       sync_interval_hours: interval,
+      auto_delete_enabled: autoDelete ? "1" : "0",
+      auto_delete_max_per_run: autoDeleteCap,
+      auto_delete_stale_days: autoDeleteDays,
     };
     if (!hideSettings) {
       for (const [key, value] of Object.entries(values)) {
+        if (APP_SETTING_KEYS.includes(key)) continue;
         if (flags[`${key}_hidden`] || flags[`${key}_locked`]) continue;
         if (key.endsWith("_api_key") && !value) continue;
         outgoing[key] = value;
@@ -1378,6 +1398,58 @@ function Settings() {
             </label>
             <button className="primary" type="submit">Save schedule</button>
           </div>
+
+          <h4>Automatic delete</h4>
+          <p className="muted">
+            Off by default. When on, each scheduled sync deletes titles nobody has ever watched that
+            Radarr/Sonarr added more than the cutoff ago, files included. Whitelisted titles are always
+            skipped, nothing is banned in Seerr, and a manual "Sync now" never deletes.
+          </p>
+          <div className="schedule-row">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={autoDelete}
+                onChange={(e) => setAutoDelete(e.target.checked)}
+                disabled={!scheduleEnabled}
+              />
+              <span className="toggle-track" />
+              <span>{autoDelete && scheduleEnabled ? "Deleting" : "Alert only"}</span>
+            </label>
+            <label className="interval-field">
+              Never watched for
+              <select
+                value={autoDeleteDays}
+                onChange={(e) => setAutoDeleteDays(e.target.value)}
+                disabled={!autoDelete || !scheduleEnabled}
+              >
+                <option value="90">90 days</option>
+                <option value="180">6 months</option>
+                <option value="365">1 year</option>
+                <option value="730">2 years</option>
+              </select>
+            </label>
+            <label className="interval-field">
+              Delete at most
+              <select
+                value={autoDeleteCap}
+                onChange={(e) => setAutoDeleteCap(e.target.value)}
+                disabled={!autoDelete || !scheduleEnabled}
+              >
+                <option value="5">5 per run</option>
+                <option value="10">10 per run</option>
+                <option value="25">25 per run</option>
+                <option value="50">50 per run</option>
+              </select>
+            </label>
+          </div>
+          {autoDelete && scheduleEnabled && (
+            <p className="muted">
+              Titles are deleted from disk with no undo. Cleanarr only counts a title as never watched
+              if a watch-history source reported no plays, so check Settings shows Tautulli, Tracearr or
+              Jellystat connected before leaving this on.
+            </p>
+          )}
         </section>
 
         <section className="settings-section">

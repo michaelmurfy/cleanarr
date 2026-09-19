@@ -134,6 +134,49 @@ def _load_media(media_type: str, tmdb_id: int, tvdb_id: int = 0) -> dict | None:
     return dict(row) if row else None
 
 
+def delete_item(
+    item: dict,
+    *,
+    delete_files: bool,
+    blacklist: bool,
+    actor: str,
+    radarr_client=None,
+    sonarr_client=None,
+    seerr_client=None,
+) -> dict:
+    """Delete one title in Radarr/Sonarr, Seerr and the local library. Raises on *arr failure."""
+    if item["media_type"] == "movie":
+        if not item.get("radarr_id") or not radarr_client:
+            raise RuntimeError("No Radarr id for this movie")
+        radarr_client.delete(int(item["radarr_id"]), delete_files, blacklist)
+    else:
+        if not item.get("sonarr_id") or not sonarr_client:
+            raise RuntimeError("No Sonarr id for this series")
+        sonarr_client.delete(int(item["sonarr_id"]), delete_files, blacklist)
+    if seerr_client:
+        if blacklist and item.get("tmdb_id"):
+            try:
+                seerr_client.blacklist(int(item["tmdb_id"]), item["media_type"], item["title"])
+            except Exception:
+                pass
+        if item.get("seerr_media_id"):
+            try:
+                seerr_client.delete_media(int(item["seerr_media_id"]))
+            except Exception:
+                pass
+    with connect() as conn:
+        conn.execute("DELETE FROM media WHERE id = ?", (item["id"],))
+    remove_art(item["media_type"], item.get("tmdb_id") or 0, item.get("tvdb_id") or 0)
+    add_log(
+        f"{'Banned and deleted' if blacklist else 'Deleted'} {item['title']}",
+        category="audit",
+        action="ban" if blacklist else "delete",
+        actor=actor,
+        detail={"media_type": item["media_type"], "tmdb_id": item.get("tmdb_id")},
+    )
+    return {"title": item["title"], "ok": True}
+
+
 @router.post("/cleanup")
 def cleanup(payload: CleanupIn, request: Request):
     user = current_user(request)
@@ -160,35 +203,16 @@ def cleanup(payload: CleanupIn, request: Request):
             )
             continue
         try:
-            if item["media_type"] == "movie":
-                if not item.get("radarr_id") or not radarr_client:
-                    raise RuntimeError("No Radarr id for this movie")
-                radarr_client.delete(int(item["radarr_id"]), payload.delete_files, payload.blacklist)
-            else:
-                if not item.get("sonarr_id") or not sonarr_client:
-                    raise RuntimeError("No Sonarr id for this series")
-                sonarr_client.delete(int(item["sonarr_id"]), payload.delete_files, payload.blacklist)
-            if seerr_client:
-                if payload.blacklist and item.get("tmdb_id"):
-                    try:
-                        seerr_client.blacklist(int(item["tmdb_id"]), item["media_type"], item["title"])
-                    except Exception:
-                        pass
-                if item.get("seerr_media_id"):
-                    try:
-                        seerr_client.delete_media(int(item["seerr_media_id"]))
-                    except Exception:
-                        pass
-            with connect() as conn:
-                conn.execute("DELETE FROM media WHERE id = ?", (item["id"],))
-            remove_art(item["media_type"], item.get("tmdb_id") or 0, item.get("tvdb_id") or 0)
-            results.append({"title": item["title"], "ok": True})
-            add_log(
-                f"{'Banned and deleted' if payload.blacklist else 'Deleted'} {item['title']}",
-                category="audit",
-                action="ban" if payload.blacklist else "delete",
-                actor=user,
-                detail={"media_type": item["media_type"], "tmdb_id": item.get("tmdb_id")},
+            results.append(
+                delete_item(
+                    item,
+                    delete_files=payload.delete_files,
+                    blacklist=payload.blacklist,
+                    actor=user,
+                    radarr_client=radarr_client,
+                    sonarr_client=sonarr_client,
+                    seerr_client=seerr_client,
+                )
             )
         except Exception as exc:
             results.append({"title": item["title"], "ok": False, "error": str(exc)})

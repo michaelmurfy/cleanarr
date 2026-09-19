@@ -108,7 +108,13 @@ class Settings(BaseSettings):
     radarr_api_key: str = ""
 
 
-APP_SETTING_KEYS = ("sync_schedule_enabled", "sync_interval_hours")
+APP_SETTING_KEYS = (
+    "sync_schedule_enabled",
+    "sync_interval_hours",
+    "auto_delete_enabled",
+    "auto_delete_max_per_run",
+    "auto_delete_stale_days",
+)
 
 settings = Settings()
 Path(settings.data_dir).mkdir(parents=True, exist_ok=True)

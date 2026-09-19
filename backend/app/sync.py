@@ -10,6 +10,7 @@ from typing import Any
 from .art import warm_cache
 from .db import connect, get_setting
 from .identity import UserDirectory
+from .actions import delete_item, is_protected
 from .logs import add_log
 from .match import CatalogIndex, parse_year
 from .services.arr import movie_availability, pick_rating, poster_from, series_availability
@@ -97,7 +98,7 @@ def _set_job(**kwargs: Any) -> None:
         )
 
 
-def start_sync() -> dict[str, Any]:
+def start_sync(scheduled: bool = False) -> dict[str, Any]:
     with _lock:
         if _job.get("status") == "running":
             return job_status()
@@ -111,7 +112,7 @@ def start_sync() -> dict[str, Any]:
             finished_at=None,
         )
     add_log("Library sync started", category="sync", action="start")
-    thread = threading.Thread(target=_run_sync, daemon=True)
+    thread = threading.Thread(target=_run_sync, kwargs={"auto_delete": scheduled}, daemon=True)
     thread.start()
     return job_status()
 
@@ -183,7 +184,7 @@ def _progress(message: str, *, step: str, current: int = 0, total: int = 0) -> N
     _set_job(message=message, step=step, current=current, total=total)
 
 
-def _run_sync() -> None:
+def _run_sync(auto_delete: bool = False) -> None:
     try:
         catalog: dict[tuple[str, int, int], dict[str, Any]] = {}
         index = CatalogIndex()
@@ -288,6 +289,7 @@ def _run_sync() -> None:
                 "tautulli_rating_key": "",
                 "jellystat_item_id": "",
                 "availability": "downloaded",
+                "added_at": None,
             }
             for field in current:
                 if item.get(field) not in (None, "", 0, []):
@@ -320,6 +322,7 @@ def _run_sync() -> None:
                         "rating_votes": votes,
                         "rating_source": source,
                         "availability": movie_availability(movie),
+                        "added_at": _unix(movie.get("added")),
                     },
                     _alt_titles(movie),
                 )
@@ -352,6 +355,7 @@ def _run_sync() -> None:
                         "rating_votes": votes,
                         "rating_source": source,
                         "availability": series_availability(show),
+                        "added_at": _unix(show.get("added")),
                     },
                     _alt_titles(show),
                 )
@@ -931,6 +935,7 @@ def _run_sync() -> None:
                     "tautulli_rating_key": item.get("tautulli_rating_key") or "",
                     "jellystat_item_id": item.get("jellystat_item_id") or "",
                     "availability": item.get("availability") or "downloaded",
+                    "added_at": item.get("added_at"),
                     "last_watched_at": last_watched,
                     "play_count": len(unique_events),
                     "watcher_count": len(watchers),
@@ -948,12 +953,14 @@ def _run_sync() -> None:
                     media_type, tmdb_id, tvdb_id, imdb_id, title, year, poster_url, size_bytes,
                     radarr_id, sonarr_id, seerr_media_id, requested_by, requested_at,
                     last_watched_at, play_count, watcher_count, watchers_json, sources_json, path, title_slug,
-                    rating, rating_votes, rating_source, tautulli_rating_key, jellystat_item_id, availability
+                    rating, rating_votes, rating_source, tautulli_rating_key, jellystat_item_id, availability,
+                    added_at
                 ) VALUES (
                     :media_type, :tmdb_id, :tvdb_id, :imdb_id, :title, :year, :poster_url, :size_bytes,
                     :radarr_id, :sonarr_id, :seerr_media_id, :requested_by, :requested_at,
                     :last_watched_at, :play_count, :watcher_count, :watchers_json, :sources_json, :path, :title_slug,
-                    :rating, :rating_votes, :rating_source, :tautulli_rating_key, :jellystat_item_id, :availability
+                    :rating, :rating_votes, :rating_source, :tautulli_rating_key, :jellystat_item_id, :availability,
+                    :added_at
                 )
                 """,
                 records,
@@ -1066,10 +1073,121 @@ def _run_sync() -> None:
             action="complete",
             detail={"titles": len(records), "watched": watched, "unmatched": len(unmatched_rows)},
         )
+        if auto_delete:
+            run_auto_delete()
         warm_cache()
     except Exception as exc:
         _set_job(status="error", message=str(exc), step="", current=0, total=0, finished_at=int(time.time()))
         add_log(str(exc), level="error", category="sync", action="error")
+
+
+AUTO_DELETE_DEFAULTS = {"enabled": "0", "max_per_run": "10", "stale_days": "365"}
+
+
+def auto_delete_settings() -> dict[str, Any]:
+    try:
+        cap = int(get_setting("auto_delete_max_per_run", AUTO_DELETE_DEFAULTS["max_per_run"]) or 10)
+    except ValueError:
+        cap = 10
+    try:
+        days = int(get_setting("auto_delete_stale_days", AUTO_DELETE_DEFAULTS["stale_days"]) or 365)
+    except ValueError:
+        days = 365
+    return {
+        "enabled": get_setting("auto_delete_enabled", AUTO_DELETE_DEFAULTS["enabled"]) == "1",
+        "max_per_run": max(1, min(500, cap)),
+        "stale_days": max(1, min(3650, days)),
+    }
+
+
+def auto_delete_candidates(stale_days: int, limit: int) -> list[dict[str, Any]]:
+    """On-disk titles with no plays that Radarr/Sonarr added more than stale_days ago.
+
+    added_at is NULL until a sync has run against a new-enough schema, and a NULL
+    never matches, so an un-backfilled library deletes nothing.
+    """
+    cutoff = int(time.time()) - stale_days * 24 * 3600
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM media
+            WHERE play_count = 0
+              AND last_watched_at IS NULL
+              AND availability != 'requested'
+              AND added_at IS NOT NULL
+              AND added_at <= ?
+            ORDER BY added_at ASC
+            """,
+            (cutoff,),
+        ).fetchall()
+        whitelist = [dict(row) for row in conn.execute("SELECT * FROM whitelist").fetchall()]
+    candidates = []
+    for row in rows:
+        item = dict(row)
+        if is_protected(item["title"], item["media_type"], item["tmdb_id"], whitelist):
+            continue
+        candidates.append(item)
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def run_auto_delete() -> dict[str, Any]:
+    """Delete never-watched stale titles after a scheduled sync. Off unless enabled."""
+    config = auto_delete_settings()
+    if not config["enabled"]:
+        return {"enabled": False, "deleted": 0, "failed": 0, "capped": False}
+
+    candidates = auto_delete_candidates(config["stale_days"], config["max_per_run"])
+    if not candidates:
+        add_log(
+            f"Automatic delete found nothing never watched for {config['stale_days']} days",
+            category="audit",
+            action="auto_delete",
+            actor="automatic",
+        )
+        return {"enabled": True, "deleted": 0, "failed": 0, "capped": False}
+
+    radarr_client = radarr()
+    sonarr_client = sonarr()
+    seerr_client = seerr()
+    deleted = 0
+    failed = 0
+    freed = 0
+    for item in candidates:
+        try:
+            delete_item(
+                item,
+                delete_files=True,
+                blacklist=False,
+                actor="automatic",
+                radarr_client=radarr_client,
+                sonarr_client=sonarr_client,
+                seerr_client=seerr_client,
+            )
+            deleted += 1
+            freed += item.get("size_bytes") or 0
+        except Exception as exc:
+            failed += 1
+            add_log(
+                f"Automatic delete failed for {item['title']}: {exc}",
+                level="error",
+                category="audit",
+                action="auto_delete_error",
+                actor="automatic",
+            )
+    capped = deleted + failed >= config["max_per_run"]
+    add_log(
+        f"Automatic delete removed {deleted} titles ({freed / 1_000_000_000:.1f} GB)"
+        + (f", {failed} failed" if failed else "")
+        + (f", stopped at the {config['max_per_run']} per run cap" if capped else ""),
+        level="warn" if failed else "info",
+        category="audit",
+        action="auto_delete",
+        actor="automatic",
+        detail={"deleted": deleted, "failed": failed, "freed_bytes": freed, "capped": capped},
+    )
+    return {"enabled": True, "deleted": deleted, "failed": failed, "capped": capped}
 
 
 def reset_job(message: str = "Idle") -> dict[str, Any]:
@@ -1110,7 +1228,7 @@ def start_scheduler() -> None:
                 if last and (time.time() - last) < hours * 3600:
                     continue
                 add_log(f"Scheduled sync every {hours}h", category="sync", action="schedule")
-                start_sync()
+                start_sync(scheduled=True)
             except Exception:
                 continue
 

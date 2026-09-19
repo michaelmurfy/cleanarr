@@ -121,6 +121,9 @@ def get_settings(request: Request):
             values[key] = stored.get(key) or ""
     values["sync_schedule_enabled"] = stored.get("sync_schedule_enabled") or "0"
     values["sync_interval_hours"] = stored.get("sync_interval_hours") or "24"
+    values["auto_delete_enabled"] = stored.get("auto_delete_enabled") or "0"
+    values["auto_delete_max_per_run"] = stored.get("auto_delete_max_per_run") or "10"
+    values["auto_delete_stale_days"] = stored.get("auto_delete_stale_days") or "365"
     cache = cache_stats()
     with connect() as conn:
         library_count = conn.execute("SELECT COUNT(*) AS n FROM media").fetchone()["n"]
@@ -145,15 +148,26 @@ def get_settings(request: Request):
     }
 
 
+BOOL_SETTINGS = {"sync_schedule_enabled", "auto_delete_enabled"}
+
+# key -> (default, min, max)
+NUMERIC_SETTINGS = {
+    "sync_interval_hours": ("24", 1, 168),
+    "auto_delete_max_per_run": ("10", 1, 500),
+    "auto_delete_stale_days": ("365", 1, 3650),
+}
+
+
 def _normalize_app_setting(key: str, value: str) -> str:
     cleaned = (value or "").strip()
-    if key == "sync_schedule_enabled":
+    if key in BOOL_SETTINGS:
         return "1" if cleaned.lower() in {"1", "true", "on", "yes"} else "0"
-    if key == "sync_interval_hours":
+    if key in NUMERIC_SETTINGS:
+        default, low, high = NUMERIC_SETTINGS[key]
         try:
-            return str(max(1, min(168, int(cleaned or "24"))))
+            return str(max(low, min(high, int(cleaned or default))))
         except ValueError:
-            return "24"
+            return default
     return cleaned
 
 

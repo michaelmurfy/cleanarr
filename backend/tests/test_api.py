@@ -76,3 +76,24 @@ def test_unconfigured_service_probe_reports_not_configured(auth_client):
 def test_library_returns_empty_payload_before_a_sync(auth_client):
     body = auth_client.get("/api/library").json()
     assert body["items"] == []
+
+
+def test_auto_delete_defaults_to_off(auth_client):
+    values = auth_client.get("/api/settings").json()["values"]
+    assert values["auto_delete_enabled"] == "0"
+    assert values["auto_delete_max_per_run"] == "10"
+    assert values["auto_delete_stale_days"] == "365"
+
+
+def test_auto_delete_settings_round_trip_and_clamp(auth_client):
+    auth_client.put(
+        "/api/settings",
+        json={"values": {"auto_delete_enabled": "yes", "auto_delete_max_per_run": "9999", "auto_delete_stale_days": "90"}},
+    )
+    values = auth_client.get("/api/settings").json()["values"]
+    assert values["auto_delete_enabled"] == "1"
+    assert values["auto_delete_max_per_run"] == "500"
+    assert values["auto_delete_stale_days"] == "90"
+
+    auth_client.put("/api/settings", json={"values": {"auto_delete_enabled": "0"}})
+    assert auth_client.get("/api/settings").json()["values"]["auto_delete_enabled"] == "0"
