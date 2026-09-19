@@ -15,6 +15,10 @@ docker compose up -d --build
 
 Open http://localhost:7585
 
+The container drops to `PUID`/`PGID` (default `1000:1000`) and owns everything in
+`/data`. Set them to your own user if you bind-mount `./data` instead of using the
+named volume.
+
 `CLEANARR_HIDE_SETTINGS=1` (default in `.env.example`) hides service URLs, API keys, and login from Settings — including unused services. Change them in `.env` and restart. Set it to `0` to manage connections in the UI.
 
 ## Delete

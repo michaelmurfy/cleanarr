@@ -8,3 +8,6 @@ data
 .env
 *.md
 !README.md
+backend/tests
+backend/pytest.ini
+backend/requirements-dev.txt
