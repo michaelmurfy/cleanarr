@@ -54,6 +54,28 @@ export type LogItem = {
   actor: string;
 };
 
+export type LogsResponse = {
+  items: LogItem[];
+  total: number;
+  page: number;
+  pages: number;
+  levels: { info: number; warn: number; error: number };
+};
+
+export type VersionInfo = {
+  current: string;
+  latest: string;
+  update_available: boolean;
+  checked_at: number;
+  release_url: string;
+  published_at: string;
+  repo_url: string;
+  releases_url: string;
+  issues_url: string;
+  check_enabled: boolean;
+  error: string;
+};
+
 export type LibraryResponse = {
   items: MediaItem[];
   stats: Record<string, number>;
@@ -102,8 +124,9 @@ export const api = {
     for (const [key, value] of Object.entries(params)) {
       if (value) query.set(key, value);
     }
-    return request<{ items: LogItem[]; total: number; page: number; pages: number }>(`/api/logs?${query}`);
+    return request<LogsResponse>(`/api/logs?${query}`);
   },
+  version: (refresh = false) => request<VersionInfo>(`/api/version${refresh ? "?refresh=true" : ""}`),
   cleanup: (items: Partial<MediaItem>[], blacklist: boolean) =>
     request<{ results: { title: string; ok: boolean; error?: string }[] }>("/api/cleanup", {
       method: "POST",
