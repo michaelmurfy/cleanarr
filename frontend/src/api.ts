@@ -140,6 +140,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  addSeerr: (body: { ids?: number[]; all_missing?: boolean }) =>
+    request<{ results: { title: string; ok: boolean; error?: string }[]; remaining: number }>("/api/unmatched/add-seerr", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   users: (params: Record<string, string>) => {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {

@@ -681,7 +681,7 @@ function Unmatched({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<null | { all: boolean; ids: number[] }>(null);
+  const [pending, setPending] = useState<null | { mode: "clear" | "add"; all: boolean; ids: number[] }>(null);
   const prevSync = useRef(sync.status);
 
   useEffect(() => {
@@ -730,6 +730,11 @@ function Unmatched({
 
   const staleItems = items.filter((item) => item.kind === "seerr_missing");
   const staleCount = stats.seerr_missing ?? 0;
+  const missingItems = items.filter((item) => item.kind === "no_seerr");
+  const missingCount = stats.no_seerr ?? 0;
+  const actionable = items.filter((item) => item.kind === "seerr_missing" || item.kind === "no_seerr");
+  const selectedStale = staleItems.filter((item) => selected.has(item.id)).map((item) => item.id);
+  const selectedMissing = missingItems.filter((item) => selected.has(item.id)).map((item) => item.id);
 
   function toggle(id: number) {
     setSelected((current) => {
@@ -745,7 +750,10 @@ function Unmatched({
     setBusy(true);
     setError("");
     try {
-      const result = await api.clearSeerr(pending.all ? { all_stale: true } : { ids: pending.ids });
+      const result =
+        pending.mode === "add"
+          ? await api.addSeerr(pending.all ? { all_missing: true } : { ids: pending.ids })
+          : await api.clearSeerr(pending.all ? { all_stale: true } : { ids: pending.ids });
       const failed = result.results.filter((row) => !row.ok);
       if (failed.length) setError(failed.map((row) => `${row.title}: ${row.error}`).join(" · "));
       setSelected(new Set());
@@ -753,7 +761,13 @@ function Unmatched({
       onUnmatchedCount(result.remaining);
       if (result.remaining) await load(page);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not clear Seerr records");
+      setError(
+        err instanceof Error
+          ? err.message
+          : pending.mode === "add"
+            ? "Could not add these titles to Seerr"
+            : "Could not clear Seerr records",
+      );
     } finally {
       setBusy(false);
     }
@@ -763,7 +777,8 @@ function Unmatched({
     <div className="page">
       <h2>Unmatched</h2>
       <p className="muted">
-        Gaps between Radarr/Sonarr and Seerr. Clear stale Seerr records so those titles can be requested again.
+        Gaps between Radarr/Sonarr and Seerr. Clear stale Seerr records so those titles can be requested again, or add
+        library titles Seerr does not track yet.
       </p>
       <div className="stats">
         <button className={`stat ${!kind ? "active" : ""}`} onClick={() => { setKind(""); setPage(1); }}>
@@ -793,8 +808,11 @@ function Unmatched({
           <option value="tv">TV</option>
         </select>
         <div className="spacer" />
+        {missingCount > 0 && (
+          <button className="ghost" type="button" onClick={() => setPending({ mode: "add", all: true, ids: [] })}>Add all to Seerr</button>
+        )}
         {staleCount > 0 && (
-          <button className="danger" type="button" onClick={() => setPending({ all: true, ids: [] })}>Clear all stale Seerr</button>
+          <button className="danger" type="button" onClick={() => setPending({ mode: "clear", all: true, ids: [] })}>Clear all stale Seerr</button>
         )}
       </div>
       {error && <p className="error">{error}</p>}
@@ -806,9 +824,9 @@ function Unmatched({
                 <input
                   className="tick"
                   type="checkbox"
-                  checked={staleItems.length > 0 && staleItems.every((item) => selected.has(item.id))}
-                  disabled={!staleItems.length}
-                  onChange={(e) => setSelected(e.target.checked ? new Set(staleItems.map((item) => item.id)) : new Set())}
+                  checked={actionable.length > 0 && actionable.every((item) => selected.has(item.id))}
+                  disabled={!actionable.length}
+                  onChange={(e) => setSelected(e.target.checked ? new Set(actionable.map((item) => item.id)) : new Set())}
                 />
               </th>
               <th>Title</th>
@@ -822,17 +840,19 @@ function Unmatched({
           <tbody>
             {items.map((item) => {
               const stale = item.kind === "seerr_missing";
+              const missing = item.kind === "no_seerr";
+              const pickable = stale || missing;
               return (
                 <tr
                   key={item.id}
-                  className={`unmatched-row ${stale ? "clickable" : ""} ${selected.has(item.id) ? "selected" : ""}`}
+                  className={`unmatched-row ${pickable ? "clickable" : ""} ${selected.has(item.id) ? "selected" : ""}`}
                   onClick={(event) => {
-                    if (!stale || isInteractive(event)) return;
+                    if (!pickable || isInteractive(event)) return;
                     toggle(item.id);
                   }}
                 >
                   <td className="tick-cell">
-                    <input className="tick" type="checkbox" disabled={!stale} checked={selected.has(item.id)} onChange={() => toggle(item.id)} />
+                    <input className="tick" type="checkbox" disabled={!pickable} checked={selected.has(item.id)} onChange={() => toggle(item.id)} />
                   </td>
                   <td>
                     <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
@@ -847,7 +867,8 @@ function Unmatched({
                   <td className="muted">{item.reason}</td>
                   <td>
                     <div className="row-actions">
-                      {stale && <button className="danger-ghost" type="button" onClick={() => setPending({ all: false, ids: [item.id] })}>Clear in Seerr</button>}
+                      {stale && <button className="danger-ghost" type="button" onClick={() => setPending({ mode: "clear", all: false, ids: [item.id] })}>Clear in Seerr</button>}
+                      {missing && <button className="ghost" type="button" onClick={() => setPending({ mode: "add", all: false, ids: [item.id] })}>Add to Seerr</button>}
                       <ServiceLinks links={item.links} />
                     </div>
                   </td>
@@ -874,26 +895,51 @@ function Unmatched({
       {selected.size > 0 && (
         <div className="bulk">
           <strong>{selected.size} selected</strong>
-          <span className="muted">Remove stale Seerr media so they can be requested again</span>
+          <span className="muted">Clear stale Seerr media, or add library titles Seerr is missing</span>
           <div className="spacer" />
-          <button className="danger" onClick={() => setPending({ all: false, ids: [...selected] })}>Clear in Seerr</button>
+          {selectedMissing.length > 0 && (
+            <button className="ghost" onClick={() => setPending({ mode: "add", all: false, ids: selectedMissing })}>
+              Add {selectedMissing.length} to Seerr
+            </button>
+          )}
+          {selectedStale.length > 0 && (
+            <button className="danger" onClick={() => setPending({ mode: "clear", all: false, ids: selectedStale })}>
+              Clear {selectedStale.length} in Seerr
+            </button>
+          )}
         </div>
       )}
       {pending && (
         <div className="modal-back" onClick={() => !busy && setPending(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{pending.all ? "Clear all stale Seerr records" : "Clear in Seerr"}</h2>
+            <h2>
+              {pending.mode === "add"
+                ? pending.all ? "Add all missing titles to Seerr" : "Add to Seerr"
+                : pending.all ? "Clear all stale Seerr records" : "Clear in Seerr"}
+            </h2>
             <p>
-              This deletes the stale media records in Seerr so people can request them again. Radarr and Sonarr are not touched.
+              {pending.mode === "add"
+                ? "This requests each title in Seerr so it tracks what Radarr and Sonarr already hold. Nothing is downloaded again."
+                : "This deletes the stale media records in Seerr so people can request them again. Radarr and Sonarr are not touched."}
             </p>
             <ul>
-              {(pending.all ? staleItems : items.filter((item) => pending.ids.includes(item.id))).slice(0, 8).map((item) => <li key={item.id}>{item.title}</li>)}
-              {pending.all && staleCount > staleItems.length && <li>…and {staleCount - staleItems.length} more</li>}
+              {(pending.all
+                ? pending.mode === "add" ? missingItems : staleItems
+                : items.filter((item) => pending.ids.includes(item.id))
+              ).slice(0, 8).map((item) => <li key={item.id}>{item.title}</li>)}
+              {pending.all && pending.mode === "add" && missingCount > missingItems.length && (
+                <li>…and {missingCount - missingItems.length} more</li>
+              )}
+              {pending.all && pending.mode === "clear" && staleCount > staleItems.length && (
+                <li>…and {staleCount - staleItems.length} more</li>
+              )}
               {!pending.all && pending.ids.length > 8 && <li>…and {pending.ids.length - 8} more</li>}
             </ul>
             <div className="filters">
               <button className="ghost" disabled={busy} onClick={() => setPending(null)}>Cancel</button>
-              <button className="danger" disabled={busy} onClick={confirm}>{busy ? "Clearing…" : "Confirm"}</button>
+              <button className={pending.mode === "add" ? "primary" : "danger"} disabled={busy} onClick={confirm}>
+                {busy ? (pending.mode === "add" ? "Adding…" : "Clearing…") : "Confirm"}
+              </button>
             </div>
           </div>
         </div>

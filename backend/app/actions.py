@@ -34,6 +34,11 @@ class ClearSeerrIn(BaseModel):
     all_stale: bool = False
 
 
+class AddSeerrIn(BaseModel):
+    ids: list[int] = Field(default_factory=list)
+    all_missing: bool = False
+
+
 def _whitelist_rows() -> list[dict]:
     with connect() as conn:
         rows = conn.execute("SELECT * FROM whitelist ORDER BY pattern COLLATE NOCASE").fetchall()
@@ -297,6 +302,62 @@ def clear_stale_seerr(payload: ClearSeerrIn, request: Request):
                 actor=user,
             )
     remaining = 0
+    with connect() as conn:
+        remaining = conn.execute("SELECT COUNT(*) AS n FROM unmatched").fetchone()["n"]
+    return {"results": results, "remaining": remaining}
+
+
+@router.post("/unmatched/add-seerr")
+def add_missing_seerr(payload: AddSeerrIn, request: Request):
+    user = current_user(request)
+    client = seerr()
+    if not client:
+        raise HTTPException(400, "Seerr is not configured")
+    if not payload.all_missing and not payload.ids:
+        raise HTTPException(400, "Nothing selected")
+    with connect() as conn:
+        if payload.all_missing:
+            rows = [dict(row) for row in conn.execute(
+                "SELECT * FROM unmatched WHERE kind = 'no_seerr'"
+            ).fetchall()]
+        else:
+            placeholders = ",".join("?" for _ in payload.ids)
+            rows = [dict(row) for row in conn.execute(
+                f"SELECT * FROM unmatched WHERE kind = 'no_seerr' AND id IN ({placeholders})",
+                payload.ids,
+            ).fetchall()]
+    results = []
+    for row in rows:
+        title = row.get("title") or "Untitled"
+        try:
+            tmdb_id = int(row.get("tmdb_id") or 0)
+            if not tmdb_id:
+                raise RuntimeError("No TMDB id to request")
+            try:
+                client.request_media(tmdb_id, row.get("media_type") or "movie")
+            except ServiceError as exc:
+                # 409 duplicate request, 403 blocklisted: Seerr already knows about the title.
+                if exc.status not in {409, 403}:
+                    raise
+            with connect() as conn:
+                conn.execute("DELETE FROM unmatched WHERE id = ?", (row["id"],))
+            results.append({"title": title, "ok": True})
+            add_log(
+                f"Added {title} to Seerr",
+                category="audit",
+                action="add-seerr",
+                actor=user,
+                detail={"media_type": row.get("media_type"), "tmdb_id": row.get("tmdb_id")},
+            )
+        except Exception as exc:
+            results.append({"title": title, "ok": False, "error": str(exc)})
+            add_log(
+                f"Failed to add {title} to Seerr: {exc}",
+                level="error",
+                category="audit",
+                action="add-seerr",
+                actor=user,
+            )
     with connect() as conn:
         remaining = conn.execute("SELECT COUNT(*) AS n FROM unmatched").fetchone()["n"]
     return {"results": results, "remaining": remaining}

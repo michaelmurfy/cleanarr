@@ -192,6 +192,17 @@ class Seerr:
     def delete_media(self, media_id: int) -> None:
         json_request("DELETE", f"{self.url}/api/v1/media/{media_id}", headers=self.headers)
 
+    def request_media(self, tmdb_id: int, media_type: str) -> dict[str, Any]:
+        """Create an auto-approved request so Seerr starts tracking a title the *arrs already hold."""
+        body: dict[str, Any] = {
+            "mediaType": "tv" if media_type == "tv" else "movie",
+            "mediaId": int(tmdb_id),
+        }
+        if media_type == "tv":
+            body["seasons"] = "all"
+        data = json_request("POST", f"{self.url}/api/v1/request", headers=self.headers, json=body)
+        return data if isinstance(data, dict) else {}
+
     def blacklist(self, tmdb_id: int, media_type: str, title: str) -> None:
         json_request(
             "POST",
