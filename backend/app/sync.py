@@ -8,7 +8,7 @@ from collections import defaultdict
 from typing import Any
 
 from .art import warm_cache
-from .db import connect, get_setting
+from .db import connect, get_setting, ignore_key, ignored_unmatched
 from .identity import UserDirectory
 from .actions import delete_item, is_protected, is_stale_unwatched
 from .logs import add_log
@@ -203,6 +203,7 @@ def _run_sync(auto_delete: bool = False) -> None:
         index = CatalogIndex()
         directory = UserDirectory()
         unmatched_rows: dict[tuple, dict[str, Any]] = {}
+        ignored = ignored_unmatched()
 
         def note_unmatched(
             source: str,
@@ -226,6 +227,8 @@ def _run_sync(auto_delete: bool = False) -> None:
                 year_i = int(year or 0)
             except (TypeError, ValueError):
                 year_i = 0
+            if ignore_key(kind or source, media_type, tmdb_id, tvdb_id, label) in ignored:
+                return
             key = (kind or source, media_type, int(tmdb_id or 0), int(tvdb_id or 0), label.lower(), year_i)
             row = unmatched_rows.setdefault(
                 key,

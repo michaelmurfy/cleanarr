@@ -145,6 +145,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  ignoreUnmatched: (ids: number[]) =>
+    request<{ ignored: number; remaining: number }>("/api/unmatched/ignore", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+  ignoredUnmatched: () => request<{ items: IgnoredItem[] }>("/api/unmatched/ignored"),
+  unignoreUnmatched: (id: number) => request<{ ok: boolean }>(`/api/unmatched/ignored/${id}`, { method: "DELETE" }),
   users: (params: Record<string, string>) => {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -185,6 +192,17 @@ export type UnmatchedItem = {
   requested_at?: string;
   kind: string;
   links: Record<string, string>;
+};
+
+export type IgnoredItem = {
+  id: number;
+  kind: string;
+  media_type: string;
+  tmdb_id: number;
+  tvdb_id: number;
+  title: string;
+  reason: string;
+  created_at: number;
 };
 
 export type ServiceTest = {
