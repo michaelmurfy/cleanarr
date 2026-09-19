@@ -594,7 +594,24 @@ input.tick:disabled {
   color: var(--muted);
   font-size: 13px;
 }
-.ok-message { color: var(--ok); font-size: 14px; }
+.ok-message {
+  color: var(--ok);
+  font-size: 14px;
+  font-weight: 600;
+}
+.settings-save {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.settings-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 4px;
+}
 .test-list { display: grid; gap: 8px; }
 .test-row {
   display: grid;
@@ -700,7 +717,6 @@ input.tick:disabled {
 }
 .maintenance-grid span { display: block; font-size: 12px; }
 .maintenance-grid b { display: block; margin-top: 4px; font-size: 16px; }
-.settings-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
 .danger-ghost {
   border: 1px solid #5a2a24;
   color: #f0c0b8;
