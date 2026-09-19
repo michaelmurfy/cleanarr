@@ -97,3 +97,17 @@ def test_add_seerr_rejects_an_empty_selection(auth_client, monkeypatch):
 def test_add_seerr_needs_seerr_configured(auth_client, monkeypatch):
     monkeypatch.setattr("app.actions.seerr", lambda: None)
     assert auth_client.post("/api/unmatched/add-seerr", json={"ids": [1]}).status_code == 400
+
+
+def test_add_all_skips_rows_seerr_could_never_take(auth_client, unmatched_row, monkeypatch):
+    unmatched_row(tmdb_id=0, title="Kath and Kim: Our Effluent Life", media_type="tv")
+    unmatched_row(tmdb_id=603, title="The Matrix")
+    fake = FakeSeerr()
+    monkeypatch.setattr("app.actions.seerr", lambda: fake)
+
+    results = auth_client.post("/api/unmatched/add-seerr", json={"all_missing": True}).json()["results"]
+
+    assert fake.calls == [(603, "movie")]
+    assert results == [{"title": "The Matrix", "ok": True}]
+    with connect() as conn:
+        assert conn.execute("SELECT title FROM unmatched").fetchone()[0] == "Kath and Kim: Our Effluent Life"
