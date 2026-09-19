@@ -6,6 +6,14 @@ Self-hosted UI to reclaim disk from Radarr and Sonarr. Watch history comes from 
 
 **Do not expose Cleanarr to the public internet.** It is meant for your LAN or a VPN. Keep port `7585` off the open web — no port-forwarding, no public reverse proxy without strong auth in front of it. Prefer Tailscale/WireGuard, or bind to localhost and reach it over an SSH tunnel. On first launch, create a strong admin username and password before using the UI.
 
+What the app does on its own:
+
+- Sessions are signed, `HttpOnly`, and expire after 14 days. The signing key is derived from your stored credentials, so changing the password or username signs every other session out.
+- Failed sign-ins are throttled per client and username, with a five-minute lockout after eight failures.
+- Every response carries a content security policy and the usual hardening headers; API replies are `no-store` and cross-site writes are rejected.
+- API keys are stripped from log entries and from connection-test messages, so an upstream error that quotes a URL cannot leak one.
+- The session cookie sets `Secure` by itself when the request arrives over HTTPS. Set `CLEANARR_SECURE_COOKIE=1` to force it.
+
 ## Setup
 
 ### 1. Start the container
@@ -77,6 +85,10 @@ preview it.
 A run is skipped entirely if the watch history cannot be trusted: no history source
 configured, one that failed during the sync, or all of them reporting zero plays.
 That stops a Jellystat/Tautulli outage from making the whole library look unwatched.
+
+## Updates
+
+**Settings > About Cleanarr** shows the running version and compares it against the newest release on GitHub. The check only runs while that page is open, caches for six hours, and is skipped entirely with `CLEANARR_DISABLE_UPDATE_CHECK=1`. Upgrading is still `make update` (or `docker compose pull && docker compose up -d`).
 
 ## Delete
 
