@@ -447,11 +447,14 @@ def library(
     page_size: int = 50,
     stale_days: int = 365,
     max_rating: float | None = None,
+    requester: str = "",
+    hide_unprocessed: bool = True,
 ):
     current_user(request)
     page = max(1, page)
     page_size = min(max(page_size, 10), 200)
     stale_days = max(1, stale_days)
+    requester_key = requester.strip().lower()
     with connect() as conn:
         rows = [dict(row) for row in conn.execute("SELECT * FROM media").fetchall()]
         whitelist = [dict(row) for row in conn.execute("SELECT * FROM whitelist").fetchall()]
@@ -476,6 +479,8 @@ def library(
             "poster_url": "",
         }
         if media_type and item["media_type"] != media_type:
+            continue
+        if requester_key and (item.get("requested_by") or "").strip().lower() != requester_key:
             continue
         if q:
             status = "requested not downloaded queued" if (item.get("availability") or "") == "requested" else (item.get("availability") or "")
@@ -511,6 +516,9 @@ def library(
         elif watched == "stale":
             if not is_stale_unwatched(item, cutoff):
                 continue
+        # Pending Seerr requests stay out of the main lists unless you ask for them.
+        if hide_unprocessed and watched != "requested" and not on_disk(item):
+            continue
         items.append(item)
 
     def sort_value(item):
@@ -525,6 +533,10 @@ def library(
         if sort == "rating":
             rating = item.get("rating")
             return float(rating) if rating is not None else 99.0
+        if sort == "requests":
+            never = 0 if on_disk(item) and not item["play_count"] else 1
+            requested_at = (item.get("requested_at") or "").strip() or "9999-99-99"
+            return (never, requested_at, item["title"].lower())
         return item["last_watched_at"] or 0
 
     reverse = sort in {"size", "plays", "last_watched"}
