@@ -10,3 +10,6 @@ data/
 .DS_Store
 .idea/
 .vscode/
+.coverage
+coverage.xml
+.pytest_cache/
