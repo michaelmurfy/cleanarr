@@ -8,6 +8,7 @@ from .http import json_get, json_request, tidy_url
 MEDIA_AVAILABLE = {4, 5}
 MEDIA_IN_FLIGHT = {2, 3}
 MEDIA_BLOCKED = {6}  # blacklisted / blocklisted in Seerr and Jellyseerr
+MEDIA_DELETED = {7}
 REQUEST_PENDING = {1}
 REQUEST_APPROVED = {2}
 REQUEST_OPEN = REQUEST_PENDING | REQUEST_APPROVED
@@ -58,17 +59,34 @@ def media_blocked(media: dict[str, Any] | None) -> bool:
     return False
 
 
-def media_claimed(media: dict[str, Any] | None) -> bool:
-    """True when Seerr still treats the title as present in the *arr library."""
+def media_deleted(media: dict[str, Any] | None) -> bool:
+    """True when Seerr has already cleared the title (status 7), so there is nothing left to reconcile."""
     media = media or {}
-    if media_blocked(media):
+    statuses = [_status_num(media.get(field)) for field in ("status", "status4k")]
+    if any(status in MEDIA_AVAILABLE for status in statuses):
+        return False
+    return any(status in MEDIA_DELETED for status in statuses)
+
+
+def media_available(media: dict[str, Any] | None) -> bool:
+    """True when Seerr's own status says the title is (partially) available."""
+    media = media or {}
+    return any(_status_num((media or {}).get(field)) in MEDIA_AVAILABLE for field in ("status", "status4k"))
+
+
+def media_claimed(media: dict[str, Any] | None) -> bool:
+    """True when Seerr still treats the title as present in the *arr library.
+
+    mediaAddedAt is deliberately not evidence: Jellyseerr defaults it to the row's insert
+    time, so every media row carries one regardless of whether the file still exists.
+    """
+    media = media or {}
+    if media_blocked(media) or media_deleted(media):
         return False
     for field in ("status", "status4k"):
         if _status_num(media.get(field)) in MEDIA_AVAILABLE:
             return True
     if media.get("externalServiceId") or media.get("externalServiceId4k"):
-        return True
-    if media.get("mediaAddedAt"):
         return True
     return False
 
@@ -148,6 +166,12 @@ class Seerr:
 
     def media(self) -> list[dict[str, Any]]:
         return self._paged("/api/v1/media", {"filter": "all"})
+
+    def detail(self, media_type: str, tmdb_id: int) -> dict[str, Any]:
+        """TMDB-backed title lookup; /api/v1/media rows carry no title of their own."""
+        path = "tv" if media_type == "tv" else "movie"
+        data = json_get(f"{self.url}/api/v1/{path}/{int(tmdb_id)}", headers=self.headers)
+        return data if isinstance(data, dict) else {}
 
     def users(self) -> list[dict[str, Any]]:
         return self._paged("/api/v1/user")
