@@ -19,6 +19,27 @@ named volume.
 
 `CLEANARR_HIDE_SETTINGS=1` (default in `.env.example`) hides service URLs, API keys, and login from Settings — including unused services. Change them in `.env` and restart. Set it to `0` to manage connections in the UI.
 
+## Automatic delete
+
+Off by default, under Settings > Automatic sync. When on, each **scheduled** sync
+deletes titles Radarr/Sonarr added more than the cutoff ago (default 1 year) that
+nobody has watched since, files included, capped at 10 per run. Whitelisted titles
+are skipped, nothing is banned in Seerr, and a manual "Sync now" never deletes.
+
+A title played at an unknown time never qualifies, so missing data fails closed.
+
+Age comes from the Radarr/Sonarr `added` date, stored on the next sync. Titles
+without one are never auto-deleted, so an upgraded install deletes nothing until it
+has synced.
+
+The Library tab's **Stale / unwatched** filter uses the same rule, so with automatic
+delete off it shows exactly the set a run would remove — set the same cutoff to
+preview it.
+
+A run is skipped entirely if the watch history cannot be trusted: no history source
+configured, one that failed during the sync, or all of them reporting zero plays.
+That stops a Jellystat/Tautulli outage from making the whole library look unwatched.
+
 ## Delete
 
 - Skips whitelist matches (title substring or TMDB id)

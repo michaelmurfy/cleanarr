@@ -53,6 +53,7 @@ def init_db() -> None:
                 tautulli_rating_key TEXT NOT NULL DEFAULT '',
                 jellystat_item_id TEXT NOT NULL DEFAULT '',
                 availability TEXT NOT NULL DEFAULT 'downloaded',
+                added_at INTEGER,
                 UNIQUE(media_type, tmdb_id, tvdb_id)
             );
 
@@ -138,6 +139,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE media ADD COLUMN jellystat_item_id TEXT NOT NULL DEFAULT ''")
         if "availability" not in cols:
             conn.execute("ALTER TABLE media ADD COLUMN availability TEXT NOT NULL DEFAULT 'downloaded'")
+        if "added_at" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN added_at INTEGER")
         sync_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sync_state)").fetchall()}
         if "step" not in sync_cols:
             conn.execute("ALTER TABLE sync_state ADD COLUMN step TEXT NOT NULL DEFAULT ''")
