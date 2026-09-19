@@ -328,7 +328,7 @@ def list_users(request: Request, q: str = "", sort: str = "requests"):
         aliases = json.loads(row.get("aliases_json") or "[]")
         sources = json.loads(row.get("sources_json") or "[]")
         if q:
-            hay = f"{row.get('display_name')} {row.get('plex_username')} {row.get('email')} {' '.join(aliases)}".lower()
+            hay = f"{row.get('display_name')} {row.get('account_username')} {row.get('email')} {' '.join(aliases)}".lower()
             if q.lower() not in hay:
                 continue
         links = {}
@@ -344,7 +344,7 @@ def list_users(request: Request, q: str = "", sort: str = "requests"):
                 "aliases": aliases,
                 "sources": sources,
                 "links": links,
-                "matched": bool(row.get("plex_username")),
+                "matched": bool(row.get("account_username")),
             }
         )
 

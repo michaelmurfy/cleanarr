@@ -1328,7 +1328,7 @@ function Users({
                 <td data-label="User">
                   <strong>{person.display_name}</strong>
                   <div className="muted">
-                    {[person.plex_username !== person.display_name ? person.plex_username : "", person.email].filter(Boolean).join(" · ")}
+                    {[person.account_username !== person.display_name ? person.account_username : "", person.email].filter(Boolean).join(" · ")}
                   </div>
                   {!person.matched && <span className="chip warn">Unmatched</span>}
                 </td>
