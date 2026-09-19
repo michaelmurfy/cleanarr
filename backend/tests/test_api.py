@@ -55,10 +55,49 @@ def test_whitelist_round_trip(auth_client):
 
     items = auth_client.get("/api/whitelist").json()["items"]
     match = next(row for row in items if row["pattern"] == "Matrix")
+    assert match["match_count"] == 0
+    assert match["matches"] == []
 
     assert auth_client.delete(f"/api/whitelist/{match['id']}").status_code == 200
     remaining = auth_client.get("/api/whitelist").json()["items"]
     assert all(row["id"] != match["id"] for row in remaining)
+
+
+def test_whitelist_lists_matching_library_titles(auth_client):
+    from app.db import connect
+
+    with connect() as conn:
+        conn.execute("DELETE FROM media")
+        conn.execute("DELETE FROM whitelist")
+        conn.execute(
+            "INSERT INTO media (media_type, tmdb_id, title, year) VALUES ('movie', 603, 'The Matrix', 1999)"
+        )
+        conn.execute(
+            "INSERT INTO media (media_type, tmdb_id, title, year) VALUES ('movie', 604, 'The Matrix Reloaded', 2003)"
+        )
+        conn.execute(
+            "INSERT INTO media (media_type, tmdb_id, title, year) VALUES ('movie', 157336, 'Interstellar', 2014)"
+        )
+
+    try:
+        assert auth_client.post("/api/whitelist", json={"pattern": "Matrix", "note": "keep"}).status_code == 200
+        assert auth_client.post(
+            "/api/whitelist", json={"pattern": "157336", "match_type": "id", "tmdb_id": 157336}
+        ).status_code == 200
+
+        items = {row["pattern"]: row for row in auth_client.get("/api/whitelist").json()["items"]}
+        matrix = items["Matrix"]
+        assert matrix["match_count"] == 2
+        assert [m["title"] for m in matrix["matches"]] == ["The Matrix", "The Matrix Reloaded"]
+
+        interstellar = items["157336"]
+        assert interstellar["match_count"] == 1
+        assert interstellar["matches"][0]["title"] == "Interstellar"
+        assert interstellar["matches"][0]["tmdb_id"] == 157336
+    finally:
+        with connect() as conn:
+            conn.execute("DELETE FROM media")
+            conn.execute("DELETE FROM whitelist")
 
 
 def test_whitelist_rejects_empty_pattern(auth_client):

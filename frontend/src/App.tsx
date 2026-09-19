@@ -615,7 +615,14 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
           go("library");
         }}
       />}
-      {page === "whitelist" && <Whitelist />}
+      {page === "whitelist" && (
+        <Whitelist
+          onOpenLibrary={(q) => {
+            sessionStorage.setItem(FILTERS_KEY, JSON.stringify({ ...defaultFilters, q }));
+            go("library");
+          }}
+        />
+      )}
       {page === "logs" && <Logs sync={sync} />}
       {page === "settings" && <Settings />}
       <nav className="nav-bottom" aria-label="Primary">
@@ -903,7 +910,7 @@ function Library({
                 <td data-label="Title">
                   <div className="title-cell">
                     {item.art_url ? <img className="poster" src={item.art_url} alt="" /> : <div className="poster placeholder">No art</div>}
-                    <div>
+                    <div className="title-copy">
                       <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
                       <div className="title-meta">
                         <span className={`type-chip ${item.media_type}`}>{item.media_type === "movie" ? "Movie" : "TV"}</span>
@@ -912,23 +919,31 @@ function Library({
                           ? <span className="chip ok" title={item.whitelist_reason}>Protected · {item.whitelist_reason}</span>
                           : <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>}
                       </div>
+                      <div className="card-stats" aria-hidden="true">
+                        <span>{item.rating != null ? `${Number(item.rating).toFixed(1)}/10` : "No rating"}</span>
+                        <span>{item.availability === "requested" ? "Not downloaded" : when(item.last_watched_at)}</span>
+                        <span>{item.play_count} play{item.play_count === 1 ? "" : "s"}</span>
+                        <span>{bytes(item.size_bytes)}</span>
+                      </div>
                     </div>
                   </div>
                 </td>
                 <td className="rating col-rating" data-label="Rating" title={item.rating_source ? `${item.rating_source} · ${item.rating_votes} votes` : "No rating"}>
-                  {item.rating != null ? <><strong>{Number(item.rating).toFixed(1)}</strong> <span className="muted">/10</span></> : "–"}
+                  <span className="cell-value">{item.rating != null ? <><strong>{Number(item.rating).toFixed(1)}</strong> <span className="muted">/10</span></> : "–"}</span>
                 </td>
                 <td className="col-watched" data-label="Last watched" title={item.availability === "requested" ? "Requested, not downloaded yet" : whenFull(item.last_watched_at)}>
-                  {item.availability === "requested" ? "–" : when(item.last_watched_at)}
+                  <span className="cell-value">{item.availability === "requested" ? "–" : when(item.last_watched_at)}</span>
                 </td>
-                <td className="col-plays" data-label="Plays">{item.play_count}</td>
+                <td className="col-plays" data-label="Plays"><span className="cell-value">{item.play_count}</span></td>
                 <td className="watchers col-watchers" data-label="Watchers" title={item.watchers.map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}>
-                  {item.watchers.length
-                    ? `${item.watchers.slice(0, 2).map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}${item.watchers.length > 2 ? ` +${item.watchers.length - 2}` : ""}`
-                    : "–"}
+                  <span className="cell-value">
+                    {item.watchers.length
+                      ? `${item.watchers.slice(0, 2).map((watcher) => `${watcher.user} ×${watcher.plays}`).join(", ")}${item.watchers.length > 2 ? ` +${item.watchers.length - 2}` : ""}`
+                      : "–"}
+                  </span>
                 </td>
-                <td className="col-requested" data-label="Requested by"><Requester name={item.requested_by} at={item.requested_at} /></td>
-                <td className="col-size" data-label="Size">{bytes(item.size_bytes)}</td>
+                <td className="col-requested" data-label="Requested by"><span className="cell-value"><Requester name={item.requested_by} at={item.requested_at} /></span></td>
+                <td className="col-size" data-label="Size"><span className="cell-value">{bytes(item.size_bytes)}</span></td>
                 <td className="col-links" data-label="Links">
                   <div className="row-actions">
                     <ServiceLinks links={item.links} />
@@ -1241,10 +1256,10 @@ function Unmatched({
                       <span className={`chip ${stateChip(item).tone}`}>{stateChip(item).label}</span>
                     </div>
                   </td>
-                  <td className="capitalize col-where" data-label="Where">{item.source}</td>
-                  <td className="col-type" data-label="Type">{item.media_type === "tv" ? "TV" : "Movie"}</td>
-                  <td className="col-requested" data-label="Requested by"><Requester name={item.requested_by} at={item.requested_at} /></td>
-                  <td className="muted col-why" data-label="Why">{item.reason}</td>
+                  <td className="capitalize col-where" data-label="Where"><span className="cell-value">{item.source}</span></td>
+                  <td className="col-type" data-label="Type"><span className="cell-value">{item.media_type === "tv" ? "TV" : "Movie"}</span></td>
+                  <td className="col-requested" data-label="Requested by"><span className="cell-value"><Requester name={item.requested_by} at={item.requested_at} /></span></td>
+                  <td className="muted col-why" data-label="Why"><span className="cell-value">{item.reason}</span></td>
                   <td className="col-links" data-label="Actions">
                     <div className="row-actions">
                       {stale && <button className="danger-ghost" type="button" onClick={() => setPending({ mode: "clear", all: false, ids: [item.id] })}>Clear in Seerr</button>}
@@ -1526,7 +1541,7 @@ function Logs({ sync }: { sync: SyncStatus }) {
         Every sync step, match, and deletion, newest first. Open an entry to see the numbers behind it.
       </p>
       <div className="stats">
-        <button className={`stat ${!level ? "active" : ""}`} onClick={() => pickLevel("")}>
+        <button className={`stat info ${!level ? "active" : ""}`} onClick={() => pickLevel("")}>
           <span className="muted">All entries</span><b>{num(levels.info + levels.warn + levels.error)}</b>
         </button>
         <button className={`stat stale ${level === "warn" ? "active" : ""}`} onClick={() => pickLevel("warn")}>
@@ -1565,35 +1580,39 @@ function Logs({ sync }: { sync: SyncStatus }) {
           return (
             <div key={item.id}>
               {showHeading && <div className="log-day">{heading}</div>}
-              <div className={`log-row ${item.level} ${expanded ? "open" : ""}`}>
-                <time className="log-time" dateTime={new Date(item.created_at * 1000).toISOString()} title={new Date(item.created_at * 1000).toLocaleString()}>
-                  {clockTime(item.created_at)}
-                </time>
-                <div className="log-body">
-                  <div className="log-message">
-                    <span className={`log-dot ${item.level}`} aria-hidden="true" />
-                    <span>{item.message}</span>
-                  </div>
-                  <div className="log-meta">
-                    {item.level !== "info" ? <span className={`log-level ${item.level}`}>{LOG_LEVEL_LABEL[item.level] || item.level}</span> : null}
-                    {item.category ? <span className="log-tag">{item.category}</span> : null}
-                    {item.action ? <span className="log-tag subtle">{item.action.replace(/[-_]/g, " ")}</span> : null}
-                    {item.actor ? <span className="log-actor">by {item.actor}</span> : null}
+              <div className={`log-row ${item.level || "info"} ${expanded ? "open" : ""}`}>
+                <div className="log-accent" aria-hidden="true" />
+                <div className="log-content">
+                  <div className="log-topline">
+                    <span className={`log-level ${item.level || "info"}`}>
+                      {LOG_LEVEL_LABEL[item.level] || item.level || "Info"}
+                    </span>
+                    <time className="log-time" dateTime={new Date(item.created_at * 1000).toISOString()} title={new Date(item.created_at * 1000).toLocaleString()}>
+                      {clockTime(item.created_at)}
+                    </time>
                     <span className="log-ago">{when(item.created_at)}</span>
+                    {hasDetail ? (
+                      <button
+                        className="log-toggle"
+                        type="button"
+                        aria-expanded={expanded}
+                        aria-label={expanded ? "Hide details" : "Show details"}
+                        onClick={() => toggle(item.id)}
+                      >
+                        {expanded ? "Less" : "Details"}
+                      </button>
+                    ) : null}
                   </div>
+                  <div className="log-message">{item.message || "Untitled entry"}</div>
+                  {(item.category || item.action || item.actor) ? (
+                    <div className="log-meta">
+                      {item.category ? <span className={`log-tag category-${item.category}`}>{item.category}</span> : null}
+                      {item.action ? <span className="log-tag subtle">{item.action.replace(/[-_]/g, " ")}</span> : null}
+                      {item.actor ? <span className="log-actor">by {item.actor}</span> : null}
+                    </div>
+                  ) : null}
                   {hasDetail && expanded ? <LogDetail detail={item.detail} /> : null}
                 </div>
-                {hasDetail ? (
-                  <button
-                    className="log-toggle"
-                    type="button"
-                    aria-expanded={expanded}
-                    aria-label={expanded ? "Hide details" : "Show details"}
-                    onClick={() => toggle(item.id)}
-                  >
-                    {expanded ? "Less" : "Details"}
-                  </button>
-                ) : null}
               </div>
             </div>
           );
@@ -1688,11 +1707,11 @@ function Users({
                   </div>
                   {!person.matched && <span className="chip warn">Unmatched</span>}
                 </td>
-                <td className="col-requests" data-label="Requests">{person.request_count}</td>
-                <td className="col-library" data-label="In library">{person.library_count}</td>
-                <td className="col-plays" data-label="Plays">{person.play_count}</td>
-                <td className="col-size" data-label="Requested size">{bytes(person.library_size)}</td>
-                <td className="col-watched" data-label="Last watched" title={whenFull(person.last_watched_at)}>{when(person.last_watched_at)}</td>
+                <td className="col-requests" data-label="Requests"><span className="cell-value">{person.request_count}</span></td>
+                <td className="col-library" data-label="In library"><span className="cell-value">{person.library_count}</span></td>
+                <td className="col-plays" data-label="Plays"><span className="cell-value">{person.play_count}</span></td>
+                <td className="col-size" data-label="Requested size"><span className="cell-value">{bytes(person.library_size)}</span></td>
+                <td className="col-watched" data-label="Last watched" title={whenFull(person.last_watched_at)}><span className="cell-value">{when(person.last_watched_at)}</span></td>
                 <td className="col-links" data-label="Links">
                   <div className="row-actions">
                     <button className="ghost" onClick={() => onOpenRequests(person.display_name)}>Requests</button>
@@ -1721,12 +1740,13 @@ function Users({
   );
 }
 
-function Whitelist() {
+function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
   const [items, setItems] = useState<WhitelistItem[]>([]);
   const [pattern, setPattern] = useState("");
   const [note, setNote] = useState("");
   const [matchType, setMatchType] = useState("title");
   const [mediaType, setMediaType] = useState("any");
+  const [open, setOpen] = useState<Set<number>>(new Set());
 
   async function load() {
     setItems((await api.whitelist()).items);
@@ -1741,10 +1761,35 @@ function Whitelist() {
     await load();
   }
 
+  function toggle(id: number) {
+    setOpen((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function ruleLabel(item: WhitelistItem) {
+    if (item.match_type === "id") return `TMDB ${item.tmdb_id || item.pattern}`;
+    return item.pattern;
+  }
+
+  function ruleHint(item: WhitelistItem) {
+    const parts = [
+      item.match_type === "id" ? "TMDB id" : "Title contains",
+      item.media_type === "any" ? "any type" : item.media_type,
+    ];
+    if (item.note) parts.push(item.note);
+    return parts.join(" · ");
+  }
+
   return (
     <div className="page">
       <h2>Whitelist</h2>
-      <p className="page-intro muted">Title matches are case-insensitive substrings. “Stargate” or “Back to the Future” protects the franchise. You can also whitelist a title straight from the library list.</p>
+      <p className="page-intro muted">
+        Title matches are case-insensitive substrings. “Stargate” or “Back to the Future” protects the franchise. You can also whitelist a title straight from the library list.
+      </p>
       <form className="filters" onSubmit={add}>
         <select value={matchType} onChange={(e) => setMatchType(e.target.value)}>
           <option value="title">Title contains</option>
@@ -1760,15 +1805,57 @@ function Whitelist() {
         <button className="primary" type="submit">Protect</button>
       </form>
       <div className="list">
-        {items.map((item) => (
-          <div className="list-item" key={item.id}>
-            <div>
-              <strong>{item.pattern}</strong>
-              <div className="muted">{item.match_type} · {item.media_type} {item.note && `· ${item.note}`}</div>
+        {items.map((item) => {
+          const matches = item.matches || [];
+          const count = item.match_count ?? matches.length;
+          const expanded = open.has(item.id);
+          const preview = matches.slice(0, expanded ? matches.length : 4);
+          return (
+            <div className="list-item whitelist-item" key={item.id}>
+              <div className="whitelist-main">
+                <div className="whitelist-head">
+                  <strong>{ruleLabel(item)}</strong>
+                  <span className={`chip ${count ? "ok" : ""}`}>{count} match{count === 1 ? "" : "es"}</span>
+                </div>
+                <div className="muted">{ruleHint(item)}</div>
+                {count > 0 ? (
+                  <div className="whitelist-matches">
+                    {preview.map((match) => (
+                      <button
+                        key={match.id}
+                        type="button"
+                        className="whitelist-match"
+                        onClick={() => onOpenLibrary(match.title)}
+                        title={`Open ${match.title} in the library`}
+                      >
+                        <span>{match.title}{match.year ? ` (${match.year})` : ""}</span>
+                        <span className="muted">{match.media_type === "tv" ? "TV" : "Movie"}</span>
+                      </button>
+                    ))}
+                    {count > preview.length ? (
+                      <button type="button" className="linkish" onClick={() => toggle(item.id)}>
+                        Show {count - preview.length} more
+                      </button>
+                    ) : null}
+                    {expanded && count > 4 ? (
+                      <button type="button" className="linkish" onClick={() => toggle(item.id)}>Show less</button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="linkish"
+                      onClick={() => onOpenLibrary(item.match_type === "id" ? (matches[0]?.title || item.pattern) : item.pattern)}
+                    >
+                      Open in library
+                    </button>
+                  </div>
+                ) : (
+                  <div className="muted whitelist-empty">No library titles match this rule yet.</div>
+                )}
+              </div>
+              <button className="ghost" onClick={async () => { await api.removeWhitelist(item.id); await load(); }}>Remove</button>
             </div>
-            <button className="ghost" onClick={async () => { await api.removeWhitelist(item.id); await load(); }}>Remove</button>
-          </div>
-        ))}
+          );
+        })}
         {!items.length && <p className="muted">Nothing protected yet.</p>}
       </div>
     </div>
