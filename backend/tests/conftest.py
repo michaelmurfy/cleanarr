@@ -28,6 +28,10 @@ def client():
 
 @pytest.fixture
 def auth_client(client):
+    from app.auth import bootstrap_auth
+
+    # Re-apply env credentials so earlier tests that wipe auth state cannot poison login.
+    bootstrap_auth()
     response = client.post("/api/auth/login", json={"username": "tester", "password": "hunter2"})
     assert response.status_code == 200
     yield client

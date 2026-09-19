@@ -15,9 +15,11 @@ from .actions import is_protected, is_stale_unwatched, protect_reason, router as
 from .art import art_url, cache_stats, clear_cache, serve_art
 from .auth import (
     bootstrap_auth,
+    complete_setup,
     current_user,
     get_setting,
     login_response,
+    needs_setup,
     set_credentials,
     verify_password,
     COOKIE,
@@ -74,8 +76,21 @@ class TestIn(BaseModel):
     service: str
 
 
+@app.get("/api/auth/status")
+def auth_status():
+    return {"setup_required": needs_setup()}
+
+
+@app.post("/api/auth/setup")
+def setup(payload: LoginIn):
+    complete_setup(payload.username, payload.password)
+    return login_response(get_setting("auth_username"))
+
+
 @app.post("/api/auth/login")
 def login(payload: LoginIn):
+    if needs_setup():
+        raise HTTPException(status_code=403, detail="Create an admin account first")
     username = get_setting("auth_username")
     if payload.username != username or not verify_password(payload.password):
         raise HTTPException(status_code=401, detail="Invalid username or password")

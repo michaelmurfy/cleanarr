@@ -4,7 +4,7 @@ Self-hosted UI to reclaim disk from Radarr and Sonarr. Watch history comes from 
 
 ## Security
 
-**Do not expose Cleanarr to the public internet.** It is meant for your LAN or a VPN. Keep port `7585` off the open web — no port-forwarding, no public reverse proxy without strong auth in front of it. Prefer Tailscale/WireGuard, or bind to localhost and reach it over an SSH tunnel. Change the default login as soon as you start it.
+**Do not expose Cleanarr to the public internet.** It is meant for your LAN or a VPN. Keep port `7585` off the open web — no port-forwarding, no public reverse proxy without strong auth in front of it. Prefer Tailscale/WireGuard, or bind to localhost and reach it over an SSH tunnel. On first launch, create a strong admin username and password before using the UI.
 
 ## Setup
 
@@ -19,7 +19,7 @@ Or with Make: `make up`.
 
 Images are published to [`ghcr.io/michaelmurfy/cleanarr`](https://ghcr.io/michaelmurfy/cleanarr) on every push to `main` (and on version tags). For a private package, `docker login ghcr.io` first. Override the image with `CLEANARR_IMAGE=…` if needed.
 
-Open http://localhost:7585 and sign in with the defaults (`admin` / `changeme`), then change the password under Settings.
+Open http://localhost:7585. On first launch with no `.env`, Cleanarr generates a random session secret and asks you to **create a username and password** before you can use the UI — there is no default login.
 
 ### 2. Connect your services
 
@@ -35,6 +35,8 @@ cp .env.example .env
 # fill the services you want managed from the file
 docker compose up -d
 ```
+
+Set a strong `CLEANARR_SECRET` in `.env` when you use one; without an `.env`, Cleanarr stores a random secret in its data volume automatically.
 
 Any value set in the environment (including from `.env`) is locked in Settings. Set `CLEANARR_HIDE_SETTINGS=1` to hide service URLs, API keys, public links, and login from Settings entirely — including unused services — and manage them only via `.env`.
 
