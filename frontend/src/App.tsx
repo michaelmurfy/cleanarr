@@ -1118,17 +1118,17 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
   return (
     <div className="page">
       <h2>Users</h2>
-      <p className="muted">Seerr requesters and Tautulli/Tracearr/Jellystat watchers are matched to Plex usernames when those exist.</p>
+      <p className="muted">Seerr requesters and Tautulli/Tracearr/Jellystat watchers are matched across connected services when possible.</p>
       <div className="stats">
         <div className="stat" style={{ cursor: "default" }}><span className="muted">People</span><b>{stats.users ?? 0}</b></div>
         <div className="stat" style={{ cursor: "default" }}><span className="muted">Requests in library</span><b>{stats.requests ?? 0}</b></div>
         <div className="stat" style={{ cursor: "default" }}><span className="muted">Plays</span><b>{stats.plays ?? 0}</b></div>
         <button className={`stat warn ${onlyUnmatched ? "active" : ""}`} onClick={() => setOnlyUnmatched((current) => !current)}>
-          <span className="muted">Unmatched to Plex</span><b>{stats.unmatched ?? 0}</b>
+          <span className="muted">Unmatched</span><b>{stats.unmatched ?? 0}</b>
         </button>
       </div>
       <div className="filters">
-        <input type="search" placeholder="Search name, Plex user, email" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <input type="search" placeholder="Search name, username, email" value={qInput} onChange={(e) => setQInput(e.target.value)} />
         <select value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="requests">Most requests</option>
           <option value="library">Most library items</option>
@@ -1156,8 +1156,7 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
                 <td>
                   <strong>{person.display_name}</strong>
                   <div className="muted">
-                    {person.plex_username && person.plex_username !== person.display_name ? `Plex · ${person.plex_username}` : person.plex_username ? "Plex user" : "No Plex username"}
-                    {person.email ? ` · ${person.email}` : ""}
+                    {[person.plex_username !== person.display_name ? person.plex_username : "", person.email].filter(Boolean).join(" · ")}
                   </div>
                   {!person.matched && <span className="chip warn">Unmatched</span>}
                 </td>
@@ -1175,7 +1174,7 @@ function Users({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
               </tr>
             ))}
             {!visible.length && (
-              <tr><td colSpan={7} className="empty">{onlyUnmatched ? "Every listed person matched a Plex username." : "No users yet. Sync the library to pull Seerr, Tautulli, Tracearr, and Jellystat people."}</td></tr>
+              <tr><td colSpan={7} className="empty">{onlyUnmatched ? "No unmatched users." : "No users yet. Sync the library to pull Seerr, Tautulli, Tracearr, and Jellystat people."}</td></tr>
             )}
           </tbody>
         </table>
