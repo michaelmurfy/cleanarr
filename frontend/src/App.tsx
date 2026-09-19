@@ -1,8 +1,20 @@
-import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
-type Page = "library" | "unmatched" | "users" | "whitelist" | "logs" | "settings";
+const PAGES = ["library", "unmatched", "users", "whitelist", "logs", "settings"] as const;
+
+type Page = (typeof PAGES)[number];
+
+function isPage(value: string): value is Page {
+  return (PAGES as readonly string[]).includes(value);
+}
+
+// The backend serves index.html for any unknown path, so /users survives a refresh.
+function pageFromLocation(): Page {
+  const slug = window.location.pathname.replace(/^\/+|\/+$/g, "");
+  return isPage(slug) ? slug : "library";
+}
 
 const FILTERS_KEY = "cleanarr.library";
 
@@ -204,10 +216,27 @@ function Login({ onDone }: { onDone: (user: string) => void }) {
 }
 
 function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
-  const [page, setPage] = useState<Page>("library");
+  const [page, setPage] = useState<Page>(pageFromLocation);
   const [sync, setSync] = useState<SyncStatus>({ status: "idle", message: "" });
   const [unmatchedCount, setUnmatchedCount] = useState(0);
   const prevSync = useRef(sync.status);
+
+  // replace: for redirects, so Back does not bounce straight back to the page we left.
+  const go = useCallback((next: Page, replace = false) => {
+    setPage(next);
+    if (pageFromLocation() === next) return;
+    const url = `/${next}`;
+    if (replace) window.history.replaceState(null, "", url);
+    else window.history.pushState(null, "", url);
+  }, []);
+
+  useEffect(() => {
+    const slug = window.location.pathname.replace(/^\/+|\/+$/g, "");
+    if (slug && !isPage(slug)) window.history.replaceState(null, "", "/library");
+    const onPop = () => setPage(pageFromLocation());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   function refreshUnmatched() {
     api.unmatched({ page_size: "1" }).then((data) => {
@@ -221,8 +250,8 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   }, []);
 
   useEffect(() => {
-    if (!unmatchedCount && page === "unmatched") setPage("library");
-  }, [unmatchedCount, page]);
+    if (!unmatchedCount && page === "unmatched") go("library", true);
+  }, [unmatchedCount, page, go]);
 
   useEffect(() => {
     if (sync.status !== "running") return;
@@ -242,16 +271,16 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
       <header className="topbar">
         <Brand compact />
         <nav className="nav">
-          <button className={page === "library" ? "active" : ""} onClick={() => setPage("library")}>Library</button>
+          <button className={page === "library" ? "active" : ""} onClick={() => go("library")}>Library</button>
           {unmatchedCount > 0 && (
-            <button className={`alert ${page === "unmatched" ? "active" : ""}`} onClick={() => setPage("unmatched")}>
+            <button className={`alert ${page === "unmatched" ? "active" : ""}`} onClick={() => go("unmatched")}>
               Unmatched<span className="nav-count">{unmatchedCount}</span>
             </button>
           )}
-          <button className={page === "users" ? "active" : ""} onClick={() => setPage("users")}>Users</button>
-          <button className={page === "whitelist" ? "active" : ""} onClick={() => setPage("whitelist")}>Whitelist</button>
-          <button className={page === "logs" ? "active" : ""} onClick={() => setPage("logs")}>Logs</button>
-          <button className={page === "settings" ? "active" : ""} onClick={() => setPage("settings")}>Settings</button>
+          <button className={page === "users" ? "active" : ""} onClick={() => go("users")}>Users</button>
+          <button className={page === "whitelist" ? "active" : ""} onClick={() => go("whitelist")}>Whitelist</button>
+          <button className={page === "logs" ? "active" : ""} onClick={() => go("logs")}>Logs</button>
+          <button className={page === "settings" ? "active" : ""} onClick={() => go("settings")}>Settings</button>
         </nav>
         <div className="spacer" />
         <div className="topbar-sync">
@@ -273,16 +302,16 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
         <span className="muted">{user}</span>
         <button className="ghost" onClick={async () => { await api.logout(); onLogout(); }}>Sign out</button>
       </header>
-      {page === "library" && <Library sync={sync} setSync={setSync} unmatchedCount={unmatchedCount} onOpenUnmatched={() => setPage("unmatched")} onUnmatchedCount={setUnmatchedCount} />}
+      {page === "library" && <Library sync={sync} setSync={setSync} unmatchedCount={unmatchedCount} onOpenUnmatched={() => go("unmatched")} onUnmatchedCount={setUnmatchedCount} />}
       {page === "unmatched" && unmatchedCount > 0 && (
         <Unmatched sync={sync} setSync={setSync} onUnmatchedCount={(count) => {
           setUnmatchedCount(count);
-          if (!count) setPage("library");
+          if (!count) go("library", true);
         }} />
       )}
       {page === "users" && <Users onOpenLibrary={(q) => {
         sessionStorage.setItem(FILTERS_KEY, JSON.stringify({ ...defaultFilters, q }));
-        setPage("library");
+        go("library");
       }} />}
       {page === "whitelist" && <Whitelist />}
       {page === "logs" && <Logs sync={sync} />}
