@@ -59,6 +59,10 @@ function loadFilters(): Filters {
   }
 }
 
+function scrollResultsTop() {
+  window.scrollTo(0, 0);
+}
+
 function num(value: number | null | undefined) {
   return (value ?? 0).toLocaleString();
 }
@@ -747,8 +751,8 @@ function Library({
           <option value="100">100 / page</option>
         </select>
         <span className="muted">Page {stats.page || 1} of {pages}</span>
-        <button className="ghost" disabled={(stats.page || 1) <= 1} onClick={() => setFilters((current) => ({ ...current, page: current.page - 1 }))}>Previous</button>
-        <button className="ghost" disabled={(stats.page || 1) >= pages} onClick={() => setFilters((current) => ({ ...current, page: current.page + 1 }))}>Next</button>
+        <button className="ghost" disabled={(stats.page || 1) <= 1} onClick={() => { setFilters((current) => ({ ...current, page: current.page - 1 })); scrollResultsTop(); }}>Previous</button>
+        <button className="ghost" disabled={(stats.page || 1) >= pages} onClick={() => { setFilters((current) => ({ ...current, page: current.page + 1 })); scrollResultsTop(); }}>Next</button>
       </div>
       {selected.size > 0 && (
         <div className="bulk">
@@ -1084,8 +1088,8 @@ function Unmatched({
         <span className="muted">{num(total)} listed</span>
         <div className="spacer" />
         <span className="muted">Page {page} of {pages}</span>
-        <button className="ghost" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Previous</button>
-        <button className="ghost" disabled={page >= pages} onClick={() => setPage((current) => current + 1)}>Next</button>
+        <button className="ghost" disabled={page <= 1} onClick={() => { setPage((current) => current - 1); scrollResultsTop(); }}>Previous</button>
+        <button className="ghost" disabled={page >= pages} onClick={() => { setPage((current) => current + 1); scrollResultsTop(); }}>Next</button>
       </div>
       {selected.size > 0 && (
         <div className="bulk">
@@ -1216,9 +1220,9 @@ function Logs({ sync }: { sync: SyncStatus }) {
         {!items.length && <p className="muted">No log entries yet. Run a sync to populate this.</p>}
       </div>
       <div className="pager">
-        <button className="ghost" disabled={page <= 1} onClick={() => load(page - 1)}>Previous</button>
+        <button className="ghost" disabled={page <= 1} onClick={() => { load(page - 1); scrollResultsTop(); }}>Previous</button>
         <span className="muted">Page {page} of {pages}</span>
-        <button className="ghost" disabled={page >= pages} onClick={() => load(page + 1)}>Next</button>
+        <button className="ghost" disabled={page >= pages} onClick={() => { load(page + 1); scrollResultsTop(); }}>Next</button>
       </div>
     </div>
   );
