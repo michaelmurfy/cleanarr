@@ -576,6 +576,9 @@ input.tick:disabled {
   padding: 18px;
   margin-bottom: 16px;
 }
+/* About sits outside the settings form, so it has no preceding card to space it
+   off the Save button. */
+form + .settings-section { margin-top: 16px; }
 .settings-section h3 { margin: 0 0 6px; font-size: 16px; }
 .settings-section h4 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
 .settings-section p.muted { margin: 0 0 14px; }
