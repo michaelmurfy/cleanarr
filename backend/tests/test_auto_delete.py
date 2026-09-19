@@ -51,13 +51,20 @@ def titles(rows):
     return sorted(row["title"] for row in rows)
 
 
-def test_only_never_watched_titles_past_the_cutoff_are_candidates(library):
+def test_cold_titles_past_the_cutoff_are_candidates(library):
     add_title("Old And Unwatched", added_days_ago=400)
+    add_title("Watched Long Ago", plays=3, last_watched=int(time.time()) - 400 * DAY, added_days_ago=400)
     add_title("Added Last Week", added_days_ago=7)
-    add_title("Watched Once", plays=3, last_watched=int(time.time()) - 400 * DAY)
+    add_title("Watched Last Week", plays=1, last_watched=int(time.time()) - 7 * DAY, added_days_ago=400)
     add_title("Not On Disk", availability="requested")
 
-    assert titles(sync.auto_delete_candidates(365, 50)) == ["Old And Unwatched"]
+    assert titles(sync.auto_delete_candidates(365, 50)) == ["Old And Unwatched", "Watched Long Ago"]
+
+
+def test_a_play_with_no_timestamp_is_never_a_candidate(library):
+    # play_count without a date means we cannot tell how cold it is, so leave it.
+    add_title("Played At Some Point", plays=2, last_watched=None, added_days_ago=900)
+    assert sync.auto_delete_candidates(365, 50) == []
 
 
 def test_titles_without_an_added_date_are_never_candidates(library):
@@ -221,14 +228,16 @@ def test_healthy_history_does_not_block(monkeypatch):
 def test_library_stale_filter_matches_the_auto_delete_set(auth_client):
     """The Stale / unwatched list is exactly what a scheduled run would delete."""
     add_title("Old Never Watched", added_days_ago=400)
-    add_title("Added Recently", added_days_ago=10)
     add_title("Watched Long Ago", plays=2, last_watched=int(time.time()) - 900 * DAY, added_days_ago=900)
+    add_title("Added Recently", added_days_ago=10)
+    add_title("Watched Recently", plays=4, last_watched=int(time.time()) - 5 * DAY, added_days_ago=800)
+    add_title("Played No Timestamp", plays=1, last_watched=None, added_days_ago=800)
     add_title("No Added Date", added_days_ago=None)
     add_title("Still Requested", added_days_ago=400, availability="requested")
 
     listed = auth_client.get("/api/library?watched=stale&stale_days=365&page_size=200").json()
-    assert sorted(item["title"] for item in listed["items"]) == ["Old Never Watched"]
-    assert listed["stats"]["stale"] == 1
+    assert sorted(item["title"] for item in listed["items"]) == ["Old Never Watched", "Watched Long Ago"]
+    assert listed["stats"]["stale"] == 2
     assert titles(sync.auto_delete_candidates(365, 200)) == sorted(
         item["title"] for item in listed["items"]
     )

@@ -1401,9 +1401,10 @@ function Settings() {
 
           <h4>Automatic delete</h4>
           <p className="muted">
-            Off by default. When on, each scheduled sync deletes titles nobody has ever watched that
-            Radarr/Sonarr added more than the cutoff ago, files included. Whitelisted titles are always
-            skipped, nothing is banned in Seerr, and a manual "Sync now" never deletes.
+            Off by default. When on, each scheduled sync deletes titles Radarr/Sonarr added more than the
+            cutoff ago that nobody has watched since — the Library's Stale / unwatched filter at the same
+            cutoff. Files included. Whitelisted titles are always skipped, nothing is banned in Seerr, and
+            a manual "Sync now" never deletes.
           </p>
           <div className="schedule-row">
             <label className="toggle">
@@ -1417,7 +1418,7 @@ function Settings() {
               <span>{autoDelete && scheduleEnabled ? "Deleting" : "Alert only"}</span>
             </label>
             <label className="interval-field">
-              Never watched for
+              Unwatched for
               <select
                 value={autoDeleteDays}
                 onChange={(e) => setAutoDeleteDays(e.target.value)}

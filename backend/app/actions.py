@@ -56,17 +56,23 @@ def is_protected(title: str, media_type: str, tmdb_id: int, rows: list[dict] | N
 
 
 def is_stale_unwatched(item: dict, cutoff: int) -> bool:
-    """On disk, never played, added before the cutoff.
+    """On disk, added before the cutoff, and not played since it.
 
     Shared by the library's Stale / unwatched filter and automatic delete so the
-    list you review is exactly the set a scheduled run would remove.
+    list you review is exactly the set a scheduled run would remove. A title played
+    at an unknown time never qualifies, and neither does one with no added date,
+    so missing data always fails closed.
     """
     if (item.get("availability") or "downloaded") == "requested":
         return False
-    if item.get("play_count") or item.get("last_watched_at"):
-        return False
     added = item.get("added_at")
-    return bool(added) and int(added) <= cutoff
+    if not added or int(added) > cutoff:
+        return False
+    if item.get("play_count"):
+        last_watched = item.get("last_watched_at")
+        if not last_watched or int(last_watched) > cutoff:
+            return False
+    return True
 
 
 def protect_reason(row: dict) -> str:

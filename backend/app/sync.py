@@ -1113,7 +1113,7 @@ def auto_delete_settings() -> dict[str, Any]:
 
 
 def auto_delete_candidates(stale_days: int, limit: int) -> list[dict[str, Any]]:
-    """On-disk titles with no plays that Radarr/Sonarr added more than stale_days ago.
+    """On-disk titles added over stale_days ago with no plays since.
 
     added_at is NULL until a sync has run against a new-enough schema, and a NULL
     never matches, so an un-backfilled library deletes nothing.
@@ -1170,7 +1170,7 @@ def run_auto_delete(history: dict[str, Any] | None = None) -> dict[str, Any]:
     candidates = auto_delete_candidates(config["stale_days"], config["max_per_run"])
     if not candidates:
         add_log(
-            f"Automatic delete found nothing never watched for {config['stale_days']} days",
+            f"Automatic delete found nothing unwatched for {config['stale_days']} days",
             category="audit",
             action="auto_delete",
             actor="automatic",

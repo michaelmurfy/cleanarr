@@ -22,9 +22,11 @@ named volume.
 ## Automatic delete
 
 Off by default, under Settings > Automatic sync. When on, each **scheduled** sync
-deletes titles nobody has ever watched that Radarr/Sonarr added more than the cutoff
-ago (default 1 year), files included, capped at 10 per run. Whitelisted titles are
-skipped, nothing is banned in Seerr, and a manual "Sync now" never deletes.
+deletes titles Radarr/Sonarr added more than the cutoff ago (default 1 year) that
+nobody has watched since, files included, capped at 10 per run. Whitelisted titles
+are skipped, nothing is banned in Seerr, and a manual "Sync now" never deletes.
+
+A title played at an unknown time never qualifies, so missing data fails closed.
 
 Age comes from the Radarr/Sonarr `added` date, stored on the next sync. Titles
 without one are never auto-deleted, so an upgraded install deletes nothing until it
