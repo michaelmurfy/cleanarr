@@ -151,5 +151,20 @@ def test_log_listing_reports_level_counts(auth_client):
     assert set(body["levels"]) == {"info", "warn", "error"}
 
 
-def test_unknown_api_paths_do_not_fall_through_to_the_app_shell(client):
+def test_unknown_api_paths_do_not_fall_through_to_the_app_shell(client, bundle):
     assert client.get("/api/definitely-not-a-route").status_code == 404
+
+
+def test_tab_paths_serve_the_shell_so_a_refresh_works(client, bundle):
+    response = client.get("/users")
+    assert response.status_code == 200
+    assert "<html>" in response.text
+    # A cached shell names bundles from the previous build, so it must revalidate.
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_a_dotfile_request_gets_the_shell_not_the_file(client, bundle):
+    """.env sits next to the bundle in a source checkout; serving it would leak keys."""
+    response = client.get("/.env")
+    assert response.status_code == 200
+    assert "SEERR_API_KEY" not in response.text

@@ -117,7 +117,7 @@ def login(payload: LoginIn, request: Request):
     if not (name_ok and password_ok):
         locked = login_throttle.record_failure(throttle_key)
         add_log(
-            f"Failed sign-in for “{payload.username}”" + (" — temporarily locked out" if locked else ""),
+            f"Failed sign-in for '{payload.username}'" + (", temporarily locked out" if locked else ""),
             level="warn",
             category="audit",
             action="login_failed",
@@ -698,12 +698,20 @@ def _static_file(full_path: str) -> Path | None:
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
-    @app.get("/{full_path:path}")
-    def spa(full_path: str):
-        # Unknown API routes must not fall through to the HTML shell.
-        if full_path == "api" or full_path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="Not found")
-        candidate = _static_file(full_path)
-        if candidate:
-            return FileResponse(candidate)
-        return FileResponse(STATIC_DIR / "index.html")
+
+# Registered whether or not a bundle was built, so the tests can exercise it; without
+# one the handler 404s. HEAD is spelled out because FastAPI does not derive it from
+# GET, and an icon scraper sends HEAD /favicon.ico before it downloads anything.
+@app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+def spa(full_path: str):
+    # Unknown API routes must not fall through to the HTML shell.
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    index = STATIC_DIR / "index.html"
+    if not index.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    candidate = _static_file(full_path)
+    if candidate:
+        return FileResponse(candidate, headers={"Cache-Control": "public, max-age=86400"})
+    # The shell names the hashed bundles, so caching it strands clients on an old build.
+    return FileResponse(index, headers={"Cache-Control": "no-cache"})

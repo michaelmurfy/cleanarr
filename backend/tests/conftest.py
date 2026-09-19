@@ -27,6 +27,28 @@ def client():
 
 
 @pytest.fixture
+def bundle(tmp_path, monkeypatch):
+    """Point the SPA route at a throwaway build.
+
+    Without this the catch-all has no index.html to serve and 404s, so any test
+    of it would pass for the wrong reason. The icons are the committed ones so
+    the content types a dashboard sees are the real ones.
+    """
+    from app import main
+
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "index.html").write_text("<html><body>Cleanarr</body></html>")
+    # A source checkout keeps .env a couple of levels up from the bundle.
+    (static / ".env").write_text("SEERR_API_KEY=secret")
+    icons = Path(__file__).resolve().parents[2] / "frontend" / "public"
+    for name in ("favicon.ico", "favicon-32x32.png", "apple-touch-icon.png", "site.webmanifest"):
+        (static / name).write_bytes((icons / name).read_bytes())
+    monkeypatch.setattr(main, "STATIC_DIR", static)
+    return static
+
+
+@pytest.fixture
 def auth_client(client):
     from app.auth import bootstrap_auth
 
