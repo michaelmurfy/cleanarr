@@ -7,7 +7,7 @@ IMAGE ?= ghcr.io/michaelmurfy/cleanarr:latest
 help:
 	@echo "make up      # pull GHCR image and start"
 	@echo "make env    # create .env from .env.example if missing"
-	@echo "make build  # build the image locally and start"
+	@echo "make build  # docker build from this repo and start"
 	@echo "make test   # backend suite in a throwaway container"
 	@echo "make pull   # docker pull the published Cleanarr image"
 	@echo "make update # pull the latest published image and restart"
@@ -21,9 +21,10 @@ up:
 	$(COMPOSE) pull
 	$(COMPOSE) up -d
 
-# Build the image locally and start.
+# Build the image locally (full git checkout) and start.
 build:
-	$(COMPOSE) up -d --build
+	docker build -t $(IMAGE) .
+	$(COMPOSE) up -d
 
 # Run the backend suite in a throwaway container. Pip cache persists between runs.
 test:

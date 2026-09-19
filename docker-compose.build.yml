@@ -1,0 +1,5 @@
+# Optional override for building from a full git checkout.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  cleanarr:
+    build: .

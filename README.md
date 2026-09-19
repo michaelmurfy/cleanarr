@@ -15,6 +15,8 @@ docker compose pull
 docker compose up -d
 ```
 
+Only `docker-compose.yml` is required — Compose pulls `ghcr.io/michaelmurfy/cleanarr:latest` and does not need a local Dockerfile.
+
 Or with Make: `make up`.
 
 Images are published to [`ghcr.io/michaelmurfy/cleanarr`](https://ghcr.io/michaelmurfy/cleanarr) on every push to `main` (and on version tags). For a private package, `docker login ghcr.io` first. Override the image with `CLEANARR_IMAGE=…` if needed.
@@ -44,9 +46,13 @@ The container drops to `PUID`/`PGID` (default `1000:1000`) and owns everything i
 
 ### Build locally
 
+From a full git checkout (not needed if you only have `docker-compose.yml`):
+
 ```bash
-docker compose up -d --build
+docker build -t ghcr.io/michaelmurfy/cleanarr:latest .
+docker compose up -d
 # or: make build
+# or: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 ## Automatic delete
