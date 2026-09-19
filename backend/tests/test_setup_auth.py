@@ -15,14 +15,20 @@ def _clear_auth_state():
             conn.execute("DELETE FROM settings WHERE key = ?", (key,))
 
 
-def test_fresh_install_without_env_requires_setup(client, monkeypatch):
+def _fresh_client(client, monkeypatch):
+    """Wipe auth DB state and cookies so setup tests do not share sessions."""
     monkeypatch.delenv("CLEANARR_USERNAME", raising=False)
     monkeypatch.delenv("CLEANARR_PASSWORD", raising=False)
     monkeypatch.delenv("CLEANARR_SECRET", raising=False)
     monkeypatch.setattr(auth, "env_file_present", lambda: False)
     monkeypatch.setattr(auth, "env_value", lambda _name: "")
     _clear_auth_state()
+    client.cookies.clear()
     auth.bootstrap_auth()
+
+
+def test_fresh_install_without_env_requires_setup(client, monkeypatch):
+    _fresh_client(client, monkeypatch)
 
     assert client.get("/api/auth/status").json() == {"setup_required": True}
     assert client.post("/api/auth/login", json={"username": "admin", "password": "changeme"}).status_code == 403
@@ -32,13 +38,7 @@ def test_fresh_install_without_env_requires_setup(client, monkeypatch):
 
 
 def test_setup_creates_account_and_signs_in(client, monkeypatch):
-    monkeypatch.delenv("CLEANARR_USERNAME", raising=False)
-    monkeypatch.delenv("CLEANARR_PASSWORD", raising=False)
-    monkeypatch.delenv("CLEANARR_SECRET", raising=False)
-    monkeypatch.setattr(auth, "env_file_present", lambda: False)
-    monkeypatch.setattr(auth, "env_value", lambda _name: "")
-    _clear_auth_state()
-    auth.bootstrap_auth()
+    _fresh_client(client, monkeypatch)
 
     weak = client.post("/api/auth/setup", json={"username": "admin", "password": "short"})
     assert weak.status_code == 400
@@ -46,7 +46,7 @@ def test_setup_creates_account_and_signs_in(client, monkeypatch):
     created = client.post("/api/auth/setup", json={"username": "admin", "password": "correct-horse"})
     assert created.status_code == 200
     assert created.json()["username"] == "admin"
-    assert client.cookies.get("cleanarr_session")
+    assert "cleanarr_session" in created.cookies
     assert client.get("/api/auth/status").json() == {"setup_required": False}
     assert client.get("/api/auth/me").json()["username"] == "admin"
 
@@ -56,12 +56,7 @@ def test_setup_creates_account_and_signs_in(client, monkeypatch):
 
 def test_setup_stays_closed_even_if_setup_flag_is_cleared(client, monkeypatch):
     """A password hash alone must block /api/auth/setup — the flag is not enough."""
-    monkeypatch.delenv("CLEANARR_USERNAME", raising=False)
-    monkeypatch.delenv("CLEANARR_PASSWORD", raising=False)
-    monkeypatch.setattr(auth, "env_file_present", lambda: False)
-    monkeypatch.setattr(auth, "env_value", lambda _name: "")
-    _clear_auth_state()
-    auth.bootstrap_auth()
+    _fresh_client(client, monkeypatch)
     assert client.post("/api/auth/setup", json={"username": "admin", "password": "correct-horse"}).status_code == 200
 
     set_setting("setup_complete", "0")
@@ -77,6 +72,7 @@ def test_env_credentials_block_setup(client, monkeypatch):
     monkeypatch.setenv("CLEANARR_PASSWORD", "env-secret-password")
     monkeypatch.setattr(auth, "env_file_present", lambda: False)
     _clear_auth_state()
+    client.cookies.clear()
     auth.bootstrap_auth()
 
     assert client.get("/api/auth/status").json() == {"setup_required": False}
