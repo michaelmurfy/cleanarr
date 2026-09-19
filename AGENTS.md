@@ -28,7 +28,9 @@ CI (`.github/workflows/ci.yml`) runs backend pytest + frontend typecheck/build o
 
 **Settings.** `CLEANARR_HIDE_SETTINGS=1` hides all service URLs/keys, public links, and login from Settings (including unused services). `APP_SETTING_KEYS` (schedule + auto-delete) stay writable. Env-set values are locked even when the flag is off.
 
-**Matching.** `CatalogIndex` matches tmdb → tvdb → imdb, then unique normalized title+year. Unmatched is Seerr ↔ *arr only. Ignore titles named `Unknown`. Skip Seerr blocklisted (status 6) and deleted (status 7) when deciding stale. `mediaAddedAt` alone is not proof Seerr still has the title.
+**Matching.** `CatalogIndex` matches tmdb → tvdb → imdb, then unique normalized title+year. Unmatched is Seerr ↔ *arr only. Ignore titles named `Unknown`. Skip Seerr blocklisted (status 6) and deleted (status 7) when deciding stale. `mediaAddedAt` alone is not proof Seerr still has the title. Seerr is keyed on TMDB, so a row with no TMDB id can never be added there.
+
+**Ignored unmatched.** `unmatched_ignored` is a user preference: it survives a sync and `Clear library`, and only `DELETE /api/unmatched/ignored/{id}` removes an entry. Its key (kind, media type, tmdb, tvdb, lowercased title) deliberately leaves out the year so a metadata fix does not resurrect a row.
 
 **Watch history.** Tautulli / Tracearr / Jellystat can all be enabled; the same play (same person, same title, within two hours) counts once. Jellystat auth is **only** `x-api-token` — never `Authorization`, never the token in two header casings (403/401). Prefer a live Tautulli rating key over the first hit.
 

@@ -1,5 +1,5 @@
 import { FormEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
+import { api, IgnoredItem, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
 const PAGES = ["library", "unmatched", "users", "whitelist", "logs", "settings"] as const;
@@ -682,6 +682,8 @@ function Unmatched({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<null | { mode: "clear" | "add"; all: boolean; ids: number[] }>(null);
+  const [ignored, setIgnored] = useState<IgnoredItem[]>([]);
+  const [showIgnored, setShowIgnored] = useState(false);
   const prevSync = useRef(sync.status);
 
   useEffect(() => {
@@ -708,8 +710,41 @@ function Unmatched({
       setPages(data.pages || 1);
       setSync(data.sync);
       onUnmatchedCount(data.stats.count || 0);
+      if (data.stats.ignored) {
+        setIgnored((await api.ignoredUnmatched()).items);
+      } else {
+        setIgnored([]);
+      }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function ignore(ids: number[]) {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.ignoreUnmatched(ids);
+      setSelected(new Set());
+      onUnmatchedCount(result.remaining);
+      await load(page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not ignore those titles");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unignore(id: number) {
+    setBusy(true);
+    setError("");
+    try {
+      await api.unignoreUnmatched(id);
+      setIgnored((current) => current.filter((item) => item.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not restore that title");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -879,6 +914,7 @@ function Unmatched({
                           Add to Seerr
                         </button>
                       )}
+                      <button className="ghost" type="button" disabled={busy} onClick={() => ignore([item.id])}>Ignore</button>
                       <ServiceLinks links={item.links} />
                     </div>
                   </td>
@@ -895,6 +931,24 @@ function Unmatched({
           </tbody>
         </table>
       </div>
+      {ignored.length > 0 && (
+        <div className="ignored">
+          <button className="ghost" type="button" onClick={() => setShowIgnored((current) => !current)}>
+            {showIgnored ? "Hide" : "Show"} {ignored.length} ignored
+          </button>
+          {showIgnored && (
+            <ul className="ignored-list">
+              {ignored.map((item) => (
+                <li key={item.id}>
+                  <span>{item.title}</span>
+                  <span className="muted">{item.reason}</span>
+                  <button className="ghost" type="button" disabled={busy} onClick={() => unignore(item.id)}>Stop ignoring</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       <div className="pager">
         <span className="muted">{total} unmatched</span>
         <div className="spacer" />
@@ -912,6 +966,7 @@ function Unmatched({
               Add {selectedMissing.length} to Seerr
             </button>
           )}
+          <button className="ghost" disabled={busy} onClick={() => ignore([...selected])}>Ignore {selected.size}</button>
           {selectedStale.length > 0 && (
             <button className="danger" onClick={() => setPending({ mode: "clear", all: false, ids: selectedStale })}>
               Clear {selectedStale.length} in Seerr

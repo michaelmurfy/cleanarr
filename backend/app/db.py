@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from .config import settings
 
@@ -107,6 +108,19 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_logs_category ON logs(category, id DESC);
 
+            CREATE TABLE IF NOT EXISTS unmatched_ignored (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL DEFAULT '',
+                media_type TEXT NOT NULL DEFAULT '',
+                tmdb_id INTEGER NOT NULL DEFAULT 0,
+                tvdb_id INTEGER NOT NULL DEFAULT 0,
+                title_key TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                UNIQUE(kind, media_type, tmdb_id, tvdb_id, title_key)
+            );
+
             CREATE TABLE IF NOT EXISTS unmatched (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source TEXT NOT NULL,
@@ -188,6 +202,25 @@ def init_db() -> None:
                 )
                 """
             )
+
+
+def ignore_key(kind: str, media_type: str, tmdb_id: Any, tvdb_id: Any, title: str) -> tuple:
+    """Identity an unmatched row keeps across syncs. Year is left out so a metadata fix does not resurrect it."""
+    return (
+        kind or "",
+        media_type or "",
+        int(tmdb_id or 0),
+        int(tvdb_id or 0),
+        (title or "").strip().lower(),
+    )
+
+
+def ignored_unmatched() -> set[tuple]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT kind, media_type, tmdb_id, tvdb_id, title_key FROM unmatched_ignored"
+        ).fetchall()
+    return {ignore_key(r["kind"], r["media_type"], r["tmdb_id"], r["tvdb_id"], r["title_key"]) for r in rows}
 
 
 def get_setting(key: str, default: str = "") -> str:

@@ -497,6 +497,26 @@ input.tick:disabled {
   background: var(--bg-elev);
 }
 .pager { margin-top: 14px; }
+
+.ignored { margin-top: 14px; }
+.ignored-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.ignored-list li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  background: #1b1e25;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.ignored-list li span:first-child { font-weight: 600; }
+.ignored-list li button { margin-left: auto; }
 button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
 .sync-status {

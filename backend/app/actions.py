@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from .art import remove_art
 from .auth import current_user
-from .db import connect
+from .db import connect, ignore_key
 from .logs import add_log
 from .services.clients import radarr, seerr, sonarr
 from .services.http import ServiceError
@@ -37,6 +37,10 @@ class ClearSeerrIn(BaseModel):
 class AddSeerrIn(BaseModel):
     ids: list[int] = Field(default_factory=list)
     all_missing: bool = False
+
+
+class IgnoreIn(BaseModel):
+    ids: list[int] = Field(default_factory=list)
 
 
 def _whitelist_rows() -> list[dict]:
@@ -362,3 +366,70 @@ def add_missing_seerr(payload: AddSeerrIn, request: Request):
     with connect() as conn:
         remaining = conn.execute("SELECT COUNT(*) AS n FROM unmatched").fetchone()["n"]
     return {"results": results, "remaining": remaining}
+
+
+@router.get("/unmatched/ignored")
+def list_ignored(request: Request):
+    current_user(request)
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM unmatched_ignored ORDER BY title COLLATE NOCASE"
+        ).fetchall()
+    return {"items": [dict(row) for row in rows]}
+
+
+@router.post("/unmatched/ignore")
+def ignore_unmatched(payload: IgnoreIn, request: Request):
+    user = current_user(request)
+    if not payload.ids:
+        raise HTTPException(400, "Nothing selected")
+    placeholders = ",".join("?" for _ in payload.ids)
+    with connect() as conn:
+        rows = [dict(row) for row in conn.execute(
+            f"SELECT * FROM unmatched WHERE id IN ({placeholders})", payload.ids
+        ).fetchall()]
+        for row in rows:
+            key = ignore_key(
+                row.get("kind") or row.get("source") or "",
+                row.get("media_type") or "",
+                row.get("tmdb_id"),
+                row.get("tvdb_id"),
+                row.get("title") or "",
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO unmatched_ignored
+                    (kind, media_type, tmdb_id, tvdb_id, title_key, title, reason, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (*key, row.get("title") or "", row.get("reason") or "", int(time.time())),
+            )
+            conn.execute("DELETE FROM unmatched WHERE id = ?", (row["id"],))
+    for row in rows:
+        add_log(
+            f"Ignoring unmatched {row.get('title')}",
+            category="audit",
+            action="ignore-unmatched",
+            actor=user,
+            detail={"kind": row.get("kind"), "tmdb_id": row.get("tmdb_id"), "tvdb_id": row.get("tvdb_id")},
+        )
+    with connect() as conn:
+        remaining = conn.execute("SELECT COUNT(*) AS n FROM unmatched").fetchone()["n"]
+    return {"ignored": len(rows), "remaining": remaining}
+
+
+@router.delete("/unmatched/ignored/{item_id}")
+def unignore_unmatched(item_id: int, request: Request):
+    user = current_user(request)
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM unmatched_ignored WHERE id = ?", (item_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Not found")
+        conn.execute("DELETE FROM unmatched_ignored WHERE id = ?", (item_id,))
+    add_log(
+        f"Stopped ignoring unmatched {row['title']}",
+        category="audit",
+        action="unignore-unmatched",
+        actor=user,
+    )
+    return {"ok": True}

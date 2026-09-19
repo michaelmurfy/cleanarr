@@ -362,6 +362,7 @@ def unmatched(
     page_size = min(max(page_size, 10), 200)
     with connect() as conn:
         rows = [dict(row) for row in conn.execute("SELECT * FROM unmatched ORDER BY kind DESC, title ASC").fetchall()]
+        ignored_count = conn.execute("SELECT COUNT(*) AS n FROM unmatched_ignored").fetchone()["n"]
     by_source: dict[str, int] = {}
     by_kind: dict[str, int] = {}
     for row in rows:
@@ -393,6 +394,7 @@ def unmatched(
             **{f"{key}_count": value for key, value in by_source.items()},
             "seerr_missing": by_kind.get("seerr_missing") or 0,
             "no_seerr": by_kind.get("no_seerr") or 0,
+            "ignored": ignored_count,
         },
         "sync": job_status(),
     }
