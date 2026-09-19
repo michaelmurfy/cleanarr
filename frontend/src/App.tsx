@@ -1534,7 +1534,9 @@ function Settings() {
   const [testing, setTesting] = useState(false);
   const [maintenance, setMaintenance] = useState({ cache_files: 0, cache_bytes: 0, library_count: 0, people_count: 0, unmatched_count: 0 });
   const [busy, setBusy] = useState("");
-  const services = [
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedFlashTimer = useRef<number | null>(null);  const services = [
     { id: "tautulli", label: "Tautulli", urlKey: "tautulli_url" },
     { id: "tracearr", label: "Tracearr", urlKey: "tracearr_url" },
     { id: "jellystat", label: "Jellystat", urlKey: "jellystat_url" },
@@ -1610,11 +1612,23 @@ function Settings() {
 
   useEffect(() => {
     loadSettings().catch((err) => setError(err instanceof Error ? err.message : "Could not load settings"));
+    return () => {
+      if (savedFlashTimer.current) window.clearTimeout(savedFlashTimer.current);
+    };
   }, []);
+
+  function flashSaved(note: string) {
+    setMessage(note);
+    setSavedFlash(true);
+    if (savedFlashTimer.current) window.clearTimeout(savedFlashTimer.current);
+    savedFlashTimer.current = window.setTimeout(() => setSavedFlash(false), 2500);
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault();
     setError("");
+    setMessage("");
+    setSaving(true);
     const outgoing: Record<string, string> = {
       sync_schedule_enabled: scheduleEnabled ? "1" : "0",
       sync_interval_hours: interval,
@@ -1630,13 +1644,21 @@ function Settings() {
         outgoing[key] = value;
       }
     }
-    await api.saveSettings({
-      values: outgoing,
-      username: hideSettings || usernameLocked ? null : username,
-      password: hideSettings || usernameLocked ? null : password || null,
-    });
-    setPassword("");
-    setMessage(hideSettings ? "Schedule saved." : "Saved.");
+    try {
+      await api.saveSettings({
+        values: outgoing,
+        username: hideSettings || usernameLocked ? null : username,
+        password: hideSettings || usernameLocked ? null : password || null,
+      });
+      setPassword("");
+      await loadSettings();
+      flashSaved(hideSettings ? "Schedule saved." : "Settings saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save settings");
+      setSavedFlash(false);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function applyTest(result: ServiceTest) {
@@ -1820,7 +1842,12 @@ function Settings() {
               <h3>Automatic sync</h3>
               <p className="muted">Refresh the library on a timer while Cleanarr is running.</p>
             </div>
-            <button className="primary" type="submit">Save</button>
+            <div className="settings-save">
+              <button className="primary" type="submit" disabled={saving}>
+                {saving ? "Saving…" : savedFlash ? "Saved" : "Save"}
+              </button>
+              {savedFlash && <span className="ok-message" role="status">{message || "Saved."}</span>}
+            </div>
           </div>
           <div className="settings-controls">
             <label className="toggle">
@@ -1953,8 +1980,14 @@ function Settings() {
         )}
         {!hideSettings && (
           <div className="settings-actions">
-            <button className="primary" type="submit">Save settings</button>
+            <button className="primary" type="submit" disabled={saving}>
+              {saving ? "Saving…" : savedFlash ? "Saved" : "Save settings"}
+            </button>
+            {savedFlash && <span className="ok-message" role="status">{message || "Saved."}</span>}
           </div>
+        )}
+        {hideSettings && savedFlash && (
+          <p className="ok-message" role="status">{message || "Saved."}</p>
         )}
       </form>
     </div>
