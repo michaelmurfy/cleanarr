@@ -88,7 +88,7 @@ That stops a Jellystat/Tautulli outage from making the whole library look unwatc
 
 ## Updates
 
-**Settings > About Cleanarr** shows the running version against the newest release on GitHub, and links to the repository. The check runs only while that page is open, caches for six hours, and is skipped with `CLEANARR_DISABLE_UPDATE_CHECK=1`. Upgrade with `make update`, or `docker compose pull && docker compose up -d`.
+Upgrade with `make update`, or `docker compose pull && docker compose up -d`.
 
 ## Delete
 

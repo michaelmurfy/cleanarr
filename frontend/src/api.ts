@@ -62,20 +62,6 @@ export type LogsResponse = {
   levels: { info: number; warn: number; error: number };
 };
 
-export type VersionInfo = {
-  current: string;
-  latest: string;
-  update_available: boolean;
-  checked_at: number;
-  release_url: string;
-  published_at: string;
-  repo_url: string;
-  releases_url: string;
-  issues_url: string;
-  check_enabled: boolean;
-  error: string;
-};
-
 export type LibraryResponse = {
   items: MediaItem[];
   stats: Record<string, number>;
@@ -126,7 +112,6 @@ export const api = {
     }
     return request<LogsResponse>(`/api/logs?${query}`);
   },
-  version: (refresh = false) => request<VersionInfo>(`/api/version${refresh ? "?refresh=true" : ""}`),
   cleanup: (items: Partial<MediaItem>[], blacklist: boolean) =>
     request<{ results: { title: string; ok: boolean; error?: string }[] }>("/api/cleanup", {
       method: "POST",

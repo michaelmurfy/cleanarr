@@ -31,7 +31,7 @@ from .security import SecurityMiddleware, client_key, login_throttle, redact
 from .services.clients import KEYS, cfg, public_url, jellystat, radarr, radarr_4k, seerr, sonarr, tautulli, tracearr
 from .logs import add_log, list_logs
 from .sync import job_status, reset_job, restore_job, start_scheduler, start_sync
-from .version import current_version, version_info
+from .version import current_version
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -53,12 +53,6 @@ app.include_router(actions_router, prefix="/api")
 @app.get("/api/health")
 def health():
     return {"ok": True, "version": current_version()}
-
-
-@app.get("/api/version")
-def version(request: Request, refresh: bool = False):
-    current_user(request)
-    return version_info(force=refresh)
 
 
 SERVICES = {

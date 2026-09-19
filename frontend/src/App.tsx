@@ -1,5 +1,5 @@
 import { FormEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, IgnoredItem, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, VersionInfo, WhitelistItem } from "./api";
+import { api, IgnoredItem, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
 const PAGES = ["library", "unmatched", "users", "whitelist", "logs", "settings"] as const;
@@ -1783,70 +1783,15 @@ function GithubIcon() {
   );
 }
 
+const GITHUB_REPO = "https://github.com/michaelmurfy/cleanarr";
+
 function About() {
-  const [info, setInfo] = useState<VersionInfo | null>(null);
-  const [checking, setChecking] = useState(true);
-  const [error, setError] = useState("");
-
-  const load = useCallback(async (refresh: boolean) => {
-    setChecking(true);
-    setError("");
-    try {
-      setInfo(await api.version(refresh));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not check for updates");
-    } finally {
-      setChecking(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load(false).catch(() => undefined);
-  }, [load]);
-
-  const repo = info?.repo_url || "https://github.com/michaelmurfy/cleanarr";
-  const status = (() => {
-    if (checking && !info) return { tone: "running", label: "Checking…", detail: "" };
-    if (error) return { tone: "idle", label: "Check failed", detail: error };
-    if (!info) return { tone: "idle", label: "Unknown", detail: "" };
-    if (!info.check_enabled) return { tone: "idle", label: "Update check off", detail: "CLEANARR_DISABLE_UPDATE_CHECK is set." };
-    if (info.error) return { tone: "idle", label: "Check failed", detail: info.error };
-    if (info.update_available) return { tone: "fail", label: `Update available · ${info.latest}`, detail: "Pull the new image and restart to upgrade." };
-    if (info.latest) return { tone: "ok", label: "Up to date", detail: `Latest release is ${info.latest}.` };
-    return { tone: "idle", label: "No releases published", detail: "No tagged release to compare against." };
-  })();
-
   return (
     <section className="settings-section">
-      <div className="settings-head">
-        <div>
-          <h3>About Cleanarr</h3>
-          <p className="muted">Version, update check, and project links.</p>
-        </div>
-        <button className="ghost" type="button" disabled={checking || info?.check_enabled === false} onClick={() => load(true)}>
-          {checking ? "Checking…" : "Check for updates"}
-        </button>
-      </div>
-      <div className={`version-row ${status.tone}`}>
-        <div className="version-current">
-          <span className="muted">Installed version</span>
-          <b>{info?.current || "…"}</b>
-        </div>
-        <div className="version-status">
-          <span className={`test-badge ${status.tone}`}>{status.label}</span>
-          {status.detail ? <span className="test-detail">{status.detail}</span> : null}
-          {info?.checked_at ? <span className="muted version-checked">Checked {when(info.checked_at)}</span> : null}
-        </div>
-      </div>
+      <h3>About</h3>
       <div className="settings-actions about-links">
-        <a className="ghost link-button" href={repo} target="_blank" rel="noreferrer">
+        <a className="ghost link-button" href={GITHUB_REPO} target="_blank" rel="noreferrer">
           <GithubIcon /> GitHub repository
-        </a>
-        <a className="ghost link-button" href={info?.releases_url || `${repo}/releases`} target="_blank" rel="noreferrer">
-          Release notes
-        </a>
-        <a className="ghost link-button" href={info?.issues_url || `${repo}/issues`} target="_blank" rel="noreferrer">
-          Report an issue
         </a>
       </div>
     </section>
