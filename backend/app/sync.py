@@ -9,7 +9,7 @@ from typing import Any
 
 from .art import warm_cache
 from .db import connect, get_setting, ignore_key, ignored_unmatched
-from .identity import UserDirectory
+from .identity import UserDirectory, _clean
 from .actions import delete_item, is_protected, is_stale_unwatched
 from .logs import add_log
 from .match import CatalogIndex, parse_year
@@ -146,15 +146,7 @@ def _unix(value: Any) -> int | None:
 
 def _user_name(row: dict[str, Any]) -> str:
     user = row.get("user") or row.get("friendly_name") or row.get("username") or row.get("UserName") or row.get("Name") or ""
-    if isinstance(user, dict):
-        return (
-            user.get("displayName")
-            or user.get("username")
-            or user.get("name")
-            or user.get("email")
-            or ""
-        )
-    return str(user or "").strip()
+    return _clean(user)
 
 
 def _media_type(raw: str | None, fallback: str = "movie") -> str:

@@ -64,3 +64,35 @@ def test_snapshot_sorted_and_skips_anonymous():
     assert rows[1]["email"] == "zoe@example.com"
     assert rows[0]["seerr_id"] == 9
     assert sorted(rows[0]["aliases"]) == rows[0]["aliases"]
+
+
+def test_seerr_nested_plex_user_object_uses_username():
+    directory = UserDirectory()
+    directory.ingest_seerr(
+        {
+            "id": 4,
+            "plexUsername": {
+                "id": "66fc6ce2-f607-4cef-8120-73fd31a66a4a",
+                "username": "Corey___",
+                "thumbUrl": "https://plex.tv/users/8409c8117aa5c76c/avatar?c=1789750883",
+                "avatarUrl": "https://plex.tv/users/8409c8117aa5c76c/avatar?c=1789750883",
+            },
+        }
+    )
+    person = directory.people[0]
+    assert person["plex"] == "Corey___"
+    assert person["display"] == "Corey___"
+    assert "{" not in person["plex"]
+
+
+def test_resolve_recovers_stringified_plex_user_object():
+    directory = UserDirectory()
+    raw = (
+        "{'id': '66fc6ce2-f607-4cef-8120-73fd31a66a4a', 'username': 'Corey___', "
+        "'thumbUrl': 'https://plex.tv/users/8409c8117aa5c76c/avatar?c=1789750883', "
+        "'avatarUrl': 'https://plex.tv/users/8409c8117aa5c76c/avatar?c=1789750883'}"
+    )
+    resolved = directory.resolve(raw)
+    assert resolved["display"] == "Corey___"
+    assert resolved["canonical"] == "Corey___"
+    assert resolved["plex"] == "Corey___"
