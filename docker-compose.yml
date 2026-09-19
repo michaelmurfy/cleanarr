@@ -1,6 +1,9 @@
+# Pull-only deploy. Do not run `docker compose up --build` unless you have the
+# full git repo and use docker-compose.build.yml (see README).
 services:
   cleanarr:
     image: ${CLEANARR_IMAGE:-ghcr.io/michaelmurfy/cleanarr:latest}
+    pull_policy: always
     container_name: cleanarr
     restart: unless-stopped
     ports:
