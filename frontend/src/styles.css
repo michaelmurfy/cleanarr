@@ -69,9 +69,7 @@ a:hover { text-decoration: underline; }
   gap: 16px 24px;
   padding: 12px 28px;
   border-bottom: 1px solid var(--line);
-  background: rgba(12, 16, 24, 0.94);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: var(--bg);
   flex: none;
   position: relative;
   z-index: 40;
@@ -238,6 +236,7 @@ a:hover { text-decoration: underline; }
   overflow: auto;
   width: 100%;
   padding: 24px max(28px, calc((100% - 1440px) / 2)) 96px;
+  background: var(--bg);
   animation: rise 280ms ease;
 }
 .page > h2 {
@@ -332,7 +331,11 @@ input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
   border-radius: 14px;
   background: var(--bg-elev);
 }
-table { width: 100%; border-collapse: collapse; }
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
 th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 th {
   font-size: 11px;
@@ -340,15 +343,19 @@ th {
   text-transform: uppercase;
   color: var(--muted);
   font-weight: 600;
-  background: #131824;
+  background: var(--bg-elev);
   white-space: nowrap;
   position: sticky;
   top: 0;
   z-index: 5;
-  box-shadow: inset 0 -1px 0 var(--line);
+  border-bottom: 1px solid var(--line);
+}
+tbody {
+  position: relative;
+  z-index: 0;
 }
 tbody tr:last-child td { border-bottom: none; }
-tbody tr { animation: fade 220ms ease; transition: background 140ms ease; }
+tbody tr { transition: background 140ms ease; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr:hover td { background: var(--bg-hover); }
 tbody tr.clickable:hover td { background: rgba(212, 160, 84, 0.08); }
