@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .actions import is_protected, is_stale_unwatched, protect_reason, router as actions_router
+from .actions import is_protected, is_stale_unwatched, matches_to_review, protect_reason, router as actions_router
 from .art import art_url, cache_stats, clear_cache, serve_art
 from .auth import (
     bootstrap_auth,
@@ -257,7 +257,8 @@ def _probe_service(name: str) -> dict:
             "ok": True,
             "configured": True,
             "message": "Passed",
-            "detail": detail,
+            # Success detail comes from the upstream app too, so it gets the same scrub.
+            "detail": redact(detail) if detail else "",
         }
     except Exception as exc:
         return {
@@ -429,6 +430,8 @@ def unmatched(
     with connect() as conn:
         rows = [dict(row) for row in conn.execute("SELECT * FROM unmatched ORDER BY kind DESC, title ASC").fetchall()]
         ignored_count = conn.execute("SELECT COUNT(*) AS n FROM unmatched_ignored").fetchone()["n"]
+        review_count = len(matches_to_review(conn))
+        decided_count = conn.execute("SELECT COUNT(*) AS n FROM match_ignored").fetchone()["n"]
     by_source: dict[str, int] = {}
     by_kind: dict[str, int] = {}
     for row in rows:
@@ -459,7 +462,10 @@ def unmatched(
             "count": len(rows),
             # seerr_deleted rows are history, not something to fix, so they stay out of the
             # count the nav badge and Library card use.
-            "actionable": len(rows) - (by_kind.get("seerr_deleted") or 0),
+            # Title-guessed Seerr links waiting for a yes/no count as work too.
+            "actionable": len(rows) - (by_kind.get("seerr_deleted") or 0) + review_count,
+            "review": review_count,
+            "decided": decided_count,
             **{f"{key}_count": value for key, value in by_source.items()},
             "seerr_missing": by_kind.get("seerr_missing") or 0,
             "seerr_deleted": by_kind.get("seerr_deleted") or 0,
@@ -500,7 +506,7 @@ def library(
         whitelist = [dict(row) for row in conn.execute("SELECT * FROM whitelist").fetchall()]
         unmatched_count = conn.execute(
             "SELECT COUNT(*) AS n FROM unmatched WHERE kind != 'seerr_deleted'"
-        ).fetchone()["n"]
+        ).fetchone()["n"] + len(matches_to_review(conn))
 
     cutoff = int(time.time()) - stale_days * 24 * 3600
     pool = []
@@ -655,24 +661,27 @@ def _links(row: dict) -> dict:
         if base:
             slug = row.get("title_slug") or str(row.get("sonarr_id") or "")
             links["sonarr"] = f"{base}/series/{slug}"
+    # Only surface Seerr / history apps when we actually have a linked id. A
+    # search fallback made every title look matched via Tautulli or Seerr.
     seerr_base = public_url("seerr", "seerr_url")
-    if seerr_base and row.get("tmdb_id"):
+    seerr_tmdb = int(row.get("seerr_tmdb_id") or 0) or (int(row.get("tmdb_id") or 0) if row.get("seerr_media_id") else 0)
+    if seerr_base and row.get("seerr_media_id") and seerr_tmdb:
         kind = "movie" if row["media_type"] == "movie" else "tv"
-        links["seerr"] = f"{seerr_base}/{kind}/{row['tmdb_id']}"
+        links["seerr"] = f"{seerr_base}/{kind}/{seerr_tmdb}"
     tautulli_base = public_url("tautulli", "tautulli_url")
-    if tautulli_base:
-        if row.get("tautulli_rating_key"):
-            links["tautulli"] = f"{tautulli_base}/info?rating_key={row['tautulli_rating_key']}"
-        elif row.get("title"):
-            links["tautulli"] = f"{tautulli_base}/search?query={quote(str(row['title']))}"
+    if tautulli_base and row.get("tautulli_rating_key"):
+        links["tautulli"] = f"{tautulli_base}/info?rating_key={row['tautulli_rating_key']}"
     jellystat_base = public_url("jellystat", "jellystat_url")
-    if jellystat_base:
-        if row.get("jellystat_item_id"):
-            links["jellystat"] = f"{jellystat_base}/libraries/item/{row['jellystat_item_id']}"
-        elif row.get("title"):
-            links["jellystat"] = f"{jellystat_base}/libraries"
+    if jellystat_base and row.get("jellystat_item_id"):
+        links["jellystat"] = f"{jellystat_base}/libraries/item/{row['jellystat_item_id']}"
     tracearr_base = public_url("tracearr", "tracearr_url")
-    if tracearr_base:
+    sources = row.get("sources")
+    if sources is None and row.get("sources_json"):
+        try:
+            sources = json.loads(row["sources_json"] or "[]")
+        except Exception:
+            sources = []
+    if tracearr_base and "tracearr" in (sources or []):
         title = quote(str(row.get("title") or ""))
         links["tracearr"] = f"{tracearr_base}/history?q={title}" if title else f"{tracearr_base}/history"
     return links

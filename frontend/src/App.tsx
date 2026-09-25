@@ -1,5 +1,5 @@
-import { FormEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, IgnoredItem, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
+import { FormEvent, InputHTMLAttributes, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, IgnoredItem, LogItem, MatchDecision, MediaItem, Person, ServiceTest, ReviewMatch, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
 const PAGES = ["library", "unmatched", "users", "whitelist", "logs", "settings"] as const;
@@ -246,6 +246,91 @@ function SyncMeter({ sync }: { sync: SyncStatus }) {
   );
 }
 
+function ClearableField({
+  value,
+  onValue,
+  className = "",
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange"> & {
+  value: string;
+  onValue: (next: string) => void;
+  className?: string;
+}) {
+  const filled = Boolean(value);
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <div className={`clearable ${className}`.trim()}>
+      <input
+        {...props}
+        ref={input}
+        value={value}
+        onChange={(e) => onValue(e.target.value)}
+        onKeyDown={(e) => {
+          props.onKeyDown?.(e);
+          // Search filters as you type, so the keyboard's Search key only needs to put the keyboard away.
+          if (e.key === "Enter" && props.type === "search") e.currentTarget.blur();
+        }}
+      />
+      {/* Not `disabled` when empty: the global button:disabled rule would override its hidden state. */}
+      <button
+        type="button"
+        className={`clear-field-btn${filled ? " show" : ""}`}
+        tabIndex={filled ? 0 : -1}
+        aria-label="Clear"
+        aria-hidden={!filled}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          onValue("");
+          input.current?.focus();
+        }}
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="10" cy="10" r="9" />
+          <path d="M7 7l6 6M13 7l-6 6" fill="none" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function FilterChips({ children }: { children: ReactNode }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [edge, setEdge] = useState({ left: false, right: false });
+
+  const update = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setEdge({
+      left: el.scrollLeft > 4,
+      right: max > 4 && el.scrollLeft < max - 4,
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", update);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [update, children]);
+
+  return (
+    <div className={`chip-scroller${edge.left ? " fade-left" : ""}${edge.right ? " fade-right" : ""}`}>
+      <div className="filters chips" ref={scroller}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function parseStamp(value: string | number | null | undefined): number | null {
   if (value == null || value === "") return null;
   if (typeof value === "number") return value > 1_000_000_000_000 ? Math.floor(value / 1000) : value;
@@ -315,7 +400,7 @@ const SERVICE_META: Record<string, { label: string; short: string; className: st
 
 function ServiceLinks({ links }: { links?: Record<string, string> }) {
   const entries = Object.entries(SERVICE_META).filter(([key]) => links?.[key]);
-  if (!entries.length) return <span className="muted">–</span>;
+  if (!entries.length) return <span className="muted links-empty">–</span>;
   return (
     <div className="service-links" role="list">
       {entries.map(([key, meta]) => (
@@ -341,6 +426,7 @@ export function App() {
   const [user, setUser] = useState<string | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
   const [booting, setBooting] = useState(true);
+  useKeyboardAware();
 
   useEffect(() => {
     api.authStatus()
@@ -363,9 +449,7 @@ export function App() {
 
   if (booting) {
     return (
-      <div className="login">
-        <div className="login-card"><Brand /><p className="muted">Loading…</p></div>
-      </div>
+      <div className="boot" aria-busy="true" />
     );
   }
   if (setupRequired) {
@@ -504,10 +588,95 @@ function Login({ onDone }: { onDone: (user: string) => void }) {
   );
 }
 
+const TEXT_FIELD = 'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]), textarea, select, [contenteditable="true"]';
+
+/* On a touch device the on-screen keyboard shrinks the visual viewport but not
+   the layout one, so bars pinned to the bottom ride up over the field being
+   typed into (iOS) or sit on top of it (Android). While a text field has focus
+   the html element gets .keyboard-open, which hides those bars; the focused
+   field is scrolled clear of the keyboard; and when typing ends, the page
+   shift iOS leaves behind is undone. */
+function useKeyboardAware() {
+  useEffect(() => {
+    const coarse = window.matchMedia?.("(pointer: coarse)");
+    const root = document.documentElement;
+    const vv = window.visualViewport;
+    let closeTimer = 0;
+    let revealTimer = 0;
+    let sawKeyboard = false;
+
+    const isField = (el: Element | null): el is HTMLElement =>
+      el instanceof HTMLElement && el.matches(TEXT_FIELD) && !(el as HTMLInputElement).disabled;
+
+    const setOpen = (open: boolean) => root.classList.toggle("keyboard-open", open);
+
+    const reveal = (el: HTMLElement) => {
+      window.clearTimeout(revealTimer);
+      // Wait for the keyboard to finish sliding up before measuring what it covers.
+      revealTimer = window.setTimeout(() => {
+        if (document.activeElement !== el) return;
+        const rect = el.getBoundingClientRect();
+        const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+        if (rect.bottom > visibleBottom - 16 || rect.top < 8) {
+          el.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+      }, 320);
+    };
+
+    const onFocusIn = (event: FocusEvent) => {
+      if (!coarse?.matches || !isField(event.target as Element)) return;
+      window.clearTimeout(closeTimer);
+      setOpen(true);
+      reveal(event.target as HTMLElement);
+    };
+
+    const onFocusOut = () => {
+      if (!coarse?.matches) return;
+      window.clearTimeout(closeTimer);
+      // Moving between fields fires focusout then focusin; wait so the bars do not flicker.
+      closeTimer = window.setTimeout(() => {
+        if (isField(document.activeElement)) return;
+        setOpen(false);
+        sawKeyboard = false;
+        if (window.scrollY || document.documentElement.scrollTop) window.scrollTo(0, 0);
+      }, 120);
+    };
+
+    // Android can hide the keyboard (back gesture) without blurring the field.
+    const onViewport = () => {
+      if (!vv || !coarse?.matches) return;
+      const keyboardUp = window.innerHeight - vv.height > 120;
+      if (keyboardUp) {
+        sawKeyboard = true;
+        if (isField(document.activeElement)) {
+          setOpen(true);
+          reveal(document.activeElement);
+        }
+      } else if (sawKeyboard) {
+        sawKeyboard = false;
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    vv?.addEventListener("resize", onViewport);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+      vv?.removeEventListener("resize", onViewport);
+      window.clearTimeout(closeTimer);
+      window.clearTimeout(revealTimer);
+      setOpen(false);
+    };
+  }, []);
+}
+
 function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [page, setPage] = useState<Page>(pageFromLocation);
   const [sync, setSync] = useState<SyncStatus>({ status: "idle", message: "" });
   const [unmatchedCount, setUnmatchedCount] = useState(0);
+  const [unmatchedLoaded, setUnmatchedLoaded] = useState(false);
   const prevSync = useRef(sync.status);
 
   // replace: for redirects, so Back does not bounce straight back to the page we left.
@@ -530,6 +699,7 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   function refreshUnmatched() {
     api.unmatched({ page_size: "1" }).then((data) => {
       setUnmatchedCount(data.stats.actionable ?? data.stats.count ?? 0);
+      setUnmatchedLoaded(true);
     }).catch(() => undefined);
   }
 
@@ -539,8 +709,9 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   }, []);
 
   useEffect(() => {
-    if (!unmatchedCount && page === "unmatched") go("library", true);
-  }, [unmatchedCount, page, go]);
+    // Wait for the first count, or a direct link to /unmatched bounces before it loads.
+    if (unmatchedLoaded && !unmatchedCount && page === "unmatched") go("library", true);
+  }, [unmatchedLoaded, unmatchedCount, page, go]);
 
   useEffect(() => {
     if (sync.status !== "running") return;
@@ -578,7 +749,9 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
         </div>
         <div className="topbar-aside">
           <div className="topbar-sync">
-            <SyncMeter sync={sync} />
+            <div className="sync-meter-desktop">
+              <SyncMeter sync={sync} />
+            </div>
             <button
               className="primary sync-button"
               disabled={sync.status === "running"}
@@ -593,6 +766,9 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
           </div>
         </div>
       </header>
+      <div className="sync-strip" aria-live="polite">
+        <SyncMeter sync={sync} />
+      </div>
       {page === "library" && <Library sync={sync} setSync={setSync} unmatchedCount={unmatchedCount} onOpenUnmatched={() => go("unmatched")} onUnmatchedCount={setUnmatchedCount} />}
       {page === "unmatched" && unmatchedCount > 0 && (
         <Unmatched sync={sync} setSync={setSync} onUnmatchedCount={(count) => {
@@ -645,6 +821,49 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   );
 }
 
+// Placeholder cards shaped like real rows, so first load reads as "arriving" rather than a line of text.
+function SkeletonRows({ columns, count = 6 }: { columns: number; count?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <tr className="skeleton-row" key={i} aria-hidden="true">
+          <td className="tick-cell" data-label=""><span className="sk sk-tick" /></td>
+          <td data-label="Title">
+            <div className="title-cell">
+              <span className="sk sk-poster" />
+              <div className="sk-lines">
+                <span className="sk sk-line" style={{ width: `${58 - (i % 3) * 9}%` }} />
+                <span className="sk sk-chip" />
+                <span className="sk sk-line sk-thin" style={{ width: `${74 - (i % 2) * 14}%` }} />
+              </div>
+            </div>
+          </td>
+          {Array.from({ length: columns - 2 }, (_, col) => (
+            <td className="sk-cell" key={col}>
+              <span className="sk sk-line sk-thin" style={{ width: `${[46, 62, 30, 70, 54, 40, 58][(col + i) % 7]}%` }} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
+// First successful load flips `loaded`, and `flow` stays on just long enough for the rows to ease in.
+function useFirstLoad() {
+  const [loaded, setLoaded] = useState(false);
+  const [flow, setFlow] = useState(false);
+  const done = useRef(false);
+  const markLoaded = useCallback(() => {
+    if (done.current) return;
+    done.current = true;
+    setLoaded(true);
+    setFlow(true);
+    window.setTimeout(() => setFlow(false), 1100);
+  }, []);
+  return { loaded, flow, markLoaded };
+}
+
 function Library({
   sync,
   setSync,
@@ -667,6 +886,7 @@ function Library({
   const [pending, setPending] = useState<null | { blacklist: boolean }>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { loaded, flow, markLoaded } = useFirstLoad();
   const prevSync = useRef(sync.status);
 
   useEffect(() => {
@@ -704,6 +924,7 @@ function Library({
       setStats(data.stats);
       setSync(data.sync);
       onUnmatchedCount(data.stats.unmatched || 0);
+      markLoaded();
     } finally {
       setLoading(false);
     }
@@ -783,7 +1004,7 @@ function Library({
   const pages = stats.pages || 1;
 
   return (
-    <div className="page">
+    <div className={`page${loaded ? "" : " is-loading"}${flow ? " flow-in" : ""}`}>
       <div className="page-head">
         <div>
           <h2>Library</h2>
@@ -814,7 +1035,7 @@ function Library({
           </button>
         )}
       </div>
-      <div className="filters chips">
+      <FilterChips>
         <button className={`chip-btn ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>Never watched</button>
         <button className={`chip-btn ${filters.watched === "stale" && filters.sort === "oldest" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>Oldest / stale</button>
         <button className={`chip-btn pending ${filters.watched === "requested" ? "active" : ""}`} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title" })}>Requested</button>
@@ -832,9 +1053,15 @@ function Library({
             Requester: {filters.requester} ×
           </button>
         ) : null}
-      </div>
-      <div className="filters">
-        <input type="search" placeholder="Search title, requester, watcher, requested" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+      </FilterChips>
+      <div className="filters library-filters">
+        <ClearableField
+          type="search"
+          placeholder="Search titles and people"
+          value={qInput}
+          onValue={setQInput}
+          enterKeyHint="search"
+        />
         <select value={filters.mediaType} onChange={(e) => patch({ mediaType: e.target.value })}>
           <option value="">Movies & TV</option>
           <option value="movie">Movies</option>
@@ -862,7 +1089,7 @@ function Library({
         </select>
         <select value={filters.sort} onChange={(e) => patch({ sort: e.target.value })}>
           <option value="oldest">Oldest first</option>
-          <option value="requests">Never watched, then oldest request</option>
+          <option value="requests">Never watched first</option>
           <option value="last_watched">Recently watched</option>
           <option value="rating">Lowest rating</option>
           <option value="plays">Play count</option>
@@ -911,13 +1138,16 @@ function Library({
                   <div className="title-cell">
                     {item.art_url ? <img className="poster" src={item.art_url} alt="" /> : <div className="poster placeholder">No art</div>}
                     <div className="title-copy">
-                      <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
+                      <div className="title-line">
+                        <strong>{item.title}</strong>
+                        {item.year ? <span className="muted title-year">({item.year})</span> : null}
+                      </div>
                       <div className="title-meta">
                         <span className={`type-chip ${item.media_type}`}>{item.media_type === "movie" ? "Movie" : "TV"}</span>
                         {availabilityLabel(item.availability) ? <span className={`chip ${item.availability === "requested" ? "pending" : "partial"}`}>{availabilityLabel(item.availability)}</span> : null}
                         {item.whitelisted
                           ? <span className="chip ok" title={item.whitelist_reason}>Release Whitelisted</span>
-                          : <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>}
+                          : <button type="button" className="keep-btn desktop-only" onClick={() => keep(item)}>Whitelist</button>}
                       </div>
                       <div className="card-stats" aria-hidden="true">
                         <span>{item.rating != null ? `${Number(item.rating).toFixed(1)}/10` : "No rating"}</span>
@@ -951,15 +1181,21 @@ function Library({
                 <td className="col-links" data-label="Links">
                   <div className="row-actions">
                     <ServiceLinks links={item.links} />
+                    {item.whitelisted ? null : (
+                      <div className="mobile-only card-actions">
+                        <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>
+                      </div>
+                    )}
                   </div>
                 </td>
               </tr>
             ))}
-            {!items.length && (
+            {!items.length && !loaded && <SkeletonRows columns={9} />}
+            {!items.length && loaded && (
               <tr>
                 <td colSpan={9} className="empty">
                   {loading ? (
-                    <strong>Loading library…</strong>
+                    <strong>Loading…</strong>
                   ) : (
                     <>
                       <strong>Nothing to show here</strong>
@@ -1022,6 +1258,86 @@ function Library({
   );
 }
 
+const MATCH_REVIEW_CHIP: Record<string, string> = {
+  title: "Title match",
+  title_alt: "Alt title match",
+};
+
+const MATCH_REVIEW_WHY: Record<string, string> = {
+  title: "Seerr had no id Radarr/Sonarr recognised, so it was matched on the name alone.",
+  title_alt: "Matched through one of this title's alternate names in the same year.",
+};
+
+function MatchReview({
+  items,
+  busy,
+  error,
+  onDecide,
+}: {
+  items: ReviewMatch[];
+  busy: boolean;
+  error: string;
+  onDecide: (item: ReviewMatch, action: "unlink" | "keep") => void;
+}) {
+  return (
+    <>
+      <p className="muted review-intro">
+        These Seerr requests were attached to a library title by name, not by id. Keep the ones that are right; unlink
+        the ones Seerr got wrong so the request stops showing against the wrong title.
+      </p>
+      {error && <p className="error">{error}</p>}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>In your library</th>
+              <th>Seerr request</th>
+              <th>Requested by</th>
+              <th className="col-why">Why it is here</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id} className="review-row">
+                <td data-label="Title">
+                  <strong>{item.title}</strong>
+                  {item.year ? <span className="muted title-year">({item.year})</span> : null}
+                  <div className="title-meta">
+                    <span className={`type-chip ${item.media_type}`}>{item.media_type === "tv" ? "TV" : "Movie"}</span>
+                    <span className="chip warn">{MATCH_REVIEW_CHIP[item.via] || "Name match"}</span>
+                  </div>
+                </td>
+                <td className="col-seerr" data-label="Seerr request">
+                  <span className="cell-value">{item.seerr_title || (item.seerr_tmdb_id ? `TMDB ${item.seerr_tmdb_id}` : "Untitled request")}</span>
+                </td>
+                <td className={`col-requested${item.requested_by ? "" : " cell-empty"}`} data-label="Requested by">
+                  <span className="cell-value"><Requester name={item.requested_by} at={item.requested_at} /></span>
+                </td>
+                <td className="muted col-why" data-label="Why"><span className="cell-value">{MATCH_REVIEW_WHY[item.via] || ""}</span></td>
+                <td className="col-links" data-label="Actions">
+                  <div className="row-actions">
+                    <button className="ghost" type="button" disabled={busy} onClick={() => onDecide(item, "keep")}>Looks right</button>
+                    <button className="danger-ghost" type="button" disabled={busy} onClick={() => onDecide(item, "unlink")}>Unlink</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!items.length && (
+              <tr>
+                <td colSpan={5} className="empty">
+                  <strong>Nothing to check</strong>
+                  <span>Every Seerr request is matched by id, or you have already checked it.</span>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 function Unmatched({
   sync,
   setSync,
@@ -1041,12 +1357,17 @@ function Unmatched({
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const { loaded, flow, markLoaded } = useFirstLoad();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<null | { mode: "clear" | "add"; all: boolean; ids: number[] }>(null);
   const [ignored, setIgnored] = useState<IgnoredItem[]>([]);
   const [showIgnored, setShowIgnored] = useState(false);
+  const [reviews, setReviews] = useState<ReviewMatch[]>([]);
+  const [decisions, setDecisions] = useState<MatchDecision[]>([]);
+  const [showDecisions, setShowDecisions] = useState(false);
+  const firstLoad = useRef(true);
   const prevSync = useRef(sync.status);
 
   useEffect(() => {
@@ -1073,11 +1394,19 @@ function Unmatched({
       setPages(data.pages || 1);
       setSync(data.sync);
       onUnmatchedCount(data.stats.actionable ?? data.stats.count ?? 0);
-      if (data.stats.ignored) {
-        setIgnored((await api.ignoredUnmatched()).items);
-      } else {
-        setIgnored([]);
+      if (firstLoad.current) {
+        firstLoad.current = false;
+        if (kind === "seerr_missing" && !data.stats.seerr_missing && data.stats.review) setKind("review");
       }
+      const [ignoredData, reviewData, decisionData] = await Promise.all([
+        data.stats.ignored ? api.ignoredUnmatched() : Promise.resolve({ items: [] as IgnoredItem[] }),
+        data.stats.review ? api.reviewMatches() : Promise.resolve({ items: [] as ReviewMatch[] }),
+        data.stats.decided ? api.matchDecisions() : Promise.resolve({ items: [] as MatchDecision[] }),
+      ]);
+      setIgnored(ignoredData.items);
+      setReviews(reviewData.items);
+      setDecisions(decisionData.items);
+      markLoaded();
     } finally {
       setLoading(false);
     }
@@ -1093,6 +1422,36 @@ function Unmatched({
       await load(page);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not ignore those titles");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decide(item: ReviewMatch, action: "unlink" | "keep") {
+    if (action === "unlink" && !window.confirm(
+      `Detach the Seerr request${item.seerr_title ? ` for “${item.seerr_title}”` : ""} from “${item.title}”? Cleanarr will not attach it again on later syncs.`,
+    )) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.decideMatch(item.id, action);
+      onUnmatchedCount(result.remaining);
+      await load(page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save that decision");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undoDecision(id: number) {
+    setBusy(true);
+    setError("");
+    try {
+      await api.undoMatchDecision(id);
+      await load(page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not undo that decision");
     } finally {
       setBusy(false);
     }
@@ -1172,7 +1531,7 @@ function Unmatched({
   }
 
   return (
-    <div className="page">
+    <div className={`page${loaded ? "" : " is-loading"}${flow ? " flow-in" : ""}`}>
       <h2>Unmatched</h2>
       <p className="page-intro muted">
         Gaps between Radarr/Sonarr and Seerr. Clear stale Seerr records so those titles can be requested again, or add
@@ -1192,9 +1551,17 @@ function Unmatched({
         <button className={`stat pending ${kind === "seerr_deleted" ? "active" : ""}`} onClick={() => { setKind(kind === "seerr_deleted" ? "" : "seerr_deleted"); setPage(1); }}>
           <span className="muted">Deleted in Seerr</span><b>{num(stats.seerr_deleted)}</b>
         </button>
+        {(stats.review ?? 0) > 0 || kind === "review" ? (
+          <button className={`stat stale ${kind === "review" ? "active" : ""}`} onClick={() => { setKind(kind === "review" ? "seerr_missing" : "review"); setPage(1); }}>
+            <span className="muted">Check matches</span><b>{num(stats.review)}</b>
+          </button>
+        ) : null}
       </div>
+      {kind === "review" ? (
+        <MatchReview items={reviews} busy={busy} error={error} onDecide={decide} />
+      ) : (<>
       <div className="filters">
-        <input type="search" placeholder="Search unmatched titles" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <ClearableField type="search" placeholder="Search unmatched titles" value={qInput} onValue={setQInput} enterKeyHint="search" />
         <select value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }}>
           <option value="">All gaps</option>
           <option value="seerr_missing">Stale in Seerr</option>
@@ -1285,11 +1652,12 @@ function Unmatched({
                 </tr>
               );
             })}
-            {!items.length && (
+            {!items.length && !loaded && <SkeletonRows columns={7} count={4} />}
+            {!items.length && loaded && (
               <tr>
                 <td colSpan={7} className="empty">
                   {loading ? (
-                    <strong>Loading unmatched titles…</strong>
+                    <strong>Loading…</strong>
                   ) : (
                     <>
                       <strong>Nothing to reconcile</strong>
@@ -1302,7 +1670,8 @@ function Unmatched({
           </tbody>
         </table>
       </div>
-      {ignored.length > 0 && (
+      </>)}
+      {ignored.length > 0 && kind !== "review" && (
         <div className="ignored">
           <button className="ghost" type="button" onClick={() => setShowIgnored((current) => !current)}>
             {showIgnored ? "Hide" : "Show"} {ignored.length} ignored
@@ -1320,6 +1689,28 @@ function Unmatched({
           )}
         </div>
       )}
+      {decisions.length > 0 && kind === "review" && (
+        <div className="ignored">
+          <button className="ghost" type="button" onClick={() => setShowDecisions((current) => !current)}>
+            {showDecisions ? "Hide" : "Show"} {decisions.length} checked match{decisions.length === 1 ? "" : "es"}
+          </button>
+          {showDecisions && (
+            <ul className="ignored-list">
+              {decisions.map((item) => (
+                <li key={item.id}>
+                  <span>
+                    {item.library_title || `TMDB ${item.library_tmdb_id}`}
+                    {item.seerr_title ? <span className="muted"> · Seerr: {item.seerr_title}</span> : null}
+                  </span>
+                  <span className={`chip ${item.action === "keep" ? "ok" : "warn"}`}>{item.action === "keep" ? "Kept" : "Unlinked"}</span>
+                  <button className="ghost" type="button" disabled={busy} onClick={() => undoDecision(item.id)}>Undo</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {kind !== "review" && (
       <div className="pager">
         <span className="muted">{num(total)} listed</span>
         <div className="spacer" />
@@ -1327,7 +1718,8 @@ function Unmatched({
         <button className="ghost" disabled={page <= 1} onClick={() => { setPage((current) => current - 1); scrollResultsTop(); }}>Previous</button>
         <button className="ghost" disabled={page >= pages} onClick={() => { setPage((current) => current + 1); scrollResultsTop(); }}>Next</button>
       </div>
-      {selected.size > 0 && (
+      )}
+      {selected.size > 0 && kind !== "review" && (
         <div className="bulk">
           <strong>{selected.size} selected</strong>
           <span className="muted">Clear stale Seerr media, or add library titles Seerr is missing</span>
@@ -1556,7 +1948,7 @@ function Logs({ sync }: { sync: SyncStatus }) {
         </button>
       </div>
       <div className="filters">
-        <input type="search" placeholder="Search logs" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <ClearableField type="search" placeholder="Search logs" value={qInput} onValue={setQInput} enterKeyHint="search" />
         <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }} aria-label="Category">
           <option value="">All categories</option>
           <option value="sync">Sync</option>
@@ -1679,7 +2071,7 @@ function Users({
         </button>
       </div>
       <div className="filters">
-        <input type="search" placeholder="Search name, username, email" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <ClearableField type="search" placeholder="Search name, username, email" value={qInput} onValue={setQInput} enterKeyHint="search" />
         <select value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="requests">Most requests</option>
           <option value="library">Most library items</option>
@@ -1794,7 +2186,7 @@ function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
       <p className="page-intro muted">
         Title matches are case-insensitive substrings. “Stargate” or “Back to the Future” protects the franchise. You can also whitelist a title straight from the library list.
       </p>
-      <form className="filters" onSubmit={add}>
+      <form className="filters whitelist-form" onSubmit={add}>
         <select value={matchType} onChange={(e) => setMatchType(e.target.value)}>
           <option value="title">Title contains</option>
           <option value="id">TMDB id</option>
@@ -1804,8 +2196,14 @@ function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
           <option value="movie">Movie</option>
           <option value="tv">TV</option>
         </select>
-        <input value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder={matchType === "id" ? "157336" : "Stargate"} required />
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why keep it?" />
+        <ClearableField
+          value={pattern}
+          onValue={setPattern}
+          placeholder={matchType === "id" ? "157336" : "Stargate"}
+          required
+          aria-label="Pattern"
+        />
+        <ClearableField value={note} onValue={setNote} placeholder="Why keep it?" aria-label="Note" />
         <button className="primary" type="submit">Protect</button>
       </form>
       <div className="list">
@@ -1876,16 +2274,47 @@ function GithubIcon() {
 
 const GITHUB_REPO = "https://github.com/michaelmurfy/cleanarr";
 
-function About() {
+function SettingsBlock({ title, copy, children }: { title: string; copy?: ReactNode; children: ReactNode }) {
   return (
-    <section className="settings-section">
-      <h3>About</h3>
-      <div className="settings-actions about-links">
-        <a className="ghost link-button" href={GITHUB_REPO} target="_blank" rel="noreferrer">
-          <GithubIcon /> GitHub repository
-        </a>
+    <section className="settings-block">
+      <div className="settings-block-head">
+        <h3>{title}</h3>
+        {copy ? <p className="muted">{copy}</p> : null}
       </div>
+      <div className="settings-card">{children}</div>
     </section>
+  );
+}
+
+function SettingSwitch({
+  checked,
+  onChange,
+  title,
+  copy,
+  disabled = false,
+  children,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  title: string;
+  copy: ReactNode;
+  disabled?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div className={`option${checked ? " on" : ""}${disabled ? " disabled" : ""}`}>
+      <label className="option-head">
+        <span className="toggle">
+          <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+          <span className="toggle-track" />
+        </span>
+        <span className="option-copy">
+          <strong>{title}</strong>
+          <span className="muted">{copy}</span>
+        </span>
+      </label>
+      {checked && children ? <div className="option-body">{children}</div> : null}
+    </div>
   );
 }
 
@@ -1910,7 +2339,9 @@ function Settings() {
   const [busy, setBusy] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
-  const savedFlashTimer = useRef<number | null>(null);  const services = [
+  const savedFlashTimer = useRef<number | null>(null);
+  const [baseline, setBaseline] = useState("");
+  const services = [
     { id: "tautulli", label: "Tautulli", urlKey: "tautulli_url" },
     { id: "tracearr", label: "Tracearr", urlKey: "tracearr_url" },
     { id: "jellystat", label: "Jellystat", urlKey: "jellystat_url" },
@@ -1987,7 +2418,37 @@ function Settings() {
     setAutoDeleteCap(next.auto_delete_max_per_run || "10");
     setAutoDeleteDays(next.auto_delete_stale_days || "365");
     if (data.maintenance) setMaintenance(data.maintenance);
+    setBaseline(snapshot({
+      values: next,
+      username: data.username,
+      password: "",
+      scheduleEnabled: (next.sync_schedule_enabled || "0") === "1",
+      interval: next.sync_interval_hours || "24",
+      autoDelete: (next.auto_delete_enabled || "0") === "1",
+      autoDeleteCap: next.auto_delete_max_per_run || "10",
+      autoDeleteDays: next.auto_delete_stale_days || "365",
+    }));
   }
+
+  function snapshot(state: {
+    values: Record<string, string>;
+    username: string;
+    password: string;
+    scheduleEnabled: boolean;
+    interval: string;
+    autoDelete: boolean;
+    autoDeleteCap: string;
+    autoDeleteDays: string;
+  }) {
+    const editable = Object.fromEntries(
+      Object.entries(state.values).filter(([key]) => !APP_SETTING_KEYS.includes(key)).sort(([a], [b]) => a.localeCompare(b)),
+    );
+    return JSON.stringify({ ...state, values: editable });
+  }
+
+  const dirty = Boolean(baseline) && snapshot({
+    values, username, password, scheduleEnabled, interval, autoDelete, autoDeleteCap, autoDeleteDays,
+  }) !== baseline;
 
   useEffect(() => {
     loadSettings().catch((err) => setError(err instanceof Error ? err.message : "Could not load settings"));
@@ -2068,11 +2529,7 @@ function Settings() {
     try {
       const data = await api.testAll();
       for (const result of data.results) applyTest(result);
-      const ok = data.results.filter((row) => row.ok).length;
-      const total = data.results.length;
-      if (!total) setMessage("No services are configured to test.");
-      else if (ok === total) setMessage(`All ${total} configured service${total === 1 ? "" : "s"} passed.`);
-      else setMessage(`${ok} of ${total} configured services passed.`);
+      if (!data.results.length) setMessage("No services are configured to test.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Tests failed");
     } finally {
@@ -2162,16 +2619,28 @@ function Settings() {
     return { kind: "idle" as const, label: "Not tested yet", detail: "" };
   }
 
+  const connectionLabel: Record<string, string> = { ok: "Connected", fail: "Failed", running: "Testing…", idle: "Not tested" };
+  const connectionResults = visibleServices.map((service) => testResult(service.id).kind);
+  const passedCount = connectionResults.filter((kind) => kind === "ok").length;
+  const failedCount = connectionResults.filter((kind) => kind === "fail").length;
+  const publicLinks = visibleGroups.find((group) => group.title === "Public links");
+  const serviceGroups = visibleGroups.filter((group) => group.title !== "Public links");
+
   return (
-    <div className="page">
-      <h2>Settings</h2>
-      {hideSettings ? (
-        <p className="muted">
-          Service URLs, API keys, and login are hidden because <code>CLEANARR_HIDE_SETTINGS=1</code> is set. Edit <code>.env</code> and restart to change them.
-        </p>
-      ) : (
-        <p className="muted">Values present in the process environment are locked. API keys are never shown after they are saved.</p>
-      )}
+    <div className="page settings-page">
+      <div className="page-head">
+        <div>
+          <h2>Settings</h2>
+          <p className="page-intro muted">
+            {hideSettings
+              ? <>Service URLs, API keys, and login are hidden because <code>CLEANARR_HIDE_SETTINGS=1</code> is set. Edit <code>.env</code> and restart to change them.</>
+              : "Values set in the environment are locked. Saved API keys are never shown again."}
+          </p>
+        </div>
+        <a className="ghost link-button repo-link" href={GITHUB_REPO} target="_blank" rel="noreferrer" title="Cleanarr on GitHub">
+          <GithubIcon /> <span>GitHub</span>
+        </a>
+      </div>
       {defaultPassword && (
         <p className="warn-banner" role="alert">
           Cleanarr is still using the default password. Set a real one
@@ -2179,203 +2648,152 @@ function Settings() {
         </p>
       )}
       {error && <p className="error">{error}</p>}
-      {message && <p className="ok-message">{message}</p>}
+      {message && !savedFlash && <p className="ok-message settings-message">{message}</p>}
 
       {visibleServices.length > 0 && (
-        <section className="settings-section">
-          <div className="settings-head">
-            <div>
-              <h3>Connections</h3>
-              <p className="muted">
-                {visibleServices.length} configured service{visibleServices.length === 1 ? "" : "s"}. Test that Cleanarr can reach each one.
-              </p>
+        <SettingsBlock title="Connections" copy="Check Cleanarr can reach each configured service.">
+          <div className="card-head">
+            <div className="conn-summary">
+              <span className="conn-count">{visibleServices.length} service{visibleServices.length === 1 ? "" : "s"}</span>
+              {passedCount ? <span className="chip ok">{passedCount} connected</span> : null}
+              {failedCount ? <span className="chip warn">{failedCount} failed</span> : null}
+              {!passedCount && !failedCount ? <span className="muted">Not tested yet</span> : null}
             </div>
-            <button className="primary" type="button" disabled={testing} onClick={testAll}>{testing ? "Testing…" : "Test all"}</button>
+            <button className="ghost small-btn conn-btn" type="button" disabled={testing} onClick={testAll}>
+              {testing ? <><span className="spinner" aria-hidden="true" /> Testing</> : "Test all"}
+            </button>
           </div>
-          <div className="test-list">
+          <ul className="conn-list">
             {visibleServices.map((service) => {
               const result = testResult(service.id);
+              const detail = result.kind === "ok" ? result.detail : result.kind === "fail" ? (result.detail || result.label) : "";
               return (
-                <div className={`test-row ${result.kind}`} key={service.id}>
-                  <div className="test-name">
-                    <strong>{service.label}</strong>
-                  </div>
-                  <div className={`test-status ${result.kind}`}>
-                    <span className={`test-badge ${result.kind}`}>
-                      {result.kind === "ok" ? "Passed" : result.kind === "fail" ? "Failed" : result.kind === "running" ? "Testing" : "Idle"}
-                    </span>
-                    <span className="test-detail">
-                      {result.kind === "ok"
-                        ? (result.detail ? `Connected · ${result.detail}` : "Connected")
-                        : result.kind === "fail"
-                          ? (result.detail || result.label)
-                          : result.label}
-                    </span>
-                  </div>
-                  <button className="ghost" type="button" disabled={testing} onClick={() => test(service.id)}>Test</button>
-                </div>
+                <li className={`conn-row ${result.kind}`} key={service.id}>
+                  <span key={result.kind} className={`conn-dot ${result.kind}`} aria-hidden="true" />
+                  <strong className="conn-name">{service.label}</strong>
+                  <span className="conn-status" title={detail || undefined}>
+                    <span key={result.kind} className="conn-state">{connectionLabel[result.kind]}</span>
+                    {detail ? <span className="conn-detail">{detail}</span> : null}
+                  </span>
+                  <button className="ghost small-btn conn-btn" type="button" disabled={testing || result.kind === "running"} onClick={() => test(service.id)}>Test</button>
+                </li>
               );
             })}
-          </div>
-        </section>
+          </ul>
+        </SettingsBlock>
       )}
 
-      <form onSubmit={save}>
-        <section className="settings-section">
-          <div className="settings-head">
-            <div>
-              <h3>Automatic sync</h3>
-              <p className="muted">Refresh the library on a timer while Cleanarr is running.</p>
-            </div>
-            <div className="settings-save">
-              <button className="primary" type="submit" disabled={saving}>
-                {saving ? "Saving…" : savedFlash ? "Saved" : "Save"}
-              </button>
-              {savedFlash && <span className="ok-message" role="status">{message || "Saved."}</span>}
-            </div>
-          </div>
-          <div className="settings-controls">
-            <label className="toggle">
-              <input type="checkbox" checked={scheduleEnabled} onChange={(e) => setScheduleEnabled(e.target.checked)} />
-              <span className="toggle-track" />
-              <span>{scheduleEnabled ? "On" : "Off"}</span>
+      <form onSubmit={save} className="settings-form">
+        <SettingsBlock title="Schedule" copy="Runs while Cleanarr is up. Sync now never deletes anything.">
+          <SettingSwitch
+            checked={scheduleEnabled}
+            onChange={setScheduleEnabled}
+            title="Automatic sync"
+            copy="Refresh the library on a timer."
+          >
+            <label className="inline-field">
+              <span>Every</span>
+              <select className="control-select" value={interval} onChange={(e) => setIntervalHours(e.target.value)}>
+                <option value="1">hour</option>
+                <option value="3">3 hours</option>
+                <option value="6">6 hours</option>
+                <option value="12">12 hours</option>
+                <option value="24">day</option>
+                <option value="48">2 days</option>
+                <option value="168">week</option>
+              </select>
             </label>
-            <select
-              className="control-select"
-              value={interval}
-              onChange={(e) => setIntervalHours(e.target.value)}
-              disabled={!scheduleEnabled}
-              aria-label="Sync interval"
-            >
-              <option value="1">Every hour</option>
-              <option value="3">Every 3 hours</option>
-              <option value="6">Every 6 hours</option>
-              <option value="12">Every 12 hours</option>
-              <option value="24">Every day</option>
-              <option value="48">Every 2 days</option>
-              <option value="168">Every week</option>
-            </select>
-          </div>
-
-          <div className="settings-subsection">
-            <div className="settings-head">
-              <div>
-                <h4>Automatic delete</h4>
-                <p className="muted">
-                  After each scheduled sync, remove stale titles from disk. Off by default. Whitelist always wins; Sync now never deletes.
-                </p>
-              </div>
-            </div>
-            <div className="settings-controls">
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={autoDelete}
-                  onChange={(e) => setAutoDelete(e.target.checked)}
-                  disabled={!scheduleEnabled}
-                />
-                <span className="toggle-track" />
-                <span>{autoDelete && scheduleEnabled ? "On" : "Off"}</span>
-              </label>
-              <select
-                className="control-select"
-                value={autoDeleteDays}
-                onChange={(e) => setAutoDeleteDays(e.target.value)}
-                disabled={!autoDelete || !scheduleEnabled}
-                aria-label="Unwatched cutoff"
-              >
-                <option value="90">Unwatched 90 days</option>
-                <option value="180">Unwatched 6 months</option>
-                <option value="365">Unwatched 1 year</option>
-                <option value="730">Unwatched 2 years</option>
+          </SettingSwitch>
+          <SettingSwitch
+            checked={autoDelete && scheduleEnabled}
+            onChange={setAutoDelete}
+            disabled={!scheduleEnabled}
+            title="Automatic delete"
+            copy={scheduleEnabled
+              ? "After each scheduled sync, remove stale titles from disk. Whitelisted titles are always kept."
+              : "Needs automatic sync. Deletes only ever run after a scheduled sync."}
+          >
+            <label className="inline-field">
+              <span>Unwatched for</span>
+              <select className="control-select" value={autoDeleteDays} onChange={(e) => setAutoDeleteDays(e.target.value)}>
+                <option value="90">90 days</option>
+                <option value="180">6 months</option>
+                <option value="365">1 year</option>
+                <option value="730">2 years</option>
               </select>
-              <select
-                className="control-select"
-                value={autoDeleteCap}
-                onChange={(e) => setAutoDeleteCap(e.target.value)}
-                disabled={!autoDelete || !scheduleEnabled}
-                aria-label="Delete cap per run"
-              >
-                <option value="5">Up to 5 per run</option>
-                <option value="10">Up to 10 per run</option>
-                <option value="25">Up to 25 per run</option>
-                <option value="50">Up to 50 per run</option>
+            </label>
+            <label className="inline-field">
+              <span>At most</span>
+              <select className="control-select" value={autoDeleteCap} onChange={(e) => setAutoDeleteCap(e.target.value)}>
+                <option value="5">5 per run</option>
+                <option value="10">10 per run</option>
+                <option value="25">25 per run</option>
+                <option value="50">50 per run</option>
               </select>
-            </div>
-            {autoDelete && scheduleEnabled && (
-              <p className="settings-note">
-                Skips a run if watch history looks untrustworthy (no source, a failed source, or zero plays).
-              </p>
-            )}
-          </div>
-        </section>
+            </label>
+            <p className="option-note">
+              A run is skipped if watch history looks untrustworthy: no source, a failed source, or zero plays.
+            </p>
+          </SettingSwitch>
+        </SettingsBlock>
 
-        <section className="settings-section">
-          <h3>Maintenance</h3>
-          <p className="muted">Clearing the library removes synced titles, users, and unmatched rows. Whitelist, login, and connection settings stay.</p>
-          <div className="maintenance-grid">
-            <div>
-              <span className="muted">Synced titles</span>
-              <b>{maintenance.library_count}</b>
-            </div>
-            <div>
-              <span className="muted">Users</span>
-              <b>{maintenance.people_count}</b>
-            </div>
-            <div>
-              <span className="muted">Unmatched</span>
-              <b>{maintenance.unmatched_count}</b>
-            </div>
-            <div>
-              <span className="muted">Poster cache</span>
-              <b>{maintenance.cache_files} · {bytes(maintenance.cache_bytes)}</b>
-            </div>
-          </div>
-          <div className="settings-actions">
-            <button className="ghost" type="button" disabled={Boolean(busy)} onClick={clearCache}>
-              {busy === "cache" ? "Clearing…" : "Clear poster cache"}
-            </button>
-            <button className="danger-ghost" type="button" disabled={Boolean(busy)} onClick={clearLibrary}>
-              {busy === "library" ? "Clearing…" : "Clear synced library"}
-            </button>
-          </div>
-        </section>
-
-        {visibleGroups.map((group) => (
-          <section className="settings-section" key={group.title}>
-            <h3>{group.title}</h3>
-            <p className="muted">{group.copy}</p>
+        {serviceGroups.map((group) => (
+          <SettingsBlock title={group.title} copy={group.copy} key={group.title}>
             <div className="form-grid">{group.fields.map(([key, label]) => field(key, label))}</div>
-          </section>
+          </SettingsBlock>
         ))}
-        {!hideSettings && (
-        <section className="settings-section">
-          <h3>Account</h3>
-          <div className="form-grid">
-            <label>
-              Cleanarr username {usernameLocked && <span className="lock">env</span>}
-              <input value={username} disabled={usernameLocked} autoComplete="off" onChange={(e) => setUsername(e.target.value)} />
-            </label>
-            <label>
-              New password
-              <input type="password" value={password} disabled={usernameLocked} autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} placeholder="Leave blank to keep" />
-            </label>
-          </div>
-        </section>
+        {publicLinks && (
+          <SettingsBlock title="Public links" copy={publicLinks.copy}>
+            <details className="settings-more" open={publicLinks.fields.some(([key]) => values[key])}>
+              <summary>{publicLinks.fields.some(([key]) => values[key]) ? "Edit public links" : "Set public links"}</summary>
+              <div className="form-grid">{publicLinks.fields.map(([key, label]) => field(key, label))}</div>
+            </details>
+          </SettingsBlock>
         )}
         {!hideSettings && (
-          <div className="settings-actions">
-            <button className="primary" type="submit" disabled={saving}>
-              {saving ? "Saving…" : savedFlash ? "Saved" : "Save settings"}
-            </button>
-            {savedFlash && <span className="ok-message" role="status">{message || "Saved."}</span>}
-          </div>
+          <SettingsBlock title="Account" copy="The login for this Cleanarr instance.">
+            <div className="form-grid">
+              <label>
+                Username {usernameLocked && <span className="lock">env</span>}
+                <input value={username} disabled={usernameLocked} autoComplete="off" onChange={(e) => setUsername(e.target.value)} />
+              </label>
+              <label>
+                New password
+                <input type="password" value={password} disabled={usernameLocked} autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} placeholder="Leave blank to keep" />
+              </label>
+            </div>
+          </SettingsBlock>
         )}
-        {hideSettings && savedFlash && (
-          <p className="ok-message" role="status">{message || "Saved."}</p>
-        )}
+
+        <div className={`save-bar${dirty || saving || savedFlash ? " show" : ""}`} aria-live="polite">
+          <span className={savedFlash && !dirty ? "ok-message" : "muted"}>
+            {saving ? "Saving…" : savedFlash && !dirty ? (message || "Saved.") : "You have unsaved changes"}
+          </span>
+          {dirty ? (
+            <div className="save-bar-actions">
+              <button className="ghost" type="button" disabled={saving} onClick={() => { setPassword(""); loadSettings().catch(() => undefined); }}>Discard</button>
+              <button className="primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+            </div>
+          ) : null}
+        </div>
       </form>
-      <About />
+
+      <SettingsBlock title="Maintenance" copy="Clearing the library removes synced titles, users, and unmatched rows. Whitelist, login, and connections stay.">
+        <dl className="maintenance-list">
+          <div><dt>Synced titles</dt><dd>{num(maintenance.library_count)}</dd></div>
+          <div><dt>Users</dt><dd>{num(maintenance.people_count)}</dd></div>
+          <div><dt>Unmatched</dt><dd>{num(maintenance.unmatched_count)}</dd></div>
+          <div><dt>Poster cache</dt><dd>{maintenance.cache_files ? `${num(maintenance.cache_files)} · ${bytes(maintenance.cache_bytes)}` : "Empty"}</dd></div>
+        </dl>
+        <div className="settings-actions">
+          <button className="ghost" type="button" disabled={Boolean(busy)} onClick={clearCache}>
+            {busy === "cache" ? "Clearing…" : "Clear poster cache"}
+          </button>
+          <button className="danger-ghost" type="button" disabled={Boolean(busy)} onClick={clearLibrary}>
+            {busy === "library" ? "Clearing…" : "Clear synced library"}
+          </button>
+        </div>
+      </SettingsBlock>
     </div>
   );
 }
