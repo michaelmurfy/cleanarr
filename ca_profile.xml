@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <CommunityApplications>
   <Profile>
-    Cleanarr is a self-hosted web app for reclaiming disk from Radarr and Sonarr. It matches the library to watch history from Tautulli, Tracearr, and Jellystat, and to requests from Seerr, so you can see what nobody is watching and remove it. The interface is laid out for a desktop browser and for a phone.
+    Cleanarr is a web app for getting disk back from a Radarr and Sonarr library. It shows what you have, who watched it, and who requested it, then lets you delete what nobody is watching. It works on a desktop browser and on a phone.
 
     This repository, including the Unraid templates, metadata, and docs, is MIT licensed. Support and source: https://github.com/michaelmurfy/cleanarr/issues
   </Profile>
