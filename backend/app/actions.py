@@ -50,38 +50,51 @@ def _whitelist_rows() -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _whitelist_matches(rule: dict, media: list[dict]) -> list[dict]:
-    """Library titles this one rule currently protects."""
-    matches = []
-    for item in media:
-        if not is_protected(item["title"], item["media_type"], int(item.get("tmdb_id") or 0), [rule]):
-            continue
-        matches.append(
-            {
-                "id": item["id"],
-                "title": item["title"],
-                "year": item.get("year"),
-                "media_type": item["media_type"],
-                "tmdb_id": int(item.get("tmdb_id") or 0),
-            }
-        )
-    matches.sort(key=lambda row: (row["title"] or "").casefold())
-    return matches
+def _match_row(item: dict) -> dict:
+    return {
+        "id": item["id"],
+        "title": item["title"],
+        "year": item.get("year"),
+        "media_type": item["media_type"],
+        "tmdb_id": int(item.get("tmdb_id") or 0),
+    }
 
 
-def is_protected(title: str, media_type: str, tmdb_id: int, rows: list[dict] | None = None) -> dict | None:
-    needle = (title or "").lower()
-    for row in rows if rows is not None else _whitelist_rows():
-        if row["media_type"] not in {"any", media_type}:
-            continue
-        if row["match_type"] == "id":
-            if tmdb_id and int(row["tmdb_id"] or 0) == int(tmdb_id):
+class Whitelist:
+    """Whitelist rules prepared once (patterns lowered, ids parsed) so checking a
+    whole library is a tight loop instead of re-reading every rule per title.
+    Rules keep their order: the first match wins, as it always has."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self.rules = [
+            (
+                row["media_type"],
+                row["match_type"] == "id",
+                int(row["tmdb_id"] or 0),
+                (row["pattern"] or "").lower().strip(),
+                row,
+            )
+            for row in rows
+        ]
+
+    def match(self, title: str, media_type: str, tmdb_id: int) -> dict | None:
+        needle = (title or "").lower()
+        tmdb = int(tmdb_id or 0)
+        for rule_type, by_id, rule_tmdb, pattern, row in self.rules:
+            if rule_type != "any" and rule_type != media_type:
+                continue
+            if by_id:
+                if tmdb and rule_tmdb == tmdb:
+                    return row
+                continue
+            if pattern and pattern in needle:
                 return row
-            continue
-        pattern = (row["pattern"] or "").lower().strip()
-        if pattern and pattern in needle:
-            return row
-    return None
+        return None
+
+
+def is_protected(title: str, media_type: str, tmdb_id: int, rows: list[dict] | Whitelist | None = None) -> dict | None:
+    whitelist = rows if isinstance(rows, Whitelist) else Whitelist(rows if rows is not None else _whitelist_rows())
+    return whitelist.match(title, media_type, tmdb_id)
 
 
 def is_stale_unwatched(item: dict, cutoff: int) -> bool:
@@ -129,9 +142,21 @@ def list_whitelist(request: Request):
                 "SELECT id, title, year, media_type, tmdb_id FROM media ORDER BY title COLLATE NOCASE"
             ).fetchall()
         ]
+    lowered = [(item, (item["title"] or "").lower()) for item in media]
+    by_tmdb: dict[int, list[dict]] = {}
+    for item in media:
+        by_tmdb.setdefault(int(item.get("tmdb_id") or 0), []).append(item)
     items = []
     for rule in rules:
-        matches = _whitelist_matches(rule, media)
+        rule_type = rule["media_type"]
+        if rule["match_type"] == "id":
+            rule_tmdb = int(rule["tmdb_id"] or 0)
+            hits = by_tmdb.get(rule_tmdb, []) if rule_tmdb else []
+        else:
+            pattern = (rule["pattern"] or "").lower().strip()
+            hits = [item for item, title in lowered if pattern and pattern in title] if pattern else []
+        matches = [_match_row(item) for item in hits if rule_type in {"any", item["media_type"]}]
+        matches.sort(key=lambda row: (row["title"] or "").casefold())
         items.append({**rule, "matches": matches, "match_count": len(matches)})
     return {"items": items}
 

@@ -10,7 +10,7 @@ from typing import Any
 from .art import warm_cache
 from .db import connect, get_setting, ignore_key, ignored_matches, ignored_unmatched, match_ignore_key
 from .identity import UserDirectory, _clean
-from .actions import delete_item, is_protected, is_stale_unwatched
+from .actions import Whitelist, delete_item, is_protected, is_stale_unwatched
 from .logs import add_log
 from .match import CatalogIndex, MatchHit, parse_year
 from .services.arr import movie_availability, pick_rating, poster_from, series_availability
@@ -1313,7 +1313,7 @@ def auto_delete_candidates(stale_days: int, limit: int) -> list[dict[str, Any]]:
     cutoff = int(time.time()) - stale_days * 24 * 3600
     with connect() as conn:
         rows = conn.execute("SELECT * FROM media ORDER BY added_at ASC").fetchall()
-        whitelist = [dict(row) for row in conn.execute("SELECT * FROM whitelist").fetchall()]
+        whitelist = Whitelist([dict(row) for row in conn.execute("SELECT * FROM whitelist").fetchall()])
     candidates = []
     for row in rows:
         item = dict(row)
