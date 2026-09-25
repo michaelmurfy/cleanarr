@@ -365,7 +365,6 @@ select {
 }
 select option { background: var(--bg-elev); color: var(--text); }
 .mobile-only { display: none; }
-.card-inline-actions { display: inline-flex; align-items: center; gap: 6px; }
 .clearable {
   position: relative;
   display: flex;
@@ -624,12 +623,9 @@ input.tick:disabled {
   cursor: pointer;
 }
 .keep-btn:hover { background: #1c2e22; }
-.linkish.unlink-btn { font-size: 11px; color: var(--muted); }
-.unlink-btn:hover { color: var(--text); }
 .title-year { margin-left: 5px; white-space: nowrap; }
-.ignored-matches { margin-top: 28px; }
-.ignored-matches h3 { margin: 0 0 6px; font-size: 16px; }
-.ignored-matches .page-intro { margin-bottom: 12px; }
+.review-intro { margin: 0 0 14px; max-width: 72ch; font-size: 14px; }
+.col-seerr .cell-value { color: var(--text); }
 .rating { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rating strong { color: var(--accent-2); }
 .row-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
@@ -726,12 +722,70 @@ input.tick:disabled {
   background: var(--bg-elev);
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 18px;
+  padding: 18px 20px;
   margin-bottom: 16px;
 }
-/* About sits outside the settings form, so it has no preceding card to space it
-   off the Save button. */
-form + .settings-section { margin-top: 16px; }
+/* Forms read better at a measured width than stretched across a wide monitor. */
+.settings-page > *,
+.settings-form > * { max-width: 920px; margin-left: auto; margin-right: auto; }
+.settings-page .page-head { align-items: center; }
+.settings-page .page-head h2 { margin-top: 0; }
+.review-row .row-actions { flex-wrap: nowrap; }
+.review-row .row-actions > .ghost,
+.review-row .row-actions > .danger-ghost { font-size: 13px; padding: 6px 12px; }
+.repo-link { flex: none; font-size: 13px; padding: 7px 12px; color: var(--muted); }
+.repo-link:hover { color: var(--text); }
+
+.setting-rows { display: grid; }
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid rgba(44, 55, 80, 0.55);
+  transition: opacity 160ms ease;
+}
+.setting-row:first-child { border-top: none; padding-top: 4px; }
+.setting-copy { display: grid; gap: 3px; min-width: 0; }
+.setting-copy strong { font-size: 14px; font-weight: 600; }
+.setting-copy .muted { font-size: 13px; line-height: 1.45; }
+.setting-control { display: flex; align-items: center; justify-content: flex-end; }
+.setting-control .control-select { width: 180px; min-width: 0; }
+.setting-row.is-off .setting-copy { opacity: 0.55; }
+
+.save-bar {
+  position: sticky;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 920px;
+  margin-top: 8px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(27, 30, 37, 0.96);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 180ms ease, transform 200ms ease, visibility 0s linear 200ms;
+}
+.save-bar.show {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  visibility: visible;
+  transition: opacity 180ms ease, transform 200ms ease, visibility 0s;
+}
+.save-bar > span { font-size: 14px; }
+.save-bar-actions { display: flex; gap: 8px; flex: none; }
+.settings-form { margin-bottom: 16px; }
 .settings-section h3 { margin: 0 0 6px; font-size: 16px; }
 .settings-section h4 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
 .settings-section p.muted { margin: 0 0 14px; }
@@ -1606,13 +1660,20 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     border-top: 1px solid rgba(44, 55, 80, 0.45);
   }
   /* Nothing to link and nothing to do: drop the footer rather than show a dash. */
-  tbody tr td.col-links:not(:has(.service-pill, .card-actions button)) { display: none; }
+  tbody tr:has(.card-stats) td.col-links:not(:has(.service-pill, .card-actions button)) { display: none; }
+  tbody tr.review-row td.col-seerr {
+    padding-top: 10px;
+    margin-top: 10px;
+    border-top: 1px solid rgba(44, 55, 80, 0.45);
+  }
+  tbody tr.review-row .title-meta { margin-top: 6px; }
+  tbody tr.review-row td.col-links .row-actions { width: 100%; }
+  tbody tr.review-row td.col-links .row-actions > button { flex: 1 1 0; min-height: 40px; }
   .links-empty { display: none; }
   .row-actions, .service-links { justify-content: flex-start; max-width: none; gap: 8px; }
   tbody tr td.col-links .row-actions { width: 100%; justify-content: space-between; flex-wrap: nowrap; }
   tbody tr td.col-links .service-links { flex-wrap: wrap; min-width: 0; }
   .card-actions { margin-left: auto; align-items: center; gap: 14px; flex: none; }
-  .card-actions .unlink-btn { font-size: 13px; padding: 6px 0; color: var(--muted); }
   tbody tr td.watchers { max-width: none; }
   .card-actions .keep-btn { font-size: 12px; padding: 7px 14px; }
   .row-actions > .ghost,
@@ -1670,7 +1731,23 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   }
   .bulk button { flex: 1 1 auto; }
 
-  .settings-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .settings-section { padding: 16px; }
+  .settings-section p.muted { font-size: 14px; }
+  .setting-row { gap: 12px; }
+  .setting-control .control-select { width: min(46vw, 180px); }
+  .settings-page .page-head { flex-direction: row; }
+  .repo-link span { display: none; }
+  .repo-link { padding: 9px 10px; min-height: 40px; }
+  .save-bar {
+    position: fixed;
+    left: max(10px, var(--safe-left));
+    right: max(10px, var(--safe-right));
+    bottom: calc(8px + var(--bottom-nav-height) + var(--safe-bottom));
+    margin: 0;
+    max-width: none;
+  }
+  .save-bar > span { font-size: 13px; }
+  .save-bar-actions .primary, .save-bar-actions .ghost { padding: 9px 14px; }
   .control-select { width: 100%; min-width: 0; font-size: 16px; height: 44px; padding: 0 36px 0 12px; }
   .settings-head { flex-direction: column; align-items: stretch; }
   .settings-head > button { width: 100%; }

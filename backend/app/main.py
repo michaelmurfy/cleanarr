@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .actions import is_protected, is_stale_unwatched, protect_reason, router as actions_router
+from .actions import is_protected, is_stale_unwatched, matches_to_review, protect_reason, router as actions_router
 from .art import art_url, cache_stats, clear_cache, serve_art
 from .auth import (
     bootstrap_auth,
@@ -429,6 +429,8 @@ def unmatched(
     with connect() as conn:
         rows = [dict(row) for row in conn.execute("SELECT * FROM unmatched ORDER BY kind DESC, title ASC").fetchall()]
         ignored_count = conn.execute("SELECT COUNT(*) AS n FROM unmatched_ignored").fetchone()["n"]
+        review_count = len(matches_to_review(conn))
+        decided_count = conn.execute("SELECT COUNT(*) AS n FROM match_ignored").fetchone()["n"]
     by_source: dict[str, int] = {}
     by_kind: dict[str, int] = {}
     for row in rows:
@@ -459,7 +461,10 @@ def unmatched(
             "count": len(rows),
             # seerr_deleted rows are history, not something to fix, so they stay out of the
             # count the nav badge and Library card use.
-            "actionable": len(rows) - (by_kind.get("seerr_deleted") or 0),
+            # Title-guessed Seerr links waiting for a yes/no count as work too.
+            "actionable": len(rows) - (by_kind.get("seerr_deleted") or 0) + review_count,
+            "review": review_count,
+            "decided": decided_count,
             **{f"{key}_count": value for key, value in by_source.items()},
             "seerr_missing": by_kind.get("seerr_missing") or 0,
             "seerr_deleted": by_kind.get("seerr_deleted") or 0,
@@ -500,7 +505,7 @@ def library(
         whitelist = [dict(row) for row in conn.execute("SELECT * FROM whitelist").fetchall()]
         unmatched_count = conn.execute(
             "SELECT COUNT(*) AS n FROM unmatched WHERE kind != 'seerr_deleted'"
-        ).fetchone()["n"]
+        ).fetchone()["n"] + len(matches_to_review(conn))
 
     cutoff = int(time.time()) - stale_days * 24 * 3600
     pool = []

@@ -311,6 +311,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 "seerr_media_id": None,
                 "seerr_tmdb_id": 0,
                 "seerr_match_via": "",
+                "seerr_title": "",
                 "requested_by": "",
                 "requested_at": "",
                 "path": "",
@@ -516,6 +517,18 @@ def _run_sync(auto_delete: bool = False) -> None:
                     return None
                 return hit.key
 
+            def note_seerr_link(key: tuple[str, int, int], hit: MatchHit | None, bucket: dict[str, Any]) -> None:
+                """Record how Seerr reached this row, and the Seerr-side name so a guess can be reviewed."""
+                if not hit:
+                    return
+                row = catalog[key]
+                if row.get("seerr_match_via") and hit.via != "tmdb":
+                    return
+                row["seerr_match_via"] = hit.via
+                label = _usable_title(bucket.get("title"), 0) or ""
+                year = parse_year(bucket.get("year"))
+                row["seerr_title"] = f"{label} ({year})" if label and year else label
+
             def attach_requester(req: dict[str, Any]) -> bool:
                 media = req.get("media") or {}
                 bucket = seerr_bucket(media, req)
@@ -547,8 +560,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                 catalog[key]["requested_at"] = req.get("createdAt") or req.get("modifiedAt") or catalog[key]["requested_at"]
                 catalog[key]["seerr_media_id"] = bucket.get("seerr_media_id") or catalog[key]["seerr_media_id"]
                 catalog[key]["seerr_tmdb_id"] = int(bucket.get("tmdb_id") or catalog[key].get("seerr_tmdb_id") or 0)
-                if hit and (not catalog[key].get("seerr_match_via") or hit.via == "tmdb"):
-                    catalog[key]["seerr_match_via"] = hit.via
+                note_seerr_link(key, hit, bucket)
                 if request_is_open([req]) and (catalog[key].get("size_bytes") or 0) <= 0 and catalog[key].get("availability") != "partial":
                     catalog[key]["availability"] = "requested"
                 return True
@@ -591,8 +603,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     bucket["catalog_key"] = key
                     catalog[key]["seerr_media_id"] = bucket.get("seerr_media_id") or catalog[key]["seerr_media_id"]
                     catalog[key]["seerr_tmdb_id"] = int(bucket.get("tmdb_id") or catalog[key].get("seerr_tmdb_id") or 0)
-                    if hit and (not catalog[key].get("seerr_match_via") or hit.via == "tmdb"):
-                        catalog[key]["seerr_match_via"] = hit.via
+                    note_seerr_link(key, hit, bucket)
                 for req in media.get("requests") or media.get("MediaRequests") or []:
                     if isinstance(req, dict):
                         nested = dict(req)
@@ -1108,6 +1119,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     "added_at": item.get("added_at"),
                     "seerr_tmdb_id": int(item.get("seerr_tmdb_id") or 0),
                     "seerr_match_via": item.get("seerr_match_via") or "",
+                    "seerr_title": item.get("seerr_title") or "",
                     "last_watched_at": last_watched,
                     "play_count": len(unique_events),
                     "watcher_count": len(watchers),
@@ -1126,13 +1138,13 @@ def _run_sync(auto_delete: bool = False) -> None:
                     radarr_id, radarr_4k_id, sonarr_id, seerr_media_id, requested_by, requested_at,
                     last_watched_at, play_count, watcher_count, watchers_json, sources_json, path, title_slug,
                     rating, rating_votes, rating_source, tautulli_rating_key, jellystat_item_id, availability,
-                    added_at, seerr_tmdb_id, seerr_match_via
+                    added_at, seerr_tmdb_id, seerr_match_via, seerr_title
                 ) VALUES (
                     :media_type, :tmdb_id, :tvdb_id, :imdb_id, :title, :year, :poster_url, :size_bytes,
                     :radarr_id, :radarr_4k_id, :sonarr_id, :seerr_media_id, :requested_by, :requested_at,
                     :last_watched_at, :play_count, :watcher_count, :watchers_json, :sources_json, :path, :title_slug,
                     :rating, :rating_votes, :rating_source, :tautulli_rating_key, :jellystat_item_id, :availability,
-                    :added_at, :seerr_tmdb_id, :seerr_match_via
+                    :added_at, :seerr_tmdb_id, :seerr_match_via, :seerr_title
                 )
                 """,
                 records,

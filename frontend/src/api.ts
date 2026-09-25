@@ -169,13 +169,11 @@ export const api = {
     }),
   ignoredUnmatched: () => request<{ items: IgnoredItem[] }>("/api/unmatched/ignored"),
   unignoreUnmatched: (id: number) => request<{ ok: boolean }>(`/api/unmatched/ignored/${id}`, { method: "DELETE" }),
-  unlinkSeerr: (id: number, reason = "") =>
-    request<{ ok: boolean; ignored_id: number | null }>(`/api/library/${id}/unlink-seerr`, {
-      method: "POST",
-      body: JSON.stringify({ reason }),
-    }),
-  ignoredMatches: () => request<{ items: IgnoredMatch[] }>("/api/matches/ignored"),
-  unignoreMatch: (id: number) => request<{ ok: boolean }>(`/api/matches/ignored/${id}`, { method: "DELETE" }),
+  reviewMatches: () => request<{ items: ReviewMatch[] }>("/api/matches/review"),
+  decideMatch: (id: number, action: "unlink" | "keep") =>
+    request<{ ok: boolean; remaining: number }>(`/api/matches/${id}/${action}`, { method: "POST", body: JSON.stringify({}) }),
+  matchDecisions: () => request<{ items: MatchDecision[] }>("/api/matches/decisions"),
+  undoMatchDecision: (id: number) => request<{ ok: boolean }>(`/api/matches/decisions/${id}`, { method: "DELETE" }),
   users: (params: Record<string, string>) => {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -230,7 +228,20 @@ export type IgnoredItem = {
   created_at: number;
 };
 
-export type IgnoredMatch = {
+export type ReviewMatch = {
+  id: number;
+  media_type: string;
+  title: string;
+  year: number | null;
+  tmdb_id: number;
+  seerr_title: string;
+  seerr_tmdb_id: number;
+  via: string;
+  requested_by: string;
+  requested_at: string;
+};
+
+export type MatchDecision = {
   id: number;
   media_type: string;
   seerr_tmdb_id: number;
@@ -240,6 +251,7 @@ export type IgnoredMatch = {
   seerr_title: string;
   library_title: string;
   reason: string;
+  action: "unlink" | "keep";
   created_at: number;
 };
 

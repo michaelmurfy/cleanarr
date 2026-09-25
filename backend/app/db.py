@@ -132,6 +132,7 @@ def init_db() -> None:
                 seerr_title TEXT NOT NULL DEFAULT '',
                 library_title TEXT NOT NULL DEFAULT '',
                 reason TEXT NOT NULL DEFAULT '',
+                action TEXT NOT NULL DEFAULT 'unlink',
                 created_at INTEGER NOT NULL,
                 UNIQUE(media_type, seerr_tmdb_id, seerr_tvdb_id, library_tmdb_id, library_tvdb_id)
             );
@@ -177,6 +178,11 @@ def init_db() -> None:
             conn.execute("ALTER TABLE media ADD COLUMN seerr_match_via TEXT NOT NULL DEFAULT ''")
         if "seerr_tmdb_id" not in cols:
             conn.execute("ALTER TABLE media ADD COLUMN seerr_tmdb_id INTEGER NOT NULL DEFAULT 0")
+        if "seerr_title" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN seerr_title TEXT NOT NULL DEFAULT ''")
+        match_cols = {row["name"] for row in conn.execute("PRAGMA table_info(match_ignored)").fetchall()}
+        if "action" not in match_cols:
+            conn.execute("ALTER TABLE match_ignored ADD COLUMN action TEXT NOT NULL DEFAULT 'unlink'")
         sync_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sync_state)").fetchall()}
         if "step" not in sync_cols:
             conn.execute("ALTER TABLE sync_state ADD COLUMN step TEXT NOT NULL DEFAULT ''")
@@ -270,13 +276,15 @@ def match_ignore_key(
     )
 
 
-def ignored_matches() -> set[tuple]:
+def ignored_matches(action: str = "unlink") -> set[tuple]:
+    """Seerr↔library pairs the user decided on: 'unlink' blocks the pair, 'keep' confirms it."""
     with connect() as conn:
         rows = conn.execute(
             """
             SELECT media_type, seerr_tmdb_id, seerr_tvdb_id, library_tmdb_id, library_tvdb_id
-            FROM match_ignored
-            """
+            FROM match_ignored WHERE action = ?
+            """,
+            (action,),
         ).fetchall()
     return {
         match_ignore_key(

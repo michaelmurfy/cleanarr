@@ -1,5 +1,5 @@
 import { FormEvent, InputHTMLAttributes, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, IgnoredItem, IgnoredMatch, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
+import { api, IgnoredItem, LogItem, MatchDecision, MediaItem, Person, ServiceTest, ReviewMatch, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
 const PAGES = ["library", "unmatched", "users", "whitelist", "logs", "settings"] as const;
@@ -326,35 +326,6 @@ function FilterChips({ children }: { children: ReactNode }) {
   );
 }
 
-const MATCH_VIA_LABEL: Record<string, string> = {
-  tmdb: "Matched by TMDB",
-  tvdb: "Matched by TVDB",
-  imdb: "Matched by IMDb",
-  title: "Matched by title",
-  title_alt: "Matched by alternate title",
-};
-
-function matchViaLabel(via?: string | null) {
-  if (!via) return "";
-  return MATCH_VIA_LABEL[via] || `Matched by ${via}`;
-}
-
-// An id match is trustworthy, so only the guesses earn a chip on the card.
-const SHAKY_MATCH_CHIP: Record<string, string> = {
-  title: "Title match",
-  title_alt: "Alt title match",
-};
-
-function MatchChip({ item }: { item: MediaItem }) {
-  const via = item.seerr_match_via || "";
-  const label = SHAKY_MATCH_CHIP[via];
-  if (!label) return null;
-  const tip = item.seerr_tmdb_id && item.seerr_tmdb_id !== item.tmdb_id
-    ? `${matchViaLabel(via)} · Seerr TMDB ${item.seerr_tmdb_id} → library TMDB ${item.tmdb_id}`
-    : `${matchViaLabel(via)}. Unlink it if Seerr picked the wrong title.`;
-  return <span className="chip warn match-via" title={tip}>{label}</span>;
-}
-
 function parseStamp(value: string | number | null | undefined): number | null {
   if (value == null || value === "") return null;
   if (typeof value === "number") return value > 1_000_000_000_000 ? Math.floor(value / 1000) : value;
@@ -617,6 +588,7 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [page, setPage] = useState<Page>(pageFromLocation);
   const [sync, setSync] = useState<SyncStatus>({ status: "idle", message: "" });
   const [unmatchedCount, setUnmatchedCount] = useState(0);
+  const [unmatchedLoaded, setUnmatchedLoaded] = useState(false);
   const prevSync = useRef(sync.status);
 
   // replace: for redirects, so Back does not bounce straight back to the page we left.
@@ -639,6 +611,7 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   function refreshUnmatched() {
     api.unmatched({ page_size: "1" }).then((data) => {
       setUnmatchedCount(data.stats.actionable ?? data.stats.count ?? 0);
+      setUnmatchedLoaded(true);
     }).catch(() => undefined);
   }
 
@@ -648,8 +621,9 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   }, []);
 
   useEffect(() => {
-    if (!unmatchedCount && page === "unmatched") go("library", true);
-  }, [unmatchedCount, page, go]);
+    // Wait for the first count, or a direct link to /unmatched bounces before it loads.
+    if (unmatchedLoaded && !unmatchedCount && page === "unmatched") go("library", true);
+  }, [unmatchedLoaded, unmatchedCount, page, go]);
 
   useEffect(() => {
     if (sync.status !== "running") return;
@@ -894,31 +868,6 @@ function Library({
     }
   }
 
-  async function unlinkSeerr(item: MediaItem) {
-    if (!window.confirm(`Unlink Seerr from “${item.title}”? Cleanarr will not reattach this pair on the next sync.`)) return;
-    setError("");
-    try {
-      await api.unlinkSeerr(item.id, "Rejected from library");
-      await load(filters);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not unlink Seerr match");
-    }
-  }
-
-  function cardActions(item: MediaItem) {
-    const linked = Boolean(item.seerr_media_id || item.seerr_match_via || item.requested_by);
-    return (
-      <>
-        {linked ? (
-          <button type="button" className="linkish unlink-btn" onClick={() => unlinkSeerr(item)} title="Detach this Seerr request if it matched the wrong title">
-            Unlink Seerr
-          </button>
-        ) : null}
-        {item.whitelisted ? null : <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>}
-      </>
-    );
-  }
-
   const pages = stats.pages || 1;
 
   return (
@@ -1063,9 +1012,9 @@ function Library({
                       <div className="title-meta">
                         <span className={`type-chip ${item.media_type}`}>{item.media_type === "movie" ? "Movie" : "TV"}</span>
                         {availabilityLabel(item.availability) ? <span className={`chip ${item.availability === "requested" ? "pending" : "partial"}`}>{availabilityLabel(item.availability)}</span> : null}
-                        <MatchChip item={item} />
-                        {item.whitelisted ? <span className="chip ok" title={item.whitelist_reason}>Release Whitelisted</span> : null}
-                        <span className="desktop-only card-inline-actions">{cardActions(item)}</span>
+                        {item.whitelisted
+                          ? <span className="chip ok" title={item.whitelist_reason}>Release Whitelisted</span>
+                          : <button type="button" className="keep-btn desktop-only" onClick={() => keep(item)}>Whitelist</button>}
                       </div>
                       <div className="card-stats" aria-hidden="true">
                         <span>{item.rating != null ? `${Number(item.rating).toFixed(1)}/10` : "No rating"}</span>
@@ -1099,7 +1048,11 @@ function Library({
                 <td className="col-links" data-label="Links">
                   <div className="row-actions">
                     <ServiceLinks links={item.links} />
-                    <div className="mobile-only card-actions">{cardActions(item)}</div>
+                    {item.whitelisted ? null : (
+                      <div className="mobile-only card-actions">
+                        <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>
+                      </div>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -1171,6 +1124,86 @@ function Library({
   );
 }
 
+const MATCH_REVIEW_CHIP: Record<string, string> = {
+  title: "Title match",
+  title_alt: "Alt title match",
+};
+
+const MATCH_REVIEW_WHY: Record<string, string> = {
+  title: "Seerr had no id Radarr/Sonarr recognised, so it was matched on the name alone.",
+  title_alt: "Matched through one of this title's alternate names in the same year.",
+};
+
+function MatchReview({
+  items,
+  busy,
+  error,
+  onDecide,
+}: {
+  items: ReviewMatch[];
+  busy: boolean;
+  error: string;
+  onDecide: (item: ReviewMatch, action: "unlink" | "keep") => void;
+}) {
+  return (
+    <>
+      <p className="muted review-intro">
+        These Seerr requests were attached to a library title by name, not by id. Keep the ones that are right; unlink
+        the ones Seerr got wrong so the request stops showing against the wrong title.
+      </p>
+      {error && <p className="error">{error}</p>}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>In your library</th>
+              <th>Seerr request</th>
+              <th>Requested by</th>
+              <th className="col-why">Why it is here</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id} className="review-row">
+                <td data-label="Title">
+                  <strong>{item.title}</strong>
+                  {item.year ? <span className="muted title-year">({item.year})</span> : null}
+                  <div className="title-meta">
+                    <span className={`type-chip ${item.media_type}`}>{item.media_type === "tv" ? "TV" : "Movie"}</span>
+                    <span className="chip warn">{MATCH_REVIEW_CHIP[item.via] || "Name match"}</span>
+                  </div>
+                </td>
+                <td className="col-seerr" data-label="Seerr request">
+                  <span className="cell-value">{item.seerr_title || (item.seerr_tmdb_id ? `TMDB ${item.seerr_tmdb_id}` : "Untitled request")}</span>
+                </td>
+                <td className={`col-requested${item.requested_by ? "" : " cell-empty"}`} data-label="Requested by">
+                  <span className="cell-value"><Requester name={item.requested_by} at={item.requested_at} /></span>
+                </td>
+                <td className="muted col-why" data-label="Why"><span className="cell-value">{MATCH_REVIEW_WHY[item.via] || ""}</span></td>
+                <td className="col-links" data-label="Actions">
+                  <div className="row-actions">
+                    <button className="ghost" type="button" disabled={busy} onClick={() => onDecide(item, "keep")}>Looks right</button>
+                    <button className="danger-ghost" type="button" disabled={busy} onClick={() => onDecide(item, "unlink")}>Unlink</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!items.length && (
+              <tr>
+                <td colSpan={5} className="empty">
+                  <strong>Nothing to check</strong>
+                  <span>Every Seerr request is matched by id, or you have already checked it.</span>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 function Unmatched({
   sync,
   setSync,
@@ -1196,6 +1229,10 @@ function Unmatched({
   const [pending, setPending] = useState<null | { mode: "clear" | "add"; all: boolean; ids: number[] }>(null);
   const [ignored, setIgnored] = useState<IgnoredItem[]>([]);
   const [showIgnored, setShowIgnored] = useState(false);
+  const [reviews, setReviews] = useState<ReviewMatch[]>([]);
+  const [decisions, setDecisions] = useState<MatchDecision[]>([]);
+  const [showDecisions, setShowDecisions] = useState(false);
+  const firstLoad = useRef(true);
   const prevSync = useRef(sync.status);
 
   useEffect(() => {
@@ -1222,11 +1259,18 @@ function Unmatched({
       setPages(data.pages || 1);
       setSync(data.sync);
       onUnmatchedCount(data.stats.actionable ?? data.stats.count ?? 0);
-      if (data.stats.ignored) {
-        setIgnored((await api.ignoredUnmatched()).items);
-      } else {
-        setIgnored([]);
+      if (firstLoad.current) {
+        firstLoad.current = false;
+        if (kind === "seerr_missing" && !data.stats.seerr_missing && data.stats.review) setKind("review");
       }
+      const [ignoredData, reviewData, decisionData] = await Promise.all([
+        data.stats.ignored ? api.ignoredUnmatched() : Promise.resolve({ items: [] as IgnoredItem[] }),
+        data.stats.review ? api.reviewMatches() : Promise.resolve({ items: [] as ReviewMatch[] }),
+        data.stats.decided ? api.matchDecisions() : Promise.resolve({ items: [] as MatchDecision[] }),
+      ]);
+      setIgnored(ignoredData.items);
+      setReviews(reviewData.items);
+      setDecisions(decisionData.items);
     } finally {
       setLoading(false);
     }
@@ -1242,6 +1286,36 @@ function Unmatched({
       await load(page);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not ignore those titles");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decide(item: ReviewMatch, action: "unlink" | "keep") {
+    if (action === "unlink" && !window.confirm(
+      `Detach the Seerr request${item.seerr_title ? ` for “${item.seerr_title}”` : ""} from “${item.title}”? Cleanarr will not attach it again on later syncs.`,
+    )) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.decideMatch(item.id, action);
+      onUnmatchedCount(result.remaining);
+      await load(page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save that decision");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undoDecision(id: number) {
+    setBusy(true);
+    setError("");
+    try {
+      await api.undoMatchDecision(id);
+      await load(page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not undo that decision");
     } finally {
       setBusy(false);
     }
@@ -1341,7 +1415,15 @@ function Unmatched({
         <button className={`stat pending ${kind === "seerr_deleted" ? "active" : ""}`} onClick={() => { setKind(kind === "seerr_deleted" ? "" : "seerr_deleted"); setPage(1); }}>
           <span className="muted">Deleted in Seerr</span><b>{num(stats.seerr_deleted)}</b>
         </button>
+        {(stats.review ?? 0) > 0 || kind === "review" ? (
+          <button className={`stat stale ${kind === "review" ? "active" : ""}`} onClick={() => { setKind(kind === "review" ? "seerr_missing" : "review"); setPage(1); }}>
+            <span className="muted">Check matches</span><b>{num(stats.review)}</b>
+          </button>
+        ) : null}
       </div>
+      {kind === "review" ? (
+        <MatchReview items={reviews} busy={busy} error={error} onDecide={decide} />
+      ) : (<>
       <div className="filters">
         <ClearableField type="search" placeholder="Search unmatched titles" value={qInput} onValue={setQInput} enterKeyHint="search" />
         <select value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }}>
@@ -1451,7 +1533,8 @@ function Unmatched({
           </tbody>
         </table>
       </div>
-      {ignored.length > 0 && (
+      </>)}
+      {ignored.length > 0 && kind !== "review" && (
         <div className="ignored">
           <button className="ghost" type="button" onClick={() => setShowIgnored((current) => !current)}>
             {showIgnored ? "Hide" : "Show"} {ignored.length} ignored
@@ -1469,6 +1552,28 @@ function Unmatched({
           )}
         </div>
       )}
+      {decisions.length > 0 && kind === "review" && (
+        <div className="ignored">
+          <button className="ghost" type="button" onClick={() => setShowDecisions((current) => !current)}>
+            {showDecisions ? "Hide" : "Show"} {decisions.length} checked match{decisions.length === 1 ? "" : "es"}
+          </button>
+          {showDecisions && (
+            <ul className="ignored-list">
+              {decisions.map((item) => (
+                <li key={item.id}>
+                  <span>
+                    {item.library_title || `TMDB ${item.library_tmdb_id}`}
+                    {item.seerr_title ? <span className="muted"> · Seerr: {item.seerr_title}</span> : null}
+                  </span>
+                  <span className={`chip ${item.action === "keep" ? "ok" : "warn"}`}>{item.action === "keep" ? "Kept" : "Unlinked"}</span>
+                  <button className="ghost" type="button" disabled={busy} onClick={() => undoDecision(item.id)}>Undo</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {kind !== "review" && (
       <div className="pager">
         <span className="muted">{num(total)} listed</span>
         <div className="spacer" />
@@ -1476,7 +1581,8 @@ function Unmatched({
         <button className="ghost" disabled={page <= 1} onClick={() => { setPage((current) => current - 1); scrollResultsTop(); }}>Previous</button>
         <button className="ghost" disabled={page >= pages} onClick={() => { setPage((current) => current + 1); scrollResultsTop(); }}>Next</button>
       </div>
-      {selected.size > 0 && (
+      )}
+      {selected.size > 0 && kind !== "review" && (
         <div className="bulk">
           <strong>{selected.size} selected</strong>
           <span className="muted">Clear stale Seerr media, or add library titles Seerr is missing</span>
@@ -1895,7 +2001,6 @@ function Users({
 
 function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
   const [items, setItems] = useState<WhitelistItem[]>([]);
-  const [ignoredMatches, setIgnoredMatches] = useState<IgnoredMatch[]>([]);
   const [pattern, setPattern] = useState("");
   const [note, setNote] = useState("");
   const [matchType, setMatchType] = useState("title");
@@ -1903,9 +2008,7 @@ function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
   const [open, setOpen] = useState<Set<number>>(new Set());
 
   async function load() {
-    const [whitelist, ignored] = await Promise.all([api.whitelist(), api.ignoredMatches()]);
-    setItems(whitelist.items);
-    setIgnoredMatches(ignored.items);
+    setItems((await api.whitelist()).items);
   }
   useEffect(() => { load().catch(() => undefined); }, []);
 
@@ -2020,37 +2123,6 @@ function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
         })}
         {!items.length && <p className="muted">Nothing protected yet.</p>}
       </div>
-      {ignoredMatches.length > 0 && (
-        <div className="ignored-matches">
-          <h3>Ignored Seerr matches</h3>
-          <p className="muted page-intro">
-            These Seerr titles will not reattach to the listed library row after a sync. Use Unlink Seerr on a library card to add one.
-          </p>
-          <div className="list">
-            {ignoredMatches.map((item) => (
-              <div className="list-item" key={item.id}>
-                <div>
-                  <strong>{item.seerr_title || `TMDB ${item.seerr_tmdb_id}`}</strong>
-                  <div className="muted">
-                    → {item.library_title || `TMDB ${item.library_tmdb_id}`}
-                    {item.reason ? ` · ${item.reason}` : ""}
-                  </div>
-                </div>
-                <button
-                  className="ghost"
-                  type="button"
-                  onClick={async () => {
-                    await api.unignoreMatch(item.id);
-                    await load();
-                  }}
-                >
-                  Allow again
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -2064,19 +2136,6 @@ function GithubIcon() {
 }
 
 const GITHUB_REPO = "https://github.com/michaelmurfy/cleanarr";
-
-function About() {
-  return (
-    <section className="settings-section">
-      <h3>About</h3>
-      <div className="settings-actions about-links">
-        <a className="ghost link-button" href={GITHUB_REPO} target="_blank" rel="noreferrer">
-          <GithubIcon /> GitHub repository
-        </a>
-      </div>
-    </section>
-  );
-}
 
 function Settings() {
   const [values, setValues] = useState<Record<string, string>>({});
@@ -2099,7 +2158,9 @@ function Settings() {
   const [busy, setBusy] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
-  const savedFlashTimer = useRef<number | null>(null);  const services = [
+  const savedFlashTimer = useRef<number | null>(null);
+  const [baseline, setBaseline] = useState("");
+  const services = [
     { id: "tautulli", label: "Tautulli", urlKey: "tautulli_url" },
     { id: "tracearr", label: "Tracearr", urlKey: "tracearr_url" },
     { id: "jellystat", label: "Jellystat", urlKey: "jellystat_url" },
@@ -2176,7 +2237,37 @@ function Settings() {
     setAutoDeleteCap(next.auto_delete_max_per_run || "10");
     setAutoDeleteDays(next.auto_delete_stale_days || "365");
     if (data.maintenance) setMaintenance(data.maintenance);
+    setBaseline(snapshot({
+      values: next,
+      username: data.username,
+      password: "",
+      scheduleEnabled: (next.sync_schedule_enabled || "0") === "1",
+      interval: next.sync_interval_hours || "24",
+      autoDelete: (next.auto_delete_enabled || "0") === "1",
+      autoDeleteCap: next.auto_delete_max_per_run || "10",
+      autoDeleteDays: next.auto_delete_stale_days || "365",
+    }));
   }
+
+  function snapshot(state: {
+    values: Record<string, string>;
+    username: string;
+    password: string;
+    scheduleEnabled: boolean;
+    interval: string;
+    autoDelete: boolean;
+    autoDeleteCap: string;
+    autoDeleteDays: string;
+  }) {
+    const editable = Object.fromEntries(
+      Object.entries(state.values).filter(([key]) => !APP_SETTING_KEYS.includes(key)).sort(([a], [b]) => a.localeCompare(b)),
+    );
+    return JSON.stringify({ ...state, values: editable });
+  }
+
+  const dirty = Boolean(baseline) && snapshot({
+    values, username, password, scheduleEnabled, interval, autoDelete, autoDeleteCap, autoDeleteDays,
+  }) !== baseline;
 
   useEffect(() => {
     loadSettings().catch((err) => setError(err instanceof Error ? err.message : "Could not load settings"));
@@ -2351,16 +2442,42 @@ function Settings() {
     return { kind: "idle" as const, label: "Not tested yet", detail: "" };
   }
 
+  function settingRow(title: string, copy: string | null, control: ReactNode, extra = "") {
+    return (
+      <div className={`setting-row ${extra}`.trim()}>
+        <div className="setting-copy">
+          <strong>{title}</strong>
+          {copy ? <span className="muted">{copy}</span> : null}
+        </div>
+        <div className="setting-control">{control}</div>
+      </div>
+    );
+  }
+
+  function toggle(checked: boolean, onChange: (next: boolean) => void, label: string, disabled = false) {
+    return (
+      <label className="toggle" title={checked ? "On" : "Off"}>
+        <input type="checkbox" checked={checked} disabled={disabled} aria-label={label} onChange={(e) => onChange(e.target.checked)} />
+        <span className="toggle-track" />
+      </label>
+    );
+  }
+
   return (
-    <div className="page">
-      <h2>Settings</h2>
-      {hideSettings ? (
-        <p className="muted">
-          Service URLs, API keys, and login are hidden because <code>CLEANARR_HIDE_SETTINGS=1</code> is set. Edit <code>.env</code> and restart to change them.
-        </p>
-      ) : (
-        <p className="muted">Values present in the process environment are locked. API keys are never shown after they are saved.</p>
-      )}
+    <div className="page settings-page">
+      <div className="page-head">
+        <div>
+          <h2>Settings</h2>
+          <p className="page-intro muted">
+            {hideSettings
+              ? <>Service URLs, API keys, and login are hidden because <code>CLEANARR_HIDE_SETTINGS=1</code> is set. Edit <code>.env</code> and restart to change them.</>
+              : "Values set in the environment are locked. Saved API keys are never shown again."}
+          </p>
+        </div>
+        <a className="ghost link-button repo-link" href={GITHUB_REPO} target="_blank" rel="noreferrer" title="Cleanarr on GitHub">
+          <GithubIcon /> <span>GitHub</span>
+        </a>
+      </div>
       {defaultPassword && (
         <p className="warn-banner" role="alert">
           Cleanarr is still using the default password. Set a real one
@@ -2368,7 +2485,7 @@ function Settings() {
         </p>
       )}
       {error && <p className="error">{error}</p>}
-      {message && <p className="ok-message">{message}</p>}
+      {message && !savedFlash && <p className="ok-message">{message}</p>}
 
       {visibleServices.length > 0 && (
         <section className="settings-section">
@@ -2376,10 +2493,10 @@ function Settings() {
             <div>
               <h3>Connections</h3>
               <p className="muted">
-                {visibleServices.length} configured service{visibleServices.length === 1 ? "" : "s"}. Test that Cleanarr can reach each one.
+                {visibleServices.length} configured service{visibleServices.length === 1 ? "" : "s"}. Check Cleanarr can reach each one.
               </p>
             </div>
-            <button className="primary" type="button" disabled={testing} onClick={testAll}>{testing ? "Testing…" : "Test all"}</button>
+            <button className="ghost" type="button" disabled={testing} onClick={testAll}>{testing ? "Testing…" : "Test all"}</button>
           </div>
           <div className="test-list">
             {visibleServices.map((service) => {
@@ -2409,125 +2526,64 @@ function Settings() {
         </section>
       )}
 
-      <form onSubmit={save}>
+      <form onSubmit={save} className="settings-form">
         <section className="settings-section">
-          <div className="settings-head">
-            <div>
-              <h3>Automatic sync</h3>
-              <p className="muted">Refresh the library on a timer while Cleanarr is running.</p>
-            </div>
-            <div className="settings-save">
-              <button className="primary" type="submit" disabled={saving}>
-                {saving ? "Saving…" : savedFlash ? "Saved" : "Save"}
-              </button>
-              {savedFlash && <span className="ok-message" role="status">{message || "Saved."}</span>}
-            </div>
-          </div>
-          <div className="settings-controls">
-            <label className="toggle">
-              <input type="checkbox" checked={scheduleEnabled} onChange={(e) => setScheduleEnabled(e.target.checked)} />
-              <span className="toggle-track" />
-              <span>{scheduleEnabled ? "On" : "Off"}</span>
-            </label>
-            <select
-              className="control-select"
-              value={interval}
-              onChange={(e) => setIntervalHours(e.target.value)}
-              disabled={!scheduleEnabled}
-              aria-label="Sync interval"
-            >
-              <option value="1">Every hour</option>
-              <option value="3">Every 3 hours</option>
-              <option value="6">Every 6 hours</option>
-              <option value="12">Every 12 hours</option>
-              <option value="24">Every day</option>
-              <option value="48">Every 2 days</option>
-              <option value="168">Every week</option>
-            </select>
-          </div>
-
-          <div className="settings-subsection">
-            <div className="settings-head">
-              <div>
-                <h4>Automatic delete</h4>
-                <p className="muted">
-                  After each scheduled sync, remove stale titles from disk. Off by default. Whitelist always wins; Sync now never deletes.
-                </p>
-              </div>
-            </div>
-            <div className="settings-controls">
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={autoDelete}
-                  onChange={(e) => setAutoDelete(e.target.checked)}
-                  disabled={!scheduleEnabled}
-                />
-                <span className="toggle-track" />
-                <span>{autoDelete && scheduleEnabled ? "On" : "Off"}</span>
-              </label>
-              <select
-                className="control-select"
-                value={autoDeleteDays}
-                onChange={(e) => setAutoDeleteDays(e.target.value)}
-                disabled={!autoDelete || !scheduleEnabled}
-                aria-label="Unwatched cutoff"
-              >
-                <option value="90">Unwatched 90 days</option>
-                <option value="180">Unwatched 6 months</option>
-                <option value="365">Unwatched 1 year</option>
-                <option value="730">Unwatched 2 years</option>
-              </select>
-              <select
-                className="control-select"
-                value={autoDeleteCap}
-                onChange={(e) => setAutoDeleteCap(e.target.value)}
-                disabled={!autoDelete || !scheduleEnabled}
-                aria-label="Delete cap per run"
-              >
-                <option value="5">Up to 5 per run</option>
-                <option value="10">Up to 10 per run</option>
-                <option value="25">Up to 25 per run</option>
-                <option value="50">Up to 50 per run</option>
-              </select>
-            </div>
-            {autoDelete && scheduleEnabled && (
-              <p className="settings-note">
-                Skips a run if watch history looks untrustworthy (no source, a failed source, or zero plays).
-              </p>
+          <h3>Schedule</h3>
+          <p className="muted">Runs while Cleanarr is up. Sync now never deletes anything.</p>
+          <div className="setting-rows">
+            {settingRow(
+              "Automatic sync",
+              "Refresh the library on a timer.",
+              toggle(scheduleEnabled, setScheduleEnabled, "Automatic sync"),
+            )}
+            {settingRow(
+              "Sync every",
+              null,
+              <select className="control-select" value={interval} onChange={(e) => setIntervalHours(e.target.value)} disabled={!scheduleEnabled} aria-label="Sync interval">
+                <option value="1">Hour</option>
+                <option value="3">3 hours</option>
+                <option value="6">6 hours</option>
+                <option value="12">12 hours</option>
+                <option value="24">Day</option>
+                <option value="48">2 days</option>
+                <option value="168">Week</option>
+              </select>,
+              scheduleEnabled ? "" : "is-off",
+            )}
+            {settingRow(
+              "Automatic delete",
+              "After a scheduled sync, remove stale titles from disk. Whitelisted titles are always kept.",
+              toggle(autoDelete && scheduleEnabled, setAutoDelete, "Automatic delete", !scheduleEnabled),
+              scheduleEnabled ? "" : "is-off",
+            )}
+            {settingRow(
+              "Unwatched for",
+              null,
+              <select className="control-select" value={autoDeleteDays} onChange={(e) => setAutoDeleteDays(e.target.value)} disabled={!autoDelete || !scheduleEnabled} aria-label="Unwatched cutoff">
+                <option value="90">90 days</option>
+                <option value="180">6 months</option>
+                <option value="365">1 year</option>
+                <option value="730">2 years</option>
+              </select>,
+              autoDelete && scheduleEnabled ? "" : "is-off",
+            )}
+            {settingRow(
+              "Most per run",
+              null,
+              <select className="control-select" value={autoDeleteCap} onChange={(e) => setAutoDeleteCap(e.target.value)} disabled={!autoDelete || !scheduleEnabled} aria-label="Delete cap per run">
+                <option value="5">5 titles</option>
+                <option value="10">10 titles</option>
+                <option value="25">25 titles</option>
+                <option value="50">50 titles</option>
+              </select>,
+              autoDelete && scheduleEnabled ? "" : "is-off",
             )}
           </div>
-        </section>
-
-        <section className="settings-section">
-          <h3>Maintenance</h3>
-          <p className="muted">Clearing the library removes synced titles, users, and unmatched rows. Whitelist, login, and connection settings stay.</p>
-          <div className="maintenance-grid">
-            <div>
-              <span className="muted">Synced titles</span>
-              <b>{maintenance.library_count}</b>
-            </div>
-            <div>
-              <span className="muted">Users</span>
-              <b>{maintenance.people_count}</b>
-            </div>
-            <div>
-              <span className="muted">Unmatched</span>
-              <b>{maintenance.unmatched_count}</b>
-            </div>
-            <div>
-              <span className="muted">Poster cache</span>
-              <b>{maintenance.cache_files} · {bytes(maintenance.cache_bytes)}</b>
-            </div>
-          </div>
-          <div className="settings-actions">
-            <button className="ghost" type="button" disabled={Boolean(busy)} onClick={clearCache}>
-              {busy === "cache" ? "Clearing…" : "Clear poster cache"}
-            </button>
-            <button className="danger-ghost" type="button" disabled={Boolean(busy)} onClick={clearLibrary}>
-              {busy === "library" ? "Clearing…" : "Clear synced library"}
-            </button>
-          </div>
+          {autoDelete && scheduleEnabled && (
+            <p className="settings-note">
+              A run is skipped if watch history looks untrustworthy (no source, a failed source, or zero plays).
+            </p>
+          )}
         </section>
 
         {visibleGroups.map((group) => (
@@ -2538,33 +2594,64 @@ function Settings() {
           </section>
         ))}
         {!hideSettings && (
-        <section className="settings-section">
-          <h3>Account</h3>
-          <div className="form-grid">
-            <label>
-              Cleanarr username {usernameLocked && <span className="lock">env</span>}
-              <input value={username} disabled={usernameLocked} autoComplete="off" onChange={(e) => setUsername(e.target.value)} />
-            </label>
-            <label>
-              New password
-              <input type="password" value={password} disabled={usernameLocked} autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} placeholder="Leave blank to keep" />
-            </label>
-          </div>
-        </section>
+          <section className="settings-section">
+            <h3>Account</h3>
+            <div className="form-grid">
+              <label>
+                Cleanarr username {usernameLocked && <span className="lock">env</span>}
+                <input value={username} disabled={usernameLocked} autoComplete="off" onChange={(e) => setUsername(e.target.value)} />
+              </label>
+              <label>
+                New password
+                <input type="password" value={password} disabled={usernameLocked} autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} placeholder="Leave blank to keep" />
+              </label>
+            </div>
+          </section>
         )}
-        {!hideSettings && (
-          <div className="settings-actions">
-            <button className="primary" type="submit" disabled={saving}>
-              {saving ? "Saving…" : savedFlash ? "Saved" : "Save settings"}
-            </button>
-            {savedFlash && <span className="ok-message" role="status">{message || "Saved."}</span>}
-          </div>
-        )}
-        {hideSettings && savedFlash && (
-          <p className="ok-message" role="status">{message || "Saved."}</p>
-        )}
+
+        <div className={`save-bar${dirty || saving || savedFlash ? " show" : ""}`} aria-live="polite">
+          <span className={savedFlash && !dirty ? "ok-message" : "muted"}>
+            {saving ? "Saving…" : savedFlash && !dirty ? (message || "Saved.") : "You have unsaved changes"}
+          </span>
+          {dirty ? (
+            <div className="save-bar-actions">
+              <button className="ghost" type="button" disabled={saving} onClick={() => { setPassword(""); loadSettings().catch(() => undefined); }}>Discard</button>
+              <button className="primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+            </div>
+          ) : null}
+        </div>
       </form>
-      <About />
+
+      <section className="settings-section">
+        <h3>Maintenance</h3>
+        <p className="muted">Clearing the library removes synced titles, users, and unmatched rows. Whitelist, login, and connection settings stay.</p>
+        <div className="maintenance-grid">
+          <div>
+            <span className="muted">Synced titles</span>
+            <b>{num(maintenance.library_count)}</b>
+          </div>
+          <div>
+            <span className="muted">Users</span>
+            <b>{num(maintenance.people_count)}</b>
+          </div>
+          <div>
+            <span className="muted">Unmatched</span>
+            <b>{num(maintenance.unmatched_count)}</b>
+          </div>
+          <div>
+            <span className="muted">Poster cache</span>
+            <b>{maintenance.cache_files} · {bytes(maintenance.cache_bytes)}</b>
+          </div>
+        </div>
+        <div className="settings-actions">
+          <button className="ghost" type="button" disabled={Boolean(busy)} onClick={clearCache}>
+            {busy === "cache" ? "Clearing…" : "Clear poster cache"}
+          </button>
+          <button className="danger-ghost" type="button" disabled={Boolean(busy)} onClick={clearLibrary}>
+            {busy === "library" ? "Clearing…" : "Clear synced library"}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
