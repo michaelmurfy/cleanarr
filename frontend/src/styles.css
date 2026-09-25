@@ -1342,13 +1342,16 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     width: 100%;
   }
   .clearable input[type="search"] {
-    padding-left: 42px;
+    padding-left: 46px;
     background-position: 14px center;
   }
   .clear-field-btn {
     width: 32px;
     height: 32px;
     right: 8px;
+  }
+  .clear-field-btn:not(.show) {
+    visibility: hidden;
   }
   input.tick {
     width: 22px;
