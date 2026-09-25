@@ -8,8 +8,20 @@ def test_health_needs_no_auth(client):
 
 def test_protected_routes_reject_anonymous_callers(client):
     client.cookies.clear()
-    for path in ("/api/auth/me", "/api/settings", "/api/sync", "/api/whitelist", "/api/library"):
+    for path in (
+        "/api/auth/me",
+        "/api/settings",
+        "/api/sync",
+        "/api/whitelist",
+        "/api/library",
+        "/api/unmatched",
+        "/api/matches/review",
+        "/api/matches/decisions",
+    ):
         assert client.get(path).status_code == 401, path
+    for path in ("/api/matches/1/unlink", "/api/matches/1/keep"):
+        assert client.post(path, json={}).status_code == 401, path
+    assert client.delete("/api/matches/decisions/1").status_code == 401
 
 
 def test_login_rejects_bad_credentials(client):
@@ -184,3 +196,17 @@ def test_auto_delete_settings_round_trip_and_clamp(auth_client):
 
     auth_client.put("/api/settings", json={"values": {"auto_delete_enabled": "0"}})
     assert auth_client.get("/api/settings").json()["values"]["auto_delete_enabled"] == "0"
+
+
+def test_successful_probe_detail_is_redacted(auth_client, monkeypatch):
+    from app import main
+
+    class Leaky:
+        def test(self):
+            return "connected to http://radarr.local/api/v3?apikey=supersecret123"
+
+    monkeypatch.setitem(main.SERVICES, "radarr", lambda: Leaky())
+    body = auth_client.post("/api/settings/test", json={"service": "radarr"}).json()
+
+    assert body["ok"] is True
+    assert "supersecret123" not in body["detail"]

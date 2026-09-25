@@ -257,7 +257,8 @@ def _probe_service(name: str) -> dict:
             "ok": True,
             "configured": True,
             "message": "Passed",
-            "detail": detail,
+            # Success detail comes from the upstream app too, so it gets the same scrub.
+            "detail": redact(detail) if detail else "",
         }
     except Exception as exc:
         return {

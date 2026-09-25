@@ -9,6 +9,7 @@ from .art import remove_art
 from .auth import current_user
 from .db import connect, ignore_key
 from .logs import add_log
+from .security import redact
 from .services.clients import radarr, radarr_4k, seerr, sonarr
 from .services.http import ServiceError
 
@@ -288,7 +289,7 @@ def cleanup(payload: CleanupIn, request: Request):
                 )
             )
         except Exception as exc:
-            results.append({"title": item["title"], "ok": False, "error": str(exc)})
+            results.append({"title": item["title"], "ok": False, "error": redact(exc)})
             add_log(
                 f"Failed to delete {item['title']}: {exc}",
                 level="error",
@@ -341,7 +342,7 @@ def clear_stale_seerr(payload: ClearSeerrIn, request: Request):
                 detail={"tmdb_id": row.get("tmdb_id"), "seerr_media_id": row.get("seerr_media_id")},
             )
         except Exception as exc:
-            results.append({"title": title, "ok": False, "error": str(exc)})
+            results.append({"title": title, "ok": False, "error": redact(exc)})
             add_log(
                 f"Failed to clear Seerr record {title}: {exc}",
                 level="error",
@@ -399,7 +400,7 @@ def add_missing_seerr(payload: AddSeerrIn, request: Request):
                 detail={"media_type": row.get("media_type"), "tmdb_id": row.get("tmdb_id")},
             )
         except Exception as exc:
-            results.append({"title": title, "ok": False, "error": str(exc)})
+            results.append({"title": title, "ok": False, "error": redact(exc)})
             add_log(
                 f"Failed to add {title} to Seerr: {exc}",
                 level="error",
@@ -518,7 +519,7 @@ def _remaining(conn) -> int:
 
 
 class MatchDecisionIn(BaseModel):
-    reason: str = ""
+    reason: str = Field(default="", max_length=200)
 
 
 def _decide(item_id: int, action: str, reason: str, user: str) -> dict:
