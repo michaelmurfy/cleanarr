@@ -339,6 +339,22 @@ function matchViaLabel(via?: string | null) {
   return MATCH_VIA_LABEL[via] || `Matched by ${via}`;
 }
 
+// An id match is trustworthy, so only the guesses earn a chip on the card.
+const SHAKY_MATCH_CHIP: Record<string, string> = {
+  title: "Title match",
+  title_alt: "Alt title match",
+};
+
+function MatchChip({ item }: { item: MediaItem }) {
+  const via = item.seerr_match_via || "";
+  const label = SHAKY_MATCH_CHIP[via];
+  if (!label) return null;
+  const tip = item.seerr_tmdb_id && item.seerr_tmdb_id !== item.tmdb_id
+    ? `${matchViaLabel(via)} · Seerr TMDB ${item.seerr_tmdb_id} → library TMDB ${item.tmdb_id}`
+    : `${matchViaLabel(via)}. Unlink it if Seerr picked the wrong title.`;
+  return <span className="chip warn match-via" title={tip}>{label}</span>;
+}
+
 function parseStamp(value: string | number | null | undefined): number | null {
   if (value == null || value === "") return null;
   if (typeof value === "number") return value > 1_000_000_000_000 ? Math.floor(value / 1000) : value;
@@ -408,7 +424,7 @@ const SERVICE_META: Record<string, { label: string; short: string; className: st
 
 function ServiceLinks({ links }: { links?: Record<string, string> }) {
   const entries = Object.entries(SERVICE_META).filter(([key]) => links?.[key]);
-  if (!entries.length) return <span className="muted">–</span>;
+  if (!entries.length) return <span className="muted links-empty">–</span>;
   return (
     <div className="service-links" role="list">
       {entries.map(([key, meta]) => (
@@ -889,6 +905,20 @@ function Library({
     }
   }
 
+  function cardActions(item: MediaItem) {
+    const linked = Boolean(item.seerr_media_id || item.seerr_match_via || item.requested_by);
+    return (
+      <>
+        {linked ? (
+          <button type="button" className="linkish unlink-btn" onClick={() => unlinkSeerr(item)} title="Detach this Seerr request if it matched the wrong title">
+            Unlink Seerr
+          </button>
+        ) : null}
+        {item.whitelisted ? null : <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>}
+      </>
+    );
+  }
+
   const pages = stats.pages || 1;
 
   return (
@@ -1026,30 +1056,16 @@ function Library({
                   <div className="title-cell">
                     {item.art_url ? <img className="poster" src={item.art_url} alt="" /> : <div className="poster placeholder">No art</div>}
                     <div className="title-copy">
-                      <strong>{item.title}</strong> {item.year ? <span className="muted">({item.year})</span> : null}
+                      <div className="title-line">
+                        <strong>{item.title}</strong>
+                        {item.year ? <span className="muted title-year">({item.year})</span> : null}
+                      </div>
                       <div className="title-meta">
                         <span className={`type-chip ${item.media_type}`}>{item.media_type === "movie" ? "Movie" : "TV"}</span>
                         {availabilityLabel(item.availability) ? <span className={`chip ${item.availability === "requested" ? "pending" : "partial"}`}>{availabilityLabel(item.availability)}</span> : null}
-                        {item.seerr_match_via ? (
-                          <span
-                            className={`chip match-via${item.seerr_match_via.startsWith("title") ? " warn" : ""}`}
-                            title={
-                              item.seerr_tmdb_id && item.seerr_tmdb_id !== item.tmdb_id
-                                ? `${matchViaLabel(item.seerr_match_via)} · Seerr TMDB ${item.seerr_tmdb_id} → library TMDB ${item.tmdb_id}`
-                                : matchViaLabel(item.seerr_match_via)
-                            }
-                          >
-                            {matchViaLabel(item.seerr_match_via)}
-                          </span>
-                        ) : null}
-                        {item.whitelisted
-                          ? <span className="chip ok" title={item.whitelist_reason}>Release Whitelisted</span>
-                          : <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>}
-                        {(item.seerr_media_id || item.seerr_match_via || item.requested_by) ? (
-                          <button type="button" className="ghost unlink-btn" onClick={() => unlinkSeerr(item)}>
-                            Unlink Seerr
-                          </button>
-                        ) : null}
+                        <MatchChip item={item} />
+                        {item.whitelisted ? <span className="chip ok" title={item.whitelist_reason}>Release Whitelisted</span> : null}
+                        <span className="desktop-only card-inline-actions">{cardActions(item)}</span>
                       </div>
                       <div className="card-stats" aria-hidden="true">
                         <span>{item.rating != null ? `${Number(item.rating).toFixed(1)}/10` : "No rating"}</span>
@@ -1083,6 +1099,7 @@ function Library({
                 <td className="col-links" data-label="Links">
                   <div className="row-actions">
                     <ServiceLinks links={item.links} />
+                    <div className="mobile-only card-actions">{cardActions(item)}</div>
                   </div>
                 </td>
               </tr>
