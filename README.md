@@ -37,7 +37,9 @@ Open http://localhost:7585 and create a username and password. With no `.env`, C
 
 ### Unraid
 
-Community Apps files live in this repository: `ca_profile.xml` and `templates/cleanarr.xml`. After they are on `main`, submit the repository at [ca.unraid.net/submit/new](https://ca.unraid.net/submit/new). The template pulls `ghcr.io/michaelmurfy/cleanarr:latest`, maps port `7585`, and stores the database in `/mnt/user/appdata/cleanarr`. `PUID`/`PGID` default to Unraid's `99`/`100`. Leave username, password, and the session secret blank to create the account in the web UI. Keep the web UI on your LAN.
+Cleanarr is in Community Apps. Open the **Apps** tab, search for Cleanarr, and install the template that uses `ghcr.io/michaelmurfy/cleanarr`. Another app also named Cleanarr cleans duplicate files in Plex; that one is a different project.
+
+The template maps port `7585` and stores the database in `/mnt/user/appdata/cleanarr`. `PUID` and `PGID` default to Unraid's `99` and `100`. Leave the username, password, and session secret blank, then create the account in the web UI on first launch. Keep the web UI on your LAN. Updates are the usual Community Apps check for updates.
 
 ### 2. Connect your services
 
