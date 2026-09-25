@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <CommunityApplications>
   <Profile>
-    Templates for Cleanarr, a self-hosted tool that reclaims disk from Radarr and Sonarr using watch history from Tautulli, Tracearr, and Jellystat, plus request data from Seerr.
+    Cleanarr, maintained by Michael Murphy. A self-hosted tool that reclaims disk from Radarr and Sonarr using watch history from Tautulli, Tracearr, and Jellystat, plus request data from Seerr.
 
-    Support and source: https://github.com/michaelmurfy/cleanarr/issues
+    This repository, including the Unraid templates, metadata, and docs, is MIT licensed. Support and source: https://github.com/michaelmurfy/cleanarr/issues
   </Profile>
   <Icon>https://raw.githubusercontent.com/michaelmurfy/cleanarr/main/frontend/public/icon-512.png</Icon>
   <WebPage>https://github.com/michaelmurfy/cleanarr</WebPage>

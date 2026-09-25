@@ -134,3 +134,7 @@ pytest --cov=app
 ```
 
 CI runs the backend suite plus the frontend typecheck and build on every push and pull request. Docker images are built on PRs and pushed to GHCR from `main` and version tags.
+
+## License
+
+The repository is [MIT](LICENSE): the application source, Unraid templates, metadata, and docs. Upstream components inside the container image keep their own licenses.
