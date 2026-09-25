@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Cleanarr</Name>
+  <Repository>ghcr.io/michaelmurfy/cleanarr:latest</Repository>
+  <Registry>https://github.com/michaelmurfy/cleanarr/pkgs/container/cleanarr</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/michaelmurfy/cleanarr/issues</Support>
+  <Project>https://github.com/michaelmurfy/cleanarr</Project>
+  <Overview>Reclaim disk from Radarr and Sonarr. Cleanarr matches your library to watch history from Tautulli, Tracearr, and Jellystat, and to requests from Seerr, then lets you delete titles nobody is watching. Keep the web UI on your LAN or VPN. Do not publish port 7585 to the internet. On first launch, open the web UI and create a username and password. Connect Radarr, Sonarr, Seerr, and a watch-history source from Settings.</Overview>
+  <Category>MediaApp:Other Tools:Utilities</Category>
+  <WebUI>http://[IP]:[PORT:7585]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/michaelmurfy/cleanarr/main/templates/cleanarr.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/michaelmurfy/cleanarr/main/frontend/public/icon-512.png</Icon>
+  <ReadMe>https://raw.githubusercontent.com/michaelmurfy/cleanarr/main/README.md</ReadMe>
+  <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
+  <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional. Keep the web UI private.</Requires>
+  <Changes>Initial Community Apps template.</Changes>
+  <Date>2026-09-26</Date>
+  <License>MIT</License>
+  <Config Name="Web UI" Target="7585" Default="7585" Mode="tcp" Description="Container port for the Cleanarr web UI." Type="Port" Display="always" Required="true" Mask="false">7585</Config>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/cleanarr" Mode="rw" Description="Database, poster cache, and the generated session secret." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cleanarr</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID that owns /data. Unraid nobody is 99." Type="Variable" Display="always" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID that owns /data. Unraid users is 100." Type="Variable" Display="always" Required="false" Mask="false">100</Config>
+  <Config Name="Timezone" Target="TZ" Default="Etc/UTC" Mode="" Description="Timezone used for log timestamps." Type="Variable" Display="always" Required="false" Mask="false">Etc/UTC</Config>
+  <Config Name="Hide service settings" Target="CLEANARR_HIDE_SETTINGS" Default="0" Mode="" Description="Set to 1 to hide service URLs, API keys, and login from Settings. Leave at 0 to configure everything in the web UI." Type="Variable" Display="advanced" Required="false" Mask="false">0</Config>
+  <Config Name="Username" Target="CLEANARR_USERNAME" Default="" Mode="" Description="Optional. Locks the login username from the environment. Leave blank to create the account in the web UI on first launch." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Password" Target="CLEANARR_PASSWORD" Default="" Mode="" Description="Optional. Locks the login password from the environment. Leave blank to create the account in the web UI on first launch." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="Session secret" Target="CLEANARR_SECRET" Default="" Mode="" Description="Optional signing secret. Leave blank and Cleanarr stores a random secret in Appdata." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+</Container>

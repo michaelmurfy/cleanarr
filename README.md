@@ -33,6 +33,10 @@ Images are published to [`ghcr.io/michaelmurfy/cleanarr`](https://ghcr.io/michae
 
 Open http://localhost:7585 and create a username and password. With no `.env`, Cleanarr also generates a random session secret and keeps it in the data volume.
 
+### Unraid
+
+Community Apps files live in this repository: `ca_profile.xml` and `templates/cleanarr.xml`. After they are on `main`, submit the repository at [ca.unraid.net/submit/new](https://ca.unraid.net/submit/new). The template pulls `ghcr.io/michaelmurfy/cleanarr:latest`, maps port `7585`, and stores the database in `/mnt/user/appdata/cleanarr`. `PUID`/`PGID` default to Unraid's `99`/`100`. Leave username, password, and the session secret blank to create the account in the web UI. Keep the web UI on your LAN.
+
 ### 2. Connect your services
 
 Open **Settings** and enter URLs and API keys for the apps you use: Radarr (optional second instance for 4K), Sonarr, Seerr, and at least one watch-history source (Tautulli, Tracearr, Jellystat). Leave unused services blank, **Test** each row, then **Sync now**.

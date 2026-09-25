@@ -189,59 +189,46 @@ function SyncMeter({ sync }: { sync: SyncStatus }) {
   const finishedAt = sync.finished_at ?? null;
   const ago = whenSync(finishedAt);
   const exact = finishedAt ? new Date(finishedAt * 1000).toLocaleString() : "";
+  const progress = sync.percent != null ? Math.max(0, Math.min(100, sync.percent)) : null;
+  const counted = sync.total ? `${sync.current || 0} / ${sync.total}` : "";
 
+  let label = sync.message || "Synced";
+  let meta = ago || "Up to date";
   if (running) {
-    const label = sync.step || sync.message || "Syncing…";
-    const tip = [sync.message, sync.total ? `${sync.current || 0} / ${sync.total}` : ""]
-      .filter(Boolean)
-      .join(" · ");
-    return (
-      <div className="sync-meter live" title={tip || label}>
-        <div className="sync-meter-row">
-          <span className="spinner" aria-hidden="true" />
-          <div className="sync-meter-text">
-            <span className="sync-meter-label">{label}</span>
-            {sync.percent != null ? <span className="sync-meter-meta">{sync.percent}%</span> : null}
-          </div>
-        </div>
-        {sync.percent != null ? (
-          <div className="sync-meter-bar" aria-hidden="true">
-            <i style={{ width: `${Math.max(4, sync.percent)}%` }} />
-          </div>
-        ) : null}
-      </div>
-    );
+    label = sync.step || sync.message || "Syncing";
+    meta = progress != null ? `${progress}%${counted ? ` · ${counted}` : ""}` : counted || "In progress";
+  } else if (failed) {
+    label = "Sync failed";
+    meta = ago || "See logs";
+  } else if (!finishedAt && !sync.message) {
+    label = "Not synced yet";
+    meta = "Run Sync now";
   }
 
-  if (failed) {
-    return (
-      <div className="sync-meter fail" title={sync.message || "Sync failed"}>
-        <div className="sync-meter-text">
-          <span className="sync-meter-label">Sync failed</span>
-          <span className="sync-meter-meta">{ago || "See logs"}</span>
-        </div>
-      </div>
-    );
-  }
+  const tip = [running ? sync.message : failed ? sync.message : sync.message, exact, counted]
+    .filter(Boolean)
+    .join(" · ");
 
-  if (!finishedAt && !sync.message) {
-    return (
-      <div className="sync-meter">
-        <div className="sync-meter-text">
-          <span className="sync-meter-label">Not synced yet</span>
-          <span className="sync-meter-meta">Run Sync now</span>
-        </div>
-      </div>
-    );
-  }
-
-  const tip = [sync.message, exact].filter(Boolean).join(" · ");
   return (
-    <div className="sync-meter" title={tip || "Last sync"}>
-      <div className="sync-meter-text">
-        <span className="sync-meter-label">{sync.message || "Synced"}</span>
-        <span className="sync-meter-meta">{ago ? `Synced ${ago}` : "Synced"}</span>
-      </div>
+    <div
+      className={`sync-meter${running ? " live" : ""}${failed ? " fail" : ""}`}
+      title={tip || label}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="sync-meter-mark" aria-hidden="true">
+        {running ? <span className="spinner" /> : <span className={`sync-dot${failed ? " bad" : ""}`} />}
+      </span>
+      <span className="sync-meter-text">
+        <span className="sync-meter-label">{label}</span>
+        <span className="sync-meter-meta">{meta}</span>
+      </span>
+      <span className="sync-meter-bar" aria-hidden="true">
+        <i
+          className={running && progress == null ? "indet" : ""}
+          style={progress != null ? { width: `${Math.max(progress, running ? 4 : 0)}%` } : undefined}
+        />
+      </span>
     </div>
   );
 }

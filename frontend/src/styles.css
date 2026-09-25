@@ -76,9 +76,9 @@ a:hover { text-decoration: underline; }
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px 24px;
-  padding: 12px 28px;
+  gap: 16px;
+  height: 64px;
+  padding: 0 20px 0 22px;
   border-bottom: 1px solid var(--line);
   background: var(--bg);
   flex: none;
@@ -89,14 +89,14 @@ a:hover { text-decoration: underline; }
 .topbar-main {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 16px;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
 .topbar-aside {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   flex: none;
 }
 .topbar-account {
@@ -133,38 +133,59 @@ a:hover { text-decoration: underline; }
   display: flex;
   gap: 6px;
   min-width: 0;
+  flex: 1 1 auto;
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  padding-bottom: 1px;
 }
 .nav::-webkit-scrollbar { display: none; }
 .topbar-sync {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 0;
+  gap: 8px;
+  flex: none;
 }
 .sync-meter-desktop {
-  display: grid;
-  min-width: 0;
+  display: block;
+  flex: none;
 }
 .sync-strip {
   display: none;
 }
 .sync-meter {
+  position: relative;
   display: grid;
-  gap: 4px;
-  min-width: 0;
-  max-width: 220px;
-  padding: 4px 0;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  width: 212px;
+  height: 42px;
+  padding: 5px 10px 7px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: linear-gradient(180deg, #1a2130 0%, #141a26 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
 }
-.sync-meter-row {
+.sync-meter-mark {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
 }
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(127, 176, 105, 0.16);
+}
+.sync-dot.bad {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px rgba(227, 93, 85, 0.18);
+}
+.sync-meter .spinner { width: 13px; height: 13px; }
 .sync-meter-text {
   display: grid;
   gap: 1px;
@@ -173,6 +194,8 @@ a:hover { text-decoration: underline; }
 .sync-meter-label {
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -180,26 +203,51 @@ a:hover { text-decoration: underline; }
 }
 .sync-meter-meta {
   font-size: 11px;
+  line-height: 1.15;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sync-meter.live .sync-meter-label,
-.sync-meter.live .sync-meter-meta { color: var(--accent-2); }
+.sync-meter.live {
+  border-color: rgba(212, 160, 84, 0.45);
+  background: linear-gradient(180deg, #2a2418 0%, #1c1812 100%);
+}
+.sync-meter.live .sync-meter-label { color: var(--accent-2); }
+.sync-meter.fail {
+  border-color: rgba(227, 93, 85, 0.45);
+  background: linear-gradient(180deg, #2a1816 0%, #1c1211 100%);
+}
 .sync-meter.fail .sync-meter-label { color: #f0c0b8; }
 .sync-meter.fail .sync-meter-meta { color: #c48b84; }
 .sync-meter-bar {
-  height: 3px;
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 4px;
+  height: 2px;
   border-radius: 999px;
-  background: rgba(240, 210, 160, 0.16);
+  background: rgba(240, 210, 160, 0.12);
   overflow: hidden;
 }
 .sync-meter-bar i {
   display: block;
+  width: 0;
   height: 100%;
   border-radius: inherit;
   background: var(--accent);
+  transition: width 280ms ease;
+}
+.sync-meter.fail .sync-meter-bar { background: rgba(227, 93, 85, 0.2); }
+.sync-meter.fail .sync-meter-bar i { width: 100%; background: var(--danger); }
+.sync-meter-bar i.indet {
+  width: 38%;
+  animation: sync-indet 1.15s ease-in-out infinite;
+}
+@keyframes sync-indet {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
 }
 .nav button, .ghost, .primary, .danger {
   border: 1px solid var(--line);
@@ -1391,11 +1439,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
 }
 @media (hover: hover) { .link-button:hover { text-decoration: none; background: var(--bg-hover); } }
 .inline-icon { width: 15px; height: 15px; flex: none; }
-@media (max-width: 1100px) {
-  .topbar { flex-wrap: wrap; }
-  .topbar-main { width: 100%; }
-  .topbar-aside { width: 100%; justify-content: space-between; }
-  .sync-meter { max-width: 180px; }
+@media (max-width: 1200px) {
+  .account-name { display: none; }
   .col-watchers, .col-where, .col-why { display: none; }
 }
 @media (max-width: 900px) {
@@ -1433,10 +1478,9 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   /* Keeps sticky offsets (log day headings) lined up with the smaller padding. */
   .page { --page-top-padding: 16px; }
   .topbar {
-    padding: max(8px, var(--safe-top)) max(14px, var(--safe-left)) 10px max(14px, var(--safe-right));
-    gap: 10px;
-    flex-wrap: nowrap;
-    align-items: center;
+    height: calc(56px + var(--safe-top));
+    padding: var(--safe-top) max(12px, var(--safe-right)) 0 max(14px, var(--safe-left));
+    gap: 8px;
   }
   .topbar-main { width: auto; flex: none; }
   .nav-top { display: none; }
@@ -1456,17 +1500,16 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   .sync-meter-desktop { display: none; }
   .sync-strip {
     display: block;
-    padding: 0 max(14px, var(--safe-left)) 8px max(14px, var(--safe-right));
+    flex: none;
+    height: 52px;
+    padding: 6px max(12px, var(--safe-right)) 6px max(12px, var(--safe-left));
     border-bottom: 1px solid var(--line);
-    background: rgba(12, 16, 24, 0.92);
+    background: var(--bg);
   }
   .sync-strip .sync-meter {
-    max-width: none;
     width: 100%;
-    padding: 6px 0 2px;
+    height: 40px;
   }
-  .sync-meter { max-width: none; flex: 1; min-width: 0; }
-  .sync-meter-label { font-size: 12px; }
   .account-name { display: none; }
   .topbar-account .ghost, .sync-button { padding: 9px 12px; font-size: 13px; }
 
