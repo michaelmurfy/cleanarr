@@ -424,7 +424,7 @@ input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
   position: absolute;
   top: 0;
   bottom: 2px;
-  width: 28px;
+  width: 36px;
   z-index: 2;
   pointer-events: none;
   opacity: 0;
@@ -432,11 +432,11 @@ input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
 }
 .chip-scroller::before {
   left: 0;
-  background: linear-gradient(90deg, var(--bg), transparent);
+  background: linear-gradient(90deg, var(--bg) 35%, transparent);
 }
 .chip-scroller::after {
   right: 0;
-  background: linear-gradient(270deg, var(--bg), transparent);
+  background: linear-gradient(270deg, var(--bg) 35%, transparent);
 }
 .chip-scroller.fade-left::before,
 .chip-scroller.fade-right::after { opacity: 1; }
@@ -1329,11 +1329,12 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   input:not([type="checkbox"]):not([type="radio"]),
   select { padding: 11px 12px; min-height: 44px; }
   .control-select {
-    font-size: 15px;
+    font-size: 14px;
     height: 44px;
-    padding: 8px 12px;
+    padding: 10px 12px;
     min-width: 0;
     width: 100%;
+    line-height: 1.25;
   }
   input[type="search"] { min-width: 0; width: 100%; }
   .clearable {
@@ -1392,11 +1393,13 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   }
   .chip-scroller::before {
     left: max(14px, var(--safe-left));
-    background: linear-gradient(90deg, var(--bg) 20%, transparent);
+    width: 40px;
+    background: linear-gradient(90deg, var(--bg) 40%, transparent);
   }
   .chip-scroller::after {
     right: max(14px, var(--safe-right));
-    background: linear-gradient(270deg, var(--bg) 20%, transparent);
+    width: 40px;
+    background: linear-gradient(270deg, var(--bg) 40%, transparent);
   }
   .filters.chips {
     flex-wrap: nowrap;
