@@ -749,16 +749,23 @@ input.tick:disabled {
 }
 .small-btn { font-size: 13px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 7px; }
 .small-btn .spinner { width: 12px; height: 12px; }
+/* A header band that runs edge to edge inside the card, like a table header,
+   so its action reads as part of the card rather than floating above it. */
 .card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: -4px 0 8px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(44, 55, 80, 0.55);
+  margin: -18px -20px 6px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 13px 13px 0 0;
+  background: #141925;
   font-size: 13px;
 }
+.conn-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.conn-count { font-weight: 600; color: var(--text); }
+.conn-btn { min-width: 84px; justify-content: center; }
 .settings-page .settings-block {
   animation: rise 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -1774,6 +1781,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   .bulk button { flex: 1 1 auto; }
 
   .settings-card { padding: 14px 16px; }
+  .card-head { margin: -14px -16px 6px; padding: 10px 16px; }
+  .conn-btn { min-width: 72px; }
   tbody tr.skeleton-row td.sk-cell { display: none; }
   .settings-block { padding: 16px 0; }
   .settings-block-head h3 { font-size: 16px; }

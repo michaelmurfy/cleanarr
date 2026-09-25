@@ -2533,10 +2533,6 @@ function Settings() {
   const connectionResults = visibleServices.map((service) => testResult(service.id).kind);
   const passedCount = connectionResults.filter((kind) => kind === "ok").length;
   const failedCount = connectionResults.filter((kind) => kind === "fail").length;
-  const connectionSummary = [
-    passedCount ? `${passedCount} connected` : "",
-    failedCount ? `${failedCount} failed` : "",
-  ].filter(Boolean).join(" · ");
   const publicLinks = visibleGroups.find((group) => group.title === "Public links");
   const serviceGroups = visibleGroups.filter((group) => group.title !== "Public links");
 
@@ -2567,12 +2563,14 @@ function Settings() {
       {visibleServices.length > 0 && (
         <SettingsBlock title="Connections" copy="Check Cleanarr can reach each configured service.">
           <div className="card-head">
-            <span className="muted">
-              {visibleServices.length} service{visibleServices.length === 1 ? "" : "s"}
-              {connectionSummary ? ` · ${connectionSummary}` : ""}
-            </span>
-            <button className="ghost small-btn" type="button" disabled={testing} onClick={testAll}>
-              {testing ? <><span className="spinner" aria-hidden="true" /> Testing…</> : "Test all"}
+            <div className="conn-summary">
+              <span className="conn-count">{visibleServices.length} service{visibleServices.length === 1 ? "" : "s"}</span>
+              {passedCount ? <span className="chip ok">{passedCount} connected</span> : null}
+              {failedCount ? <span className="chip warn">{failedCount} failed</span> : null}
+              {!passedCount && !failedCount ? <span className="muted">Not tested yet</span> : null}
+            </div>
+            <button className="ghost small-btn conn-btn" type="button" disabled={testing} onClick={testAll}>
+              {testing ? <><span className="spinner" aria-hidden="true" /> Testing</> : "Test all"}
             </button>
           </div>
           <ul className="conn-list">
@@ -2587,7 +2585,7 @@ function Settings() {
                     <span key={result.kind} className="conn-state">{connectionLabel[result.kind]}</span>
                     {detail ? <span className="conn-detail">{detail}</span> : null}
                   </span>
-                  <button className="ghost small-btn" type="button" disabled={testing || result.kind === "running"} onClick={() => test(service.id)}>Test</button>
+                  <button className="ghost small-btn conn-btn" type="button" disabled={testing || result.kind === "running"} onClick={() => test(service.id)}>Test</button>
                 </li>
               );
             })}
