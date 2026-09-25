@@ -257,23 +257,31 @@ function ClearableField({
   className?: string;
 }) {
   const filled = Boolean(value);
+  const input = useRef<HTMLInputElement>(null);
   return (
     <div className={`clearable ${className}`.trim()}>
       <input
         {...props}
+        ref={input}
         value={value}
         onChange={(e) => onValue(e.target.value)}
       />
+      {/* Not `disabled` when empty: the global button:disabled rule would override its hidden state. */}
       <button
         type="button"
         className={`clear-field-btn${filled ? " show" : ""}`}
         tabIndex={filled ? 0 : -1}
         aria-label="Clear"
-        disabled={!filled}
-        onClick={() => onValue("")}
+        aria-hidden={!filled}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          onValue("");
+          input.current?.focus();
+        }}
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="10" cy="10" r="9" />
+          <path d="M7 7l6 6M13 7l-6 6" fill="none" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
       </button>
     </div>

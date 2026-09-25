@@ -375,34 +375,54 @@ select { cursor: pointer; }
   -webkit-appearance: none;
   appearance: none;
 }
+/* Centred with inset + margin rather than a transform, so no global button rule
+   (e.g. button:disabled resetting transform) can knock it off the text line. */
 .clear-field-btn {
   position: absolute;
-  right: 6px;
-  top: 50%;
-  width: 28px;
-  height: 28px;
-  margin: 0;
+  top: 0;
+  bottom: 0;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  margin: auto 0;
   padding: 0;
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: var(--muted);
+  color: #5d6880;
   display: grid;
-  place-content: center;
+  place-items: center;
   cursor: pointer;
-  opacity: 0;
-  transform: translate(4px, -50%) scale(0.72);
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 160ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), color 140ms ease, background 140ms ease;
+  transition: visibility 0s linear 200ms;
 }
+.clear-field-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  opacity: 0;
+  transform: scale(0.4) rotate(-90deg);
+  transition: opacity 140ms ease, transform 200ms ease, color 140ms ease;
+}
+.clear-field-btn svg circle { fill: currentColor; }
+.clear-field-btn svg path { stroke: var(--bg-elev); }
 .clear-field-btn.show {
-  opacity: 1;
-  transform: translate(0, -50%) scale(1);
+  visibility: visible;
   pointer-events: auto;
+  transition: visibility 0s;
 }
-.clear-field-btn svg { width: 14px; height: 14px; display: block; }
-.clear-field-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
-.clear-field-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.clear-field-btn.show svg {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+  transition: opacity 160ms ease, transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1), color 140ms ease;
+}
+.clear-field-btn:hover svg { color: #8a95ad; }
+.clear-field-btn:active svg { transform: scale(0.88); }
+.clear-field-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) {
+  .clear-field-btn svg, .clear-field-btn.show svg { transition: opacity 120ms ease; transform: none; }
+}
 input[type="search"] {
   min-width: 260px;
   padding-left: 40px;
@@ -1345,14 +1365,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     padding-left: 46px;
     background-position: 14px center;
   }
-  .clear-field-btn {
-    width: 32px;
-    height: 32px;
-    right: 8px;
-  }
-  .clear-field-btn:not(.show) {
-    visibility: hidden;
-  }
+  .clear-field-btn { width: 36px; height: 36px; right: 4px; }
+  .clear-field-btn svg { width: 20px; height: 20px; }
   input.tick {
     width: 22px;
     height: 22px;
