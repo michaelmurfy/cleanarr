@@ -4,7 +4,9 @@ Self-hosted UI to reclaim disk from Radarr and Sonarr. Watch history comes from 
 
 ## Security
 
-**Do not expose Cleanarr to the public internet.** Keep port `7585` on your LAN or behind a VPN: no port-forwarding, and no public reverse proxy without strong auth in front of it. Tailscale or WireGuard works well, as does binding to localhost and reaching it over an SSH tunnel.
+**Do not expose Cleanarr to the public internet.** Keep port `7585` on your LAN or behind a VPN: no port-forwarding, and no public reverse proxy without strong auth in front of it. Tailscale, WireGuard, or [Cloudflare Zero Trust](https://www.cloudflare.com/zero-trust/) (an Access application in front of the web UI) works well, as does binding to localhost and reaching it over an SSH tunnel.
+
+Cleanarr does not include analytics or telemetry. It does not phone home, and it does not send your library, watch history, or settings anywhere except the Radarr, Sonarr, Seerr, and watch-history services you configure. AI was used to help create this app. That assistance happened during development; the running container does not call an AI service.
 
 Built in:
 
