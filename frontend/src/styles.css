@@ -1339,6 +1339,25 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
    pinned to the bottom of the screen, and tables become cards. */
 @media (max-width: 720px) {
   :root { --bottom-nav-height: 58px; }
+  /* Keyboard up (set by useKeyboardAware): nothing pinned to the bottom may sit
+     over the field being typed into, and page padding stops reserving room for it. */
+  html.keyboard-open { --bottom-nav-height: 0px; }
+  html.keyboard-open .nav-bottom {
+    transform: translateY(100%);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 200ms ease, opacity 160ms ease, visibility 0s linear 200ms;
+  }
+  html.keyboard-open .bulk,
+  html.keyboard-open .save-bar.show {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  /* The page scrolls inside .page; stop iOS rubber-banding the whole document
+     when a field near the bottom takes focus. */
+  html, body { overscroll-behavior: none; }
   /* Keeps sticky offsets (log day headings) lined up with the smaller padding. */
   .page { --page-top-padding: 16px; }
   .topbar {
@@ -1386,6 +1405,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     right: 0;
     bottom: 0;
     z-index: 45;
+    transition: transform 200ms ease, opacity 160ms ease, visibility 0s;
     gap: 2px;
     padding: 6px max(4px, var(--safe-left)) calc(6px + var(--safe-bottom)) max(4px, var(--safe-right));
     background: rgba(12, 16, 24, 0.94);

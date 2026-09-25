@@ -265,6 +265,11 @@ function ClearableField({
         ref={input}
         value={value}
         onChange={(e) => onValue(e.target.value)}
+        onKeyDown={(e) => {
+          props.onKeyDown?.(e);
+          // Search filters as you type, so the keyboard's Search key only needs to put the keyboard away.
+          if (e.key === "Enter" && props.type === "search") e.currentTarget.blur();
+        }}
       />
       {/* Not `disabled` when empty: the global button:disabled rule would override its hidden state. */}
       <button
@@ -421,6 +426,7 @@ export function App() {
   const [user, setUser] = useState<string | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
   const [booting, setBooting] = useState(true);
+  useKeyboardAware();
 
   useEffect(() => {
     api.authStatus()
@@ -580,6 +586,90 @@ function Login({ onDone }: { onDone: (user: string) => void }) {
       </form>
     </div>
   );
+}
+
+const TEXT_FIELD = 'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]), textarea, select, [contenteditable="true"]';
+
+/* On a touch device the on-screen keyboard shrinks the visual viewport but not
+   the layout one, so bars pinned to the bottom ride up over the field being
+   typed into (iOS) or sit on top of it (Android). While a text field has focus
+   the html element gets .keyboard-open, which hides those bars; the focused
+   field is scrolled clear of the keyboard; and when typing ends, the page
+   shift iOS leaves behind is undone. */
+function useKeyboardAware() {
+  useEffect(() => {
+    const coarse = window.matchMedia?.("(pointer: coarse)");
+    const root = document.documentElement;
+    const vv = window.visualViewport;
+    let closeTimer = 0;
+    let revealTimer = 0;
+    let sawKeyboard = false;
+
+    const isField = (el: Element | null): el is HTMLElement =>
+      el instanceof HTMLElement && el.matches(TEXT_FIELD) && !(el as HTMLInputElement).disabled;
+
+    const setOpen = (open: boolean) => root.classList.toggle("keyboard-open", open);
+
+    const reveal = (el: HTMLElement) => {
+      window.clearTimeout(revealTimer);
+      // Wait for the keyboard to finish sliding up before measuring what it covers.
+      revealTimer = window.setTimeout(() => {
+        if (document.activeElement !== el) return;
+        const rect = el.getBoundingClientRect();
+        const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+        if (rect.bottom > visibleBottom - 16 || rect.top < 8) {
+          el.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+      }, 320);
+    };
+
+    const onFocusIn = (event: FocusEvent) => {
+      if (!coarse?.matches || !isField(event.target as Element)) return;
+      window.clearTimeout(closeTimer);
+      setOpen(true);
+      reveal(event.target as HTMLElement);
+    };
+
+    const onFocusOut = () => {
+      if (!coarse?.matches) return;
+      window.clearTimeout(closeTimer);
+      // Moving between fields fires focusout then focusin; wait so the bars do not flicker.
+      closeTimer = window.setTimeout(() => {
+        if (isField(document.activeElement)) return;
+        setOpen(false);
+        sawKeyboard = false;
+        if (window.scrollY || document.documentElement.scrollTop) window.scrollTo(0, 0);
+      }, 120);
+    };
+
+    // Android can hide the keyboard (back gesture) without blurring the field.
+    const onViewport = () => {
+      if (!vv || !coarse?.matches) return;
+      const keyboardUp = window.innerHeight - vv.height > 120;
+      if (keyboardUp) {
+        sawKeyboard = true;
+        if (isField(document.activeElement)) {
+          setOpen(true);
+          reveal(document.activeElement);
+        }
+      } else if (sawKeyboard) {
+        sawKeyboard = false;
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    vv?.addEventListener("resize", onViewport);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+      vv?.removeEventListener("resize", onViewport);
+      window.clearTimeout(closeTimer);
+      window.clearTimeout(revealTimer);
+      setOpen(false);
+    };
+  }, []);
 }
 
 function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {

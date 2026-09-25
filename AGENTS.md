@@ -45,7 +45,7 @@ CI (`.github/workflows/ci.yml`) runs backend pytest + frontend typecheck/build o
 
 **Icons.** `/favicon.ico`, the PNGs and the manifest must stay real bitmaps served from the bundle root without a session, and the catch-all must keep answering `HEAD`: dashboards like Heimdall probe for an icon with `HEAD` and skip an inline SVG or a data URI. FastAPI does not derive `HEAD` from `@app.get`, so the route spells both out. The files come from `frontend/scripts/generate-icons.py`, which redraws the `Logo.tsx` mark with no imaging library because CI installs none. Change the logo and rerun the script; `test_icons.py` redraws the small tiles and fails if the committed bytes drifted.
 
-**Mobile.** Below 720px the primary nav is the fixed bottom bar, not the header row; both render from `NAV_ITEMS`, so a new tab has to get a `NavIcon` case too. Keep inputs at 16px there (anything smaller makes iOS zoom on focus), keep fixed overlays clear of `--bottom-nav-height` and `--safe-bottom`, and keep modals above the bar (`z-index` 60 vs 45).
+**Mobile.** Below 720px the primary nav is the fixed bottom bar, not the header row; both render from `NAV_ITEMS`, so a new tab has to get a `NavIcon` case too. Keep inputs at 16px there (anything smaller makes iOS zoom on focus), keep fixed overlays clear of `--bottom-nav-height` and `--safe-bottom`, and keep modals above the bar (`z-index` 60 vs 45). While a text field has focus on a touch device, `useKeyboardAware` sets `html.keyboard-open`, which hides the bottom bar, the bulk bar and the save bar; anything new pinned to the bottom must hide under that class too.
 
 ## Style
 
