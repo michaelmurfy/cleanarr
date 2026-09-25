@@ -8,11 +8,12 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .actions import is_protected, is_stale_unwatched, matches_to_review, protect_reason, router as actions_router
+from .actions import Whitelist, is_stale_unwatched, matches_to_review, protect_reason, router as actions_router
 from .art import art_url, cache_stats, clear_cache, serve_art
 from .auth import (
     bootstrap_auth,
@@ -45,8 +46,19 @@ async def lifespan(app: FastAPI):
     yield
 
 
+class _GZip(GZipMiddleware):
+    """Compress JSON and the bundle; posters are already compressed images."""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path", "").startswith("/api/art/"):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
 app = FastAPI(title="Cleanarr", version=current_version(), lifespan=lifespan)
 app.add_middleware(SecurityMiddleware)
+app.add_middleware(_GZip, minimum_size=1024)
 app.include_router(actions_router, prefix="/api")
 
 
@@ -449,11 +461,11 @@ def unmatched(
             continue
         if q and q.lower() not in f"{row.get('title') or ''} {row.get('source') or ''} {row.get('requested_by') or ''}".lower():
             continue
-        items.append({**row, "links": _unmatched_links(row)})
+        items.append(row)
     total = len(items)
     start = (page - 1) * page_size
     return {
-        "items": items[start : start + page_size],
+        "items": [{**row, "links": _unmatched_links(row)} for row in items[start : start + page_size]],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -509,26 +521,23 @@ def library(
         ).fetchone()["n"] + len(matches_to_review(conn))
 
     cutoff = int(time.time()) - stale_days * 24 * 3600
+    rules = Whitelist(whitelist)
     pool = []
     for row in rows:
-        watchers = json.loads(row["watchers_json"] or "[]")
-        sources = json.loads(row["sources_json"] or "[]")
-        protected = is_protected(row["title"], row["media_type"], row["tmdb_id"], whitelist)
+        # Cheap column filters first; JSON is only decoded for rows that survive them.
+        if media_type and row["media_type"] != media_type:
+            continue
+        if requester_key and (row.get("requested_by") or "").strip().lower() != requester_key:
+            continue
+        protected = rules.match(row["title"], row["media_type"], row["tmdb_id"])
         item = {
             **row,
-            "watchers": watchers,
-            "sources": sources,
             "whitelisted": bool(protected),
             "whitelist_reason": protect_reason(protected) if protected else "",
-            "links": _links(row),
-            "art_url": art_url(row["id"], row.get("poster_url") or ""),
-            "poster_url": "",
         }
-        if media_type and item["media_type"] != media_type:
-            continue
-        if requester_key and (item.get("requested_by") or "").strip().lower() != requester_key:
-            continue
         if q:
+            watchers = json.loads(row["watchers_json"] or "[]")
+            item["watchers"] = watchers
             status = "requested not downloaded queued" if (item.get("availability") or "") == "requested" else (item.get("availability") or "")
             hay = f"{item['title']} {item['requested_by']} {' '.join(w['user'] for w in watchers)} {status}".lower()
             if q.lower() not in hay:
@@ -597,7 +606,21 @@ def library(
 
     total = len(items)
     start = (page - 1) * page_size
-    page_items = items[start : start + page_size]
+    # Links and poster URLs are only built for the rows actually returned.
+    bases = _link_bases()
+    for item in items[start : start + page_size]:
+        if "watchers" not in item:
+            item["watchers"] = json.loads(item.get("watchers_json") or "[]")
+        item["sources"] = json.loads(item.get("sources_json") or "[]")
+    page_items = [
+        {
+            **item,
+            "links": _links(item, bases),
+            "art_url": art_url(item["id"], item.get("poster_url") or ""),
+            "poster_url": "",
+        }
+        for item in items[start : start + page_size]
+    ]
     stats = {
         "count": total,
         "never_watched": never_watched,
@@ -645,45 +668,48 @@ def _unmatched_links(row: dict) -> dict:
     return links
 
 
-def _links(row: dict) -> dict:
+def _link_bases() -> dict[str, str]:
+    return {
+        "radarr": public_url("radarr", "radarr_url"),
+        "radarr_4k": public_url("radarr_4k", "radarr_4k_url"),
+        "sonarr": public_url("sonarr", "sonarr_url"),
+        "seerr": public_url("seerr", "seerr_url"),
+        "tautulli": public_url("tautulli", "tautulli_url"),
+        "jellystat": public_url("jellystat", "jellystat_url"),
+        "tracearr": public_url("tracearr", "tracearr_url"),
+    }
+
+
+def _links(row: dict, bases: dict[str, str] | None = None) -> dict:
+    bases = bases if bases is not None else _link_bases()
     links = {}
     if row["media_type"] == "movie":
-        if row.get("radarr_id"):
-            base = public_url("radarr", "radarr_url")
-            if base:
-                links["radarr"] = f"{base}/movie/{row['tmdb_id']}"
-        if row.get("radarr_4k_id"):
-            base = public_url("radarr_4k", "radarr_4k_url")
-            if base:
-                links["radarr_4k"] = f"{base}/movie/{row['tmdb_id']}"
-    if row["media_type"] == "tv" and row.get("sonarr_id"):
-        base = public_url("sonarr", "sonarr_url")
-        if base:
-            slug = row.get("title_slug") or str(row.get("sonarr_id") or "")
-            links["sonarr"] = f"{base}/series/{slug}"
+        if row.get("radarr_id") and bases["radarr"]:
+            links["radarr"] = f"{bases['radarr']}/movie/{row['tmdb_id']}"
+        if row.get("radarr_4k_id") and bases["radarr_4k"]:
+            links["radarr_4k"] = f"{bases['radarr_4k']}/movie/{row['tmdb_id']}"
+    if row["media_type"] == "tv" and row.get("sonarr_id") and bases["sonarr"]:
+        slug = row.get("title_slug") or str(row.get("sonarr_id") or "")
+        links["sonarr"] = f"{bases['sonarr']}/series/{slug}"
     # Only surface Seerr / history apps when we actually have a linked id. A
     # search fallback made every title look matched via Tautulli or Seerr.
-    seerr_base = public_url("seerr", "seerr_url")
     seerr_tmdb = int(row.get("seerr_tmdb_id") or 0) or (int(row.get("tmdb_id") or 0) if row.get("seerr_media_id") else 0)
-    if seerr_base and row.get("seerr_media_id") and seerr_tmdb:
+    if bases["seerr"] and row.get("seerr_media_id") and seerr_tmdb:
         kind = "movie" if row["media_type"] == "movie" else "tv"
-        links["seerr"] = f"{seerr_base}/{kind}/{seerr_tmdb}"
-    tautulli_base = public_url("tautulli", "tautulli_url")
-    if tautulli_base and row.get("tautulli_rating_key"):
-        links["tautulli"] = f"{tautulli_base}/info?rating_key={row['tautulli_rating_key']}"
-    jellystat_base = public_url("jellystat", "jellystat_url")
-    if jellystat_base and row.get("jellystat_item_id"):
-        links["jellystat"] = f"{jellystat_base}/libraries/item/{row['jellystat_item_id']}"
-    tracearr_base = public_url("tracearr", "tracearr_url")
+        links["seerr"] = f"{bases['seerr']}/{kind}/{seerr_tmdb}"
+    if bases["tautulli"] and row.get("tautulli_rating_key"):
+        links["tautulli"] = f"{bases['tautulli']}/info?rating_key={row['tautulli_rating_key']}"
+    if bases["jellystat"] and row.get("jellystat_item_id"):
+        links["jellystat"] = f"{bases['jellystat']}/libraries/item/{row['jellystat_item_id']}"
     sources = row.get("sources")
     if sources is None and row.get("sources_json"):
         try:
             sources = json.loads(row["sources_json"] or "[]")
         except Exception:
             sources = []
-    if tracearr_base and "tracearr" in (sources or []):
+    if bases["tracearr"] and "tracearr" in (sources or []):
         title = quote(str(row.get("title") or ""))
-        links["tracearr"] = f"{tracearr_base}/history?q={title}" if title else f"{tracearr_base}/history"
+        links["tracearr"] = f"{bases['tracearr']}/history?q={title}" if title else f"{bases['tracearr']}/history"
     return links
 
 

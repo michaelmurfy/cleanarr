@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -9,16 +10,55 @@ from .config import settings
 DB_PATH = Path(settings.data_dir) / "cleanarr.db"
 
 
+class _Connection(sqlite3.Connection):
+    """sqlite3's own context manager only commits; this one also closes, so
+    `with connect() as conn:` does not leave a file handle open per request."""
+
+    def __exit__(self, *exc: Any) -> Any:
+        try:
+            return super().__exit__(*exc)
+        finally:
+            self.close()
+
+
 def connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    # journal_mode=WAL is persistent in the file, so init_db sets it once.
+    conn = sqlite3.connect(DB_PATH, timeout=10, factory=_Connection)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
+# Settings are read constantly (every link, every service client, every session
+# check) but change rarely. One long-lived reader watches PRAGMA data_version,
+# which moves whenever any other connection commits, and the table is reloaded
+# only then; so a write from anywhere (sync thread, tests, raw SQL) is seen at once.
+_settings_lock = threading.Lock()
+_settings_conn: sqlite3.Connection | None = None
+_settings_version: int | None = None
+_settings_cache: dict[str, str] = {}
+
+
+def _settings_snapshot(key: str | None = None, default: str = "") -> Any:
+    """The whole table as a copy, or one value when `key` is given; either way
+    read under the lock, so no caller sees a cache that is mid-reload."""
+    global _settings_conn, _settings_version, _settings_cache
+    with _settings_lock:
+        if _settings_conn is None:
+            _settings_conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
+        version = _settings_conn.execute("PRAGMA data_version").fetchone()[0]
+        if version != _settings_version:
+            rows = _settings_conn.execute("SELECT key, value FROM settings").fetchall()
+            _settings_cache = dict(rows)
+            _settings_version = version
+        if key is not None:
+            return _settings_cache.get(key, default)
+        return dict(_settings_cache)
+
+
 def init_db() -> None:
     with connect() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS settings (
@@ -299,9 +339,7 @@ def ignored_matches(action: str = "unlink") -> set[tuple]:
 
 
 def get_setting(key: str, default: str = "") -> str:
-    with connect() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-        return row["value"] if row else default
+    return _settings_snapshot(key, default)
 
 
 def set_setting(key: str, value: str) -> None:
@@ -313,9 +351,7 @@ def set_setting(key: str, value: str) -> None:
 
 
 def all_settings() -> dict[str, str]:
-    with connect() as conn:
-        rows = conn.execute("SELECT key, value FROM settings").fetchall()
-    return {row["key"]: row["value"] for row in rows}
+    return _settings_snapshot()
 
 
 def clear_library() -> dict[str, int]:

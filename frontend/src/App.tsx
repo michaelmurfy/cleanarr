@@ -293,41 +293,121 @@ function ClearableField({
   );
 }
 
-function FilterChips({ children }: { children: ReactNode }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const [edge, setEdge] = useState({ left: false, right: false });
+const SORT_OPTIONS: [string, string][] = [
+  ["oldest", "Oldest first"],
+  ["requests", "Never watched first"],
+  ["last_watched", "Recently watched"],
+  ["rating", "Lowest rating"],
+  ["plays", "Play count"],
+  ["size", "Largest"],
+  ["title", "Title"],
+  ["requested", "Requested by"],
+];
 
-  const update = useCallback(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const max = el.scrollWidth - el.clientWidth;
-    setEdge({
-      left: el.scrollLeft > 4,
-      right: max > 4 && el.scrollLeft < max - 4,
-    });
-  }, []);
-
-  useEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    update();
-    el.addEventListener("scroll", update, { passive: true });
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
-    ro?.observe(el);
-    window.addEventListener("resize", update);
-    return () => {
-      el.removeEventListener("scroll", update);
-      ro?.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, [update, children]);
-
+function SortSelect({ value, onChange, className = "" }: { value: string; onChange: (next: string) => void; className?: string }) {
   return (
-    <div className={`chip-scroller${edge.left ? " fade-left" : ""}${edge.right ? " fade-right" : ""}`}>
-      <div className="filters chips" ref={scroller}>
-        {children}
+    <select className={className} value={value} onChange={(e) => onChange(e.target.value)} aria-label="Sort by">
+      {SORT_OPTIONS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+    </select>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg className="inline-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.5 4h11M4.5 8h7M6.5 12h3" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/* Everything that narrows the library, in one place. A dropdown panel under
+   the button on desktop; a bottom sheet with a backdrop on phones. */
+function FilterPanel({
+  filters,
+  patch,
+  count,
+  onReset,
+  onClose,
+}: {
+  filters: Filters;
+  patch: (partial: Partial<Filters>) => void;
+  count: number;
+  onReset: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const types: [string, string][] = [["", "All"], ["movie", "Movies"], ["tv", "TV"]];
+  return (
+    <>
+      <div className="filter-backdrop" onClick={onClose} />
+      <div className="filter-panel" role="dialog" aria-label="Filters">
+        <div className="filter-panel-head">
+          <strong>Filters</strong>
+          <button type="button" className="linkish" disabled={!count} onClick={onReset}>Reset</button>
+        </div>
+        <div className="filter-field">
+          <span>Type</span>
+          <div className="segmented" role="group" aria-label="Type">
+            {types.map(([value, label]) => (
+              <button key={label} type="button" aria-pressed={filters.mediaType === value} className={filters.mediaType === value ? "on" : ""} onClick={() => patch({ mediaType: value })}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="filter-field">
+          <span>Watch state</span>
+          <select value={filters.watched} onChange={(e) => patch({ watched: e.target.value })}>
+            <option value="">Any</option>
+            <option value="never">Never watched</option>
+            <option value="stale">Stale / unwatched</option>
+            <option value="watched">Watched</option>
+            <option value="requested">Requested</option>
+            <option value="protected">Protected</option>
+          </select>
+        </label>
+        <div className="filter-pair">
+          <label className="filter-field">
+            <span>Stale after</span>
+            <select value={filters.staleDays} onChange={(e) => patch({ staleDays: e.target.value })}>
+              <option value="90">90 days</option>
+              <option value="180">6 months</option>
+              <option value="365">1 year</option>
+              <option value="730">2 years</option>
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>Rating</span>
+            <select value={filters.maxRating} onChange={(e) => patch({ maxRating: e.target.value, sort: e.target.value ? "rating" : filters.sort })}>
+              <option value="">Any</option>
+              <option value="5">5 or below</option>
+              <option value="6">6 or below</option>
+              <option value="7">7 or below</option>
+            </select>
+          </label>
+        </div>
+        <label className="filter-field mobile-only-block">
+          <span>Sort by</span>
+          <SortSelect value={filters.sort} onChange={(sort) => patch({ sort })} />
+        </label>
+        <label className="filter-switch">
+          <span>
+            <strong>Hide pending requests</strong>
+            <span className="muted">Requested in Seerr but not downloaded yet</span>
+          </span>
+          <span className="toggle">
+            <input type="checkbox" checked={filters.hideUnprocessed} onChange={(e) => patch({ hideUnprocessed: e.target.checked })} />
+            <span className="toggle-track" />
+          </span>
+        </label>
+        <button type="button" className="primary filter-done" onClick={onClose}>Done</button>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -952,6 +1032,26 @@ function Library({
     setFilters((current) => ({ ...current, ...partial, page: partial.page ?? 1 }));
   }
 
+  const [panelOpen, setPanelOpen] = useState(false);
+  const closePanel = useCallback(() => setPanelOpen(false), []);
+  const filterCount = [
+    filters.mediaType !== defaultFilters.mediaType,
+    filters.watched !== defaultFilters.watched,
+    filters.maxRating !== defaultFilters.maxRating,
+    filters.staleDays !== defaultFilters.staleDays,
+    filters.hideUnprocessed !== defaultFilters.hideUnprocessed,
+  ].filter(Boolean).length;
+
+  function resetFilters() {
+    patch({
+      mediaType: defaultFilters.mediaType,
+      watched: defaultFilters.watched,
+      maxRating: defaultFilters.maxRating,
+      staleDays: defaultFilters.staleDays,
+      hideUnprocessed: defaultFilters.hideUnprocessed,
+    });
+  }
+
   function toggle(id: number) {
     setSelected((current) => {
       const next = new Set(current);
@@ -1004,7 +1104,7 @@ function Library({
   const pages = stats.pages || 1;
 
   return (
-    <div className={`page${loaded ? "" : " is-loading"}${flow ? " flow-in" : ""}`}>
+    <div className={`page library-page${loaded ? "" : " is-loading"}${flow ? " flow-in" : ""}`}>
       <div className="page-head">
         <div>
           <h2>Library</h2>
@@ -1035,26 +1135,7 @@ function Library({
           </button>
         )}
       </div>
-      <FilterChips>
-        <button className={`chip-btn ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>Never watched</button>
-        <button className={`chip-btn ${filters.watched === "stale" && filters.sort === "oldest" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>Oldest / stale</button>
-        <button className={`chip-btn pending ${filters.watched === "requested" ? "active" : ""}`} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title" })}>Requested</button>
-        <button className={`chip-btn ok ${filters.watched === "protected" ? "active" : ""}`} onClick={() => patch(filters.watched === "protected" ? { watched: "" } : { watched: "protected", maxRating: "", sort: "title" })}>Protected</button>
-        <button className={`chip-btn ${filters.sort === "rating" ? "active" : ""}`} onClick={() => patch({ sort: filters.sort === "rating" ? "oldest" : "rating" })}>Lowest rated</button>
-        <button className={`chip-btn ${filters.sort === "size" ? "active" : ""}`} onClick={() => patch({ sort: filters.sort === "size" ? "oldest" : "size" })}>Largest</button>
-        <button
-          className={`chip-btn ${filters.hideUnprocessed ? "active" : ""}`}
-          onClick={() => patch({ hideUnprocessed: !filters.hideUnprocessed })}
-        >
-          Hide unprocessed
-        </button>
-        {filters.requester ? (
-          <button className="chip-btn active" onClick={() => patch({ requester: "", sort: "oldest" })}>
-            Requester: {filters.requester} ×
-          </button>
-        ) : null}
-      </FilterChips>
-      <div className="filters library-filters">
+      <div className="library-toolbar">
         <ClearableField
           type="search"
           placeholder="Search titles and people"
@@ -1062,42 +1143,31 @@ function Library({
           onValue={setQInput}
           enterKeyHint="search"
         />
-        <select value={filters.mediaType} onChange={(e) => patch({ mediaType: e.target.value })}>
-          <option value="">Movies & TV</option>
-          <option value="movie">Movies</option>
-          <option value="tv">TV</option>
-        </select>
-        <select value={filters.watched} onChange={(e) => patch({ watched: e.target.value })}>
-          <option value="">Any watch state</option>
-          <option value="never">Never watched</option>
-          <option value="stale">Stale / unwatched</option>
-          <option value="watched">Watched</option>
-          <option value="requested">Requested</option>
-          <option value="protected">Protected</option>
-        </select>
-        <select value={filters.staleDays} onChange={(e) => patch({ staleDays: e.target.value })}>
-          <option value="90">Stale after 90 days</option>
-          <option value="180">Stale after 6 months</option>
-          <option value="365">Stale after 1 year</option>
-          <option value="730">Stale after 2 years</option>
-        </select>
-        <select value={filters.maxRating} onChange={(e) => patch({ maxRating: e.target.value, sort: e.target.value ? "rating" : filters.sort })}>
-          <option value="">Any rating</option>
-          <option value="5">Rated 5 or below</option>
-          <option value="6">Rated 6 or below</option>
-          <option value="7">Rated 7 or below</option>
-        </select>
-        <select value={filters.sort} onChange={(e) => patch({ sort: e.target.value })}>
-          <option value="oldest">Oldest first</option>
-          <option value="requests">Never watched first</option>
-          <option value="last_watched">Recently watched</option>
-          <option value="rating">Lowest rating</option>
-          <option value="plays">Play count</option>
-          <option value="size">Size</option>
-          <option value="title">Title</option>
-          <option value="requested">Requested by</option>
-        </select>
+        <SortSelect className="toolbar-sort" value={filters.sort} onChange={(sort) => patch({ sort })} />
+        <div className="filter-menu">
+          <button
+            type="button"
+            className={`ghost filter-toggle${filterCount ? " has-filters" : ""}${panelOpen ? " open" : ""}`}
+            aria-expanded={panelOpen}
+            aria-haspopup="dialog"
+            onClick={() => setPanelOpen((open) => !open)}
+          >
+            <FilterIcon /> <span className="filter-toggle-label">Filters</span>
+            {filterCount ? <span className="filter-count">{filterCount}</span> : null}
+          </button>
+          {panelOpen && (
+            <FilterPanel filters={filters} patch={patch} count={filterCount} onReset={resetFilters} onClose={closePanel} />
+          )}
+        </div>
       </div>
+      {filters.requester ? (
+        <div className="active-filters">
+          <button type="button" className="filter-pill" aria-label={`Remove requester filter ${filters.requester}`} onClick={() => patch({ requester: "", sort: "oldest" })}>
+            Requested by {filters.requester}
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+          </button>
+        </div>
+      ) : null}
       {error && <p className="error">{error}</p>}
       <div className="table-wrap">
         <table>
@@ -1204,8 +1274,11 @@ function Library({
                           ? "No library titles match the current whitelist."
                           : filters.watched === "requested"
                             ? "Nothing is sitting in a requested, not-downloaded state."
-                            : "No titles match these filters. Try Never watched or Oldest / stale."}
+                            : filterCount ? "No titles match these filters." : "No titles match this search."}
                       </span>
+                      {filterCount ? (
+                        <button type="button" className="ghost small-btn empty-action" onClick={resetFilters}>Reset filters</button>
+                      ) : null}
                     </>
                   )}
                 </td>
