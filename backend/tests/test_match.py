@@ -40,13 +40,18 @@ def test_resolve_prefers_ids():
     assert index.resolve("movie", tmdb_id=603) == ("movie", 603, 0)
     assert index.resolve("tv", tvdb_id=81189) == ("tv", 0, 81189)
     assert index.resolve("movie", imdb_id="TT0133093") == ("movie", 603, 0)
+    assert index.resolve_hit("movie", tmdb_id=603).via == "tmdb"
 
 
 def test_resolve_falls_back_to_title_and_year():
     index = _index()
+    # ±1 year still counts as the same release window.
     assert index.resolve("movie", titles=["Matrix"], year=2000) == ("movie", 603, 0)
     assert index.resolve("movie", titles=["The Matrix (1999)"]) == ("movie", 603, 0)
-    assert index.resolve("movie", titles=["The Matrix"], year=1980) == ("movie", 603, 0)
+    # A far-off year must not fall back to a yearless unique hit.
+    assert index.resolve("movie", titles=["The Matrix"], year=1980) is None
+    # No year at all may still hit the unique primary title.
+    assert index.resolve("movie", titles=["The Matrix"]) == ("movie", 603, 0)
 
 
 def test_resolve_wrong_media_type_or_unknown_title_misses():
@@ -67,4 +72,33 @@ def test_extra_titles_are_indexed():
     index = CatalogIndex()
     index.add(("movie", 7, 0), {"title": "Amélie", "year": 2001}, extra_titles=["Le Fabuleux Destin d'Amélie Poulain"])
     assert index.resolve("movie", titles=["Le Fabuleux Destin d Amelie Poulain"]) is None
-    assert index.resolve("movie", titles=["Le Fabuleux Destin d'Amélie Poulain"]) == ("movie", 7, 0)
+    # Alternate titles need an exact year — no yearless fallback.
+    assert index.resolve("movie", titles=["Le Fabuleux Destin d'Amélie Poulain"]) is None
+    assert index.resolve("movie", titles=["Le Fabuleux Destin d'Amélie Poulain"], year=2001) == ("movie", 7, 0)
+    assert index.resolve_hit("movie", titles=["Le Fabuleux Destin d'Amélie Poulain"], year=2001).via == "title_alt"
+
+
+def test_pinocchio_does_not_steal_guillermo_via_short_alt():
+    index = CatalogIndex()
+    index.add(
+        ("movie", 555604, 0),
+        {"title": "Guillermo del Toro's Pinocchio", "year": 2022},
+        extra_titles=["Pinocchio"],
+    )
+    # Different Pinocchio with a different year must not attach.
+    assert index.resolve("movie", titles=["Pinocchio"], year=1940) is None
+    # Yearless query must not use the short alternate form either.
+    assert index.resolve("movie", titles=["Pinocchio"]) is None
+    # Same year + alternate title is still a valid hit.
+    assert index.resolve("movie", titles=["Pinocchio"], year=2022) == ("movie", 555604, 0)
+
+
+def test_battlestar_years_do_not_cross_match():
+    index = CatalogIndex()
+    index.add(("tv", 1978, 0), {"title": "Battlestar Galactica", "year": 1978})
+    index.add(("tv", 1972, 0), {"title": "Battlestar Galactica", "year": 2004})
+    assert index.resolve("tv", titles=["Battlestar Galactica"]) is None
+    assert index.resolve("tv", titles=["Battlestar Galactica"], year=1978) == ("tv", 1978, 0)
+    assert index.resolve("tv", titles=["Battlestar Galactica"], year=2004) == ("tv", 1972, 0)
+    # Far year does not collapse onto either show.
+    assert index.resolve("tv", titles=["Battlestar Galactica"], year=2010) is None

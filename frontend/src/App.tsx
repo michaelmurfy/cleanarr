@@ -1,5 +1,5 @@
-import { FormEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, IgnoredItem, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
+import { FormEvent, InputHTMLAttributes, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, IgnoredItem, IgnoredMatch, LogItem, MediaItem, Person, ServiceTest, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
 const PAGES = ["library", "unmatched", "users", "whitelist", "logs", "settings"] as const;
@@ -244,6 +244,91 @@ function SyncMeter({ sync }: { sync: SyncStatus }) {
       </div>
     </div>
   );
+}
+
+function ClearableField({
+  value,
+  onValue,
+  className = "",
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange"> & {
+  value: string;
+  onValue: (next: string) => void;
+  className?: string;
+}) {
+  const filled = Boolean(value);
+  return (
+    <div className={`clearable ${className}`.trim()}>
+      <input
+        {...props}
+        value={value}
+        onChange={(e) => onValue(e.target.value)}
+      />
+      <button
+        type="button"
+        className={`clear-field-btn${filled ? " show" : ""}`}
+        tabIndex={filled ? 0 : -1}
+        aria-label="Clear"
+        disabled={!filled}
+        onClick={() => onValue("")}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function FilterChips({ children }: { children: ReactNode }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [edge, setEdge] = useState({ left: false, right: false });
+
+  const update = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setEdge({
+      left: el.scrollLeft > 4,
+      right: max > 4 && el.scrollLeft < max - 4,
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", update);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [update, children]);
+
+  return (
+    <div className={`chip-scroller${edge.left ? " fade-left" : ""}${edge.right ? " fade-right" : ""}`}>
+      <div className="filters chips" ref={scroller}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const MATCH_VIA_LABEL: Record<string, string> = {
+  tmdb: "Matched by TMDB",
+  tvdb: "Matched by TVDB",
+  imdb: "Matched by IMDb",
+  title: "Matched by title",
+  title_alt: "Matched by alternate title",
+};
+
+function matchViaLabel(via?: string | null) {
+  if (!via) return "";
+  return MATCH_VIA_LABEL[via] || `Matched by ${via}`;
 }
 
 function parseStamp(value: string | number | null | undefined): number | null {
@@ -578,7 +663,9 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
         </div>
         <div className="topbar-aside">
           <div className="topbar-sync">
-            <SyncMeter sync={sync} />
+            <div className="sync-meter-desktop">
+              <SyncMeter sync={sync} />
+            </div>
             <button
               className="primary sync-button"
               disabled={sync.status === "running"}
@@ -593,6 +680,9 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
           </div>
         </div>
       </header>
+      <div className="sync-strip" aria-live="polite">
+        <SyncMeter sync={sync} />
+      </div>
       {page === "library" && <Library sync={sync} setSync={setSync} unmatchedCount={unmatchedCount} onOpenUnmatched={() => go("unmatched")} onUnmatchedCount={setUnmatchedCount} />}
       {page === "unmatched" && unmatchedCount > 0 && (
         <Unmatched sync={sync} setSync={setSync} onUnmatchedCount={(count) => {
@@ -780,6 +870,17 @@ function Library({
     }
   }
 
+  async function unlinkSeerr(item: MediaItem) {
+    if (!window.confirm(`Unlink Seerr from “${item.title}”? Cleanarr will not reattach this pair on the next sync.`)) return;
+    setError("");
+    try {
+      await api.unlinkSeerr(item.id, "Rejected from library");
+      await load(filters);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not unlink Seerr match");
+    }
+  }
+
   const pages = stats.pages || 1;
 
   return (
@@ -814,7 +915,7 @@ function Library({
           </button>
         )}
       </div>
-      <div className="filters chips">
+      <FilterChips>
         <button className={`chip-btn ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>Never watched</button>
         <button className={`chip-btn ${filters.watched === "stale" && filters.sort === "oldest" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>Oldest / stale</button>
         <button className={`chip-btn pending ${filters.watched === "requested" ? "active" : ""}`} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title" })}>Requested</button>
@@ -832,9 +933,15 @@ function Library({
             Requester: {filters.requester} ×
           </button>
         ) : null}
-      </div>
+      </FilterChips>
       <div className="filters">
-        <input type="search" placeholder="Search title, requester, watcher, requested" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <ClearableField
+          type="search"
+          placeholder="Search title, requester, watcher, requested"
+          value={qInput}
+          onValue={setQInput}
+          enterKeyHint="search"
+        />
         <select value={filters.mediaType} onChange={(e) => patch({ mediaType: e.target.value })}>
           <option value="">Movies & TV</option>
           <option value="movie">Movies</option>
@@ -915,9 +1022,26 @@ function Library({
                       <div className="title-meta">
                         <span className={`type-chip ${item.media_type}`}>{item.media_type === "movie" ? "Movie" : "TV"}</span>
                         {availabilityLabel(item.availability) ? <span className={`chip ${item.availability === "requested" ? "pending" : "partial"}`}>{availabilityLabel(item.availability)}</span> : null}
+                        {item.seerr_match_via ? (
+                          <span
+                            className={`chip match-via${item.seerr_match_via.startsWith("title") ? " warn" : ""}`}
+                            title={
+                              item.seerr_tmdb_id && item.seerr_tmdb_id !== item.tmdb_id
+                                ? `${matchViaLabel(item.seerr_match_via)} · Seerr TMDB ${item.seerr_tmdb_id} → library TMDB ${item.tmdb_id}`
+                                : matchViaLabel(item.seerr_match_via)
+                            }
+                          >
+                            {matchViaLabel(item.seerr_match_via)}
+                          </span>
+                        ) : null}
                         {item.whitelisted
                           ? <span className="chip ok" title={item.whitelist_reason}>Release Whitelisted</span>
                           : <button type="button" className="keep-btn" onClick={() => keep(item)}>Whitelist</button>}
+                        {(item.seerr_media_id || item.seerr_match_via || item.requested_by) ? (
+                          <button type="button" className="ghost unlink-btn" onClick={() => unlinkSeerr(item)}>
+                            Unlink Seerr
+                          </button>
+                        ) : null}
                       </div>
                       <div className="card-stats" aria-hidden="true">
                         <span>{item.rating != null ? `${Number(item.rating).toFixed(1)}/10` : "No rating"}</span>
@@ -1194,7 +1318,7 @@ function Unmatched({
         </button>
       </div>
       <div className="filters">
-        <input type="search" placeholder="Search unmatched titles" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <ClearableField type="search" placeholder="Search unmatched titles" value={qInput} onValue={setQInput} enterKeyHint="search" />
         <select value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }}>
           <option value="">All gaps</option>
           <option value="seerr_missing">Stale in Seerr</option>
@@ -1556,7 +1680,7 @@ function Logs({ sync }: { sync: SyncStatus }) {
         </button>
       </div>
       <div className="filters">
-        <input type="search" placeholder="Search logs" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <ClearableField type="search" placeholder="Search logs" value={qInput} onValue={setQInput} enterKeyHint="search" />
         <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }} aria-label="Category">
           <option value="">All categories</option>
           <option value="sync">Sync</option>
@@ -1679,7 +1803,7 @@ function Users({
         </button>
       </div>
       <div className="filters">
-        <input type="search" placeholder="Search name, username, email" value={qInput} onChange={(e) => setQInput(e.target.value)} />
+        <ClearableField type="search" placeholder="Search name, username, email" value={qInput} onValue={setQInput} enterKeyHint="search" />
         <select value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="requests">Most requests</option>
           <option value="library">Most library items</option>
@@ -1746,6 +1870,7 @@ function Users({
 
 function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
   const [items, setItems] = useState<WhitelistItem[]>([]);
+  const [ignoredMatches, setIgnoredMatches] = useState<IgnoredMatch[]>([]);
   const [pattern, setPattern] = useState("");
   const [note, setNote] = useState("");
   const [matchType, setMatchType] = useState("title");
@@ -1753,7 +1878,9 @@ function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
   const [open, setOpen] = useState<Set<number>>(new Set());
 
   async function load() {
-    setItems((await api.whitelist()).items);
+    const [whitelist, ignored] = await Promise.all([api.whitelist(), api.ignoredMatches()]);
+    setItems(whitelist.items);
+    setIgnoredMatches(ignored.items);
   }
   useEffect(() => { load().catch(() => undefined); }, []);
 
@@ -1794,7 +1921,7 @@ function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
       <p className="page-intro muted">
         Title matches are case-insensitive substrings. “Stargate” or “Back to the Future” protects the franchise. You can also whitelist a title straight from the library list.
       </p>
-      <form className="filters" onSubmit={add}>
+      <form className="filters whitelist-form" onSubmit={add}>
         <select value={matchType} onChange={(e) => setMatchType(e.target.value)}>
           <option value="title">Title contains</option>
           <option value="id">TMDB id</option>
@@ -1804,8 +1931,14 @@ function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
           <option value="movie">Movie</option>
           <option value="tv">TV</option>
         </select>
-        <input value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder={matchType === "id" ? "157336" : "Stargate"} required />
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why keep it?" />
+        <ClearableField
+          value={pattern}
+          onValue={setPattern}
+          placeholder={matchType === "id" ? "157336" : "Stargate"}
+          required
+          aria-label="Pattern"
+        />
+        <ClearableField value={note} onValue={setNote} placeholder="Why keep it?" aria-label="Note" />
         <button className="primary" type="submit">Protect</button>
       </form>
       <div className="list">
@@ -1862,6 +1995,37 @@ function Whitelist({ onOpenLibrary }: { onOpenLibrary: (q: string) => void }) {
         })}
         {!items.length && <p className="muted">Nothing protected yet.</p>}
       </div>
+      {ignoredMatches.length > 0 && (
+        <div className="ignored-matches">
+          <h3>Ignored Seerr matches</h3>
+          <p className="muted page-intro">
+            These Seerr titles will not reattach to the listed library row after a sync. Use Unlink Seerr on a library card to add one.
+          </p>
+          <div className="list">
+            {ignoredMatches.map((item) => (
+              <div className="list-item" key={item.id}>
+                <div>
+                  <strong>{item.seerr_title || `TMDB ${item.seerr_tmdb_id}`}</strong>
+                  <div className="muted">
+                    → {item.library_title || `TMDB ${item.library_tmdb_id}`}
+                    {item.reason ? ` · ${item.reason}` : ""}
+                  </div>
+                </div>
+                <button
+                  className="ghost"
+                  type="button"
+                  onClick={async () => {
+                    await api.unignoreMatch(item.id);
+                    await load();
+                  }}
+                >
+                  Allow again
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

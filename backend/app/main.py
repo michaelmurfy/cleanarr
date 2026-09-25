@@ -655,24 +655,27 @@ def _links(row: dict) -> dict:
         if base:
             slug = row.get("title_slug") or str(row.get("sonarr_id") or "")
             links["sonarr"] = f"{base}/series/{slug}"
+    # Only surface Seerr / history apps when we actually have a linked id. A
+    # search fallback made every title look matched via Tautulli or Seerr.
     seerr_base = public_url("seerr", "seerr_url")
-    if seerr_base and row.get("tmdb_id"):
+    seerr_tmdb = int(row.get("seerr_tmdb_id") or 0) or (int(row.get("tmdb_id") or 0) if row.get("seerr_media_id") else 0)
+    if seerr_base and row.get("seerr_media_id") and seerr_tmdb:
         kind = "movie" if row["media_type"] == "movie" else "tv"
-        links["seerr"] = f"{seerr_base}/{kind}/{row['tmdb_id']}"
+        links["seerr"] = f"{seerr_base}/{kind}/{seerr_tmdb}"
     tautulli_base = public_url("tautulli", "tautulli_url")
-    if tautulli_base:
-        if row.get("tautulli_rating_key"):
-            links["tautulli"] = f"{tautulli_base}/info?rating_key={row['tautulli_rating_key']}"
-        elif row.get("title"):
-            links["tautulli"] = f"{tautulli_base}/search?query={quote(str(row['title']))}"
+    if tautulli_base and row.get("tautulli_rating_key"):
+        links["tautulli"] = f"{tautulli_base}/info?rating_key={row['tautulli_rating_key']}"
     jellystat_base = public_url("jellystat", "jellystat_url")
-    if jellystat_base:
-        if row.get("jellystat_item_id"):
-            links["jellystat"] = f"{jellystat_base}/libraries/item/{row['jellystat_item_id']}"
-        elif row.get("title"):
-            links["jellystat"] = f"{jellystat_base}/libraries"
+    if jellystat_base and row.get("jellystat_item_id"):
+        links["jellystat"] = f"{jellystat_base}/libraries/item/{row['jellystat_item_id']}"
     tracearr_base = public_url("tracearr", "tracearr_url")
-    if tracearr_base:
+    sources = row.get("sources")
+    if sources is None and row.get("sources_json"):
+        try:
+            sources = json.loads(row["sources_json"] or "[]")
+        except Exception:
+            sources = []
+    if tracearr_base and "tracearr" in (sources or []):
         title = quote(str(row.get("title") or ""))
         links["tracearr"] = f"{tracearr_base}/history?q={title}" if title else f"{tracearr_base}/history"
     return links

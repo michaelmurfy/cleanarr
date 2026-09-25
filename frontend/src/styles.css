@@ -145,6 +145,13 @@ a:hover { text-decoration: underline; }
   gap: 12px;
   min-width: 0;
 }
+.sync-meter-desktop {
+  display: grid;
+  min-width: 0;
+}
+.sync-strip {
+  display: none;
+}
 .sync-meter {
   display: grid;
   gap: 4px;
@@ -342,15 +349,102 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 input:focus-visible, select:focus-visible { outline: none; }
 input::placeholder { color: #6f7b93; }
 select { cursor: pointer; }
-input[type="search"] {
-  min-width: 260px;
-  padding-left: 34px;
+.clearable {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+.clearable input {
+  width: 100%;
+  min-width: 0;
+  padding-right: 38px;
+}
+.clearable input[type="search"] {
+  min-width: 0;
+  /* Extra room so the spyglass never sits on the placeholder. */
+  padding-left: 40px;
+  padding-right: 38px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa6bd' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M16.5 16.5 21 21'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: 10px center;
+  background-position: 12px center;
+  background-size: 15px 15px;
+}
+.clearable input[type="search"]::-webkit-search-cancel-button,
+.clearable input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.clear-field-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  display: grid;
+  place-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transform: translate(4px, -50%) scale(0.72);
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), color 140ms ease, background 140ms ease;
+}
+.clear-field-btn.show {
+  opacity: 1;
+  transform: translate(0, -50%) scale(1);
+  pointer-events: auto;
+}
+.clear-field-btn svg { width: 14px; height: 14px; display: block; }
+.clear-field-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.clear-field-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type="search"] {
+  min-width: 260px;
+  padding-left: 40px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa6bd' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M16.5 16.5 21 21'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 12px center;
   background-size: 15px 15px;
 }
 input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
+
+.chip-scroller {
+  position: relative;
+  margin-bottom: 14px;
+}
+.chip-scroller .filters.chips { margin-bottom: 0; }
+.chip-scroller::before,
+.chip-scroller::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 2px;
+  width: 28px;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.chip-scroller::before {
+  left: 0;
+  background: linear-gradient(90deg, var(--bg), transparent);
+}
+.chip-scroller::after {
+  right: 0;
+  background: linear-gradient(270deg, var(--bg), transparent);
+}
+.chip-scroller.fade-left::before,
+.chip-scroller.fade-right::after { opacity: 1; }
+
+.filters.whitelist-form > .clearable {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
 
 .table-wrap {
   border: 1px solid var(--line);
@@ -493,6 +587,16 @@ input.tick:disabled {
   cursor: pointer;
 }
 .keep-btn:hover { background: #1c2e22; }
+.unlink-btn {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  min-height: 0;
+}
+.chip.match-via { background: #1a2030; color: #b8c4dc; }
+.ignored-matches { margin-top: 28px; }
+.ignored-matches h3 { margin: 0 0 6px; font-size: 16px; }
+.ignored-matches .page-intro { margin-bottom: 12px; }
 .rating { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rating strong { color: var(--accent-2); }
 .row-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
@@ -618,8 +722,11 @@ form + .settings-section { margin-top: 16px; }
   align-items: center;
 }
 .control-select {
-  min-width: 180px;
-  height: 40px;
+  min-width: 160px;
+  height: 36px;
+  font-size: 13px;
+  line-height: 1.2;
+  padding: 6px 10px;
 }
 .settings-note {
   margin: 12px 0 0;
@@ -1093,13 +1200,25 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     min-width: 0;
   }
   .topbar-sync {
-    flex: 1;
+    flex: none;
     min-width: 0;
     justify-content: flex-end;
     gap: 8px;
   }
+  .sync-meter-desktop { display: none; }
+  .sync-strip {
+    display: block;
+    padding: 0 max(14px, var(--safe-left)) 8px max(14px, var(--safe-right));
+    border-bottom: 1px solid var(--line);
+    background: rgba(12, 16, 24, 0.92);
+  }
+  .sync-strip .sync-meter {
+    max-width: none;
+    width: 100%;
+    padding: 6px 0 2px;
+  }
   .sync-meter { max-width: none; flex: 1; min-width: 0; }
-  .sync-meter-label { font-size: 11px; }
+  .sync-meter-label { font-size: 12px; }
   .account-name { display: none; }
   .topbar-account .ghost, .sync-button { padding: 9px 12px; font-size: 13px; }
 
@@ -1209,7 +1328,27 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   textarea { font-size: 16px; }
   input:not([type="checkbox"]):not([type="radio"]),
   select { padding: 11px 12px; min-height: 44px; }
+  .control-select {
+    font-size: 15px;
+    height: 44px;
+    padding: 8px 12px;
+    min-width: 0;
+    width: 100%;
+  }
   input[type="search"] { min-width: 0; width: 100%; }
+  .clearable {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .clearable input[type="search"] {
+    padding-left: 42px;
+    background-position: 14px center;
+  }
+  .clear-field-btn {
+    width: 32px;
+    height: 32px;
+    right: 8px;
+  }
   input.tick {
     width: 22px;
     height: 22px;
@@ -1222,22 +1361,53 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   }
   .nav button, .ghost, .primary, .danger, .danger-ghost, .chip-btn { min-height: 42px; }
   .filters, .toolbar, .pager { gap: 8px; }
-  .filters > input[type="search"] { flex: 1 1 100%; }
+  .filters > input[type="search"],
+  .filters > .clearable { flex: 1 1 100%; }
   /* Two selects per row keeps the controls from pushing results off screen. */
   .filters > select { flex: 1 1 calc(50% - 4px); min-width: 0; }
   .filters > button, .toolbar > * { flex: 1 1 auto; }
   .filters .spacer, .pager .spacer { display: none; }
-  /* Quick filters scroll sideways instead of stacking into a wall of chips. */
+  .filters.whitelist-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .filters.whitelist-form > select { flex: none; width: 100%; min-width: 0; }
+  .filters.whitelist-form > .clearable {
+    grid-column: 1 / -1;
+    flex: none;
+    width: 100%;
+    min-width: 0;
+  }
+  .filters.whitelist-form > button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+  /* Quick filters scroll sideways with edge fades instead of stacking. */
+  .chip-scroller {
+    margin-left: calc(-1 * max(14px, var(--safe-left)));
+    margin-right: calc(-1 * max(14px, var(--safe-right)));
+    margin-bottom: 12px;
+  }
+  .chip-scroller::before {
+    left: max(14px, var(--safe-left));
+    background: linear-gradient(90deg, var(--bg) 20%, transparent);
+  }
+  .chip-scroller::after {
+    right: max(14px, var(--safe-right));
+    background: linear-gradient(270deg, var(--bg) 20%, transparent);
+  }
   .filters.chips {
     flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;
-    margin-left: calc(-1 * max(14px, var(--safe-left)));
-    margin-right: calc(-1 * max(14px, var(--safe-right)));
     padding: 0 max(14px, var(--safe-left)) 2px max(14px, var(--safe-right));
   }
   .filters.chips::-webkit-scrollbar { display: none; }
   .filters.chips > .chip-btn { flex: 0 0 auto; }
+  .unlink-btn { font-size: 12px; padding: 6px 10px; min-height: 34px; }
+  .chip.match-via { font-size: 11px; }
 
   .table-wrap {
     border: none;

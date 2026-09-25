@@ -477,3 +477,106 @@ def unignore_unmatched(item_id: int, request: Request):
         actor=user,
     )
     return {"ok": True}
+
+
+class UnlinkMatchIn(BaseModel):
+    reason: str = ""
+
+
+@router.get("/matches/ignored")
+def list_ignored_matches(request: Request):
+    current_user(request)
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM match_ignored ORDER BY seerr_title COLLATE NOCASE, library_title COLLATE NOCASE"
+        ).fetchall()
+    return {"items": [dict(row) for row in rows]}
+
+
+@router.post("/library/{item_id}/unlink-seerr")
+def unlink_seerr_match(item_id: int, payload: UnlinkMatchIn, request: Request):
+    """Break a bad Seerr↔library attachment and remember not to reattach it on the next sync."""
+    user = current_user(request)
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM media WHERE id = ?", (item_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Not found")
+        item = dict(row)
+        if not item.get("seerr_media_id") and not item.get("requested_by") and not item.get("seerr_match_via"):
+            raise HTTPException(400, "This title is not linked to Seerr")
+        seerr_tmdb = int(item.get("seerr_tmdb_id") or 0)
+        # Older rows may not have seerr_tmdb_id; a TMDB match used the library id.
+        if not seerr_tmdb and (item.get("seerr_match_via") or "") == "tmdb":
+            seerr_tmdb = int(item.get("tmdb_id") or 0)
+        seerr_tvdb = 0
+        lib_tmdb = int(item.get("tmdb_id") or 0)
+        lib_tvdb = int(item.get("tvdb_id") or 0)
+        seerr_title = item.get("title") or ""
+        reason = (payload.reason or "").strip() or "Rejected Seerr match"
+        if seerr_tmdb or lib_tmdb or lib_tvdb:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO match_ignored
+                    (media_type, seerr_tmdb_id, seerr_tvdb_id, library_tmdb_id, library_tvdb_id,
+                     seerr_title, library_title, reason, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item.get("media_type") or "",
+                    seerr_tmdb,
+                    seerr_tvdb,
+                    lib_tmdb,
+                    lib_tvdb,
+                    seerr_title,
+                    seerr_title,
+                    reason,
+                    int(time.time()),
+                ),
+            )
+        conn.execute(
+            """
+            UPDATE media
+            SET seerr_media_id = NULL, requested_by = '', requested_at = '',
+                seerr_match_via = '', seerr_tmdb_id = 0
+            WHERE id = ?
+            """,
+            (item_id,),
+        )
+        ignored = conn.execute(
+            """
+            SELECT id FROM match_ignored
+            WHERE media_type = ? AND seerr_tmdb_id = ? AND seerr_tvdb_id = ?
+              AND library_tmdb_id = ? AND library_tvdb_id = ?
+            """,
+            (item.get("media_type") or "", seerr_tmdb, seerr_tvdb, lib_tmdb, lib_tvdb),
+        ).fetchone()
+    add_log(
+        f"Unlinked Seerr match for {item.get('title')}",
+        category="audit",
+        action="unlink-seerr",
+        actor=user,
+        detail={
+            "media_id": item_id,
+            "seerr_tmdb_id": seerr_tmdb,
+            "library_tmdb_id": lib_tmdb,
+            "via": item.get("seerr_match_via") or "",
+        },
+    )
+    return {"ok": True, "ignored_id": ignored["id"] if ignored else None}
+
+
+@router.delete("/matches/ignored/{item_id}")
+def unignore_match(item_id: int, request: Request):
+    user = current_user(request)
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM match_ignored WHERE id = ?", (item_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Not found")
+        conn.execute("DELETE FROM match_ignored WHERE id = ?", (item_id,))
+    add_log(
+        f"Stopped ignoring Seerr match {row['seerr_title']} → {row['library_title']}",
+        category="audit",
+        action="unignore-match",
+        actor=user,
+    )
+    return {"ok": True}

@@ -16,6 +16,9 @@ export type MediaItem = {
   radarr_id: number | null;
   radarr_4k_id: number | null;
   sonarr_id: number | null;
+  seerr_media_id?: number | null;
+  seerr_tmdb_id?: number;
+  seerr_match_via?: string;
   requested_by: string;
   requested_at: string;
   last_watched_at: number | null;
@@ -166,6 +169,13 @@ export const api = {
     }),
   ignoredUnmatched: () => request<{ items: IgnoredItem[] }>("/api/unmatched/ignored"),
   unignoreUnmatched: (id: number) => request<{ ok: boolean }>(`/api/unmatched/ignored/${id}`, { method: "DELETE" }),
+  unlinkSeerr: (id: number, reason = "") =>
+    request<{ ok: boolean; ignored_id: number | null }>(`/api/library/${id}/unlink-seerr`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  ignoredMatches: () => request<{ items: IgnoredMatch[] }>("/api/matches/ignored"),
+  unignoreMatch: (id: number) => request<{ ok: boolean }>(`/api/matches/ignored/${id}`, { method: "DELETE" }),
   users: (params: Record<string, string>) => {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -216,6 +226,19 @@ export type IgnoredItem = {
   tmdb_id: number;
   tvdb_id: number;
   title: string;
+  reason: string;
+  created_at: number;
+};
+
+export type IgnoredMatch = {
+  id: number;
+  media_type: string;
+  seerr_tmdb_id: number;
+  seerr_tvdb_id: number;
+  library_tmdb_id: number;
+  library_tvdb_id: number;
+  seerr_title: string;
+  library_title: string;
   reason: string;
   created_at: number;
 };

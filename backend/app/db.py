@@ -122,6 +122,20 @@ def init_db() -> None:
                 UNIQUE(kind, media_type, tmdb_id, tvdb_id, title_key)
             );
 
+            CREATE TABLE IF NOT EXISTS match_ignored (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                media_type TEXT NOT NULL DEFAULT '',
+                seerr_tmdb_id INTEGER NOT NULL DEFAULT 0,
+                seerr_tvdb_id INTEGER NOT NULL DEFAULT 0,
+                library_tmdb_id INTEGER NOT NULL DEFAULT 0,
+                library_tvdb_id INTEGER NOT NULL DEFAULT 0,
+                seerr_title TEXT NOT NULL DEFAULT '',
+                library_title TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                UNIQUE(media_type, seerr_tmdb_id, seerr_tvdb_id, library_tmdb_id, library_tvdb_id)
+            );
+
             CREATE TABLE IF NOT EXISTS unmatched (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source TEXT NOT NULL,
@@ -159,6 +173,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE media ADD COLUMN availability TEXT NOT NULL DEFAULT 'downloaded'")
         if "added_at" not in cols:
             conn.execute("ALTER TABLE media ADD COLUMN added_at INTEGER")
+        if "seerr_match_via" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN seerr_match_via TEXT NOT NULL DEFAULT ''")
+        if "seerr_tmdb_id" not in cols:
+            conn.execute("ALTER TABLE media ADD COLUMN seerr_tmdb_id INTEGER NOT NULL DEFAULT 0")
         sync_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sync_state)").fetchall()}
         if "step" not in sync_cols:
             conn.execute("ALTER TABLE sync_state ADD COLUMN step TEXT NOT NULL DEFAULT ''")
@@ -233,6 +251,43 @@ def ignored_unmatched() -> set[tuple]:
             "SELECT kind, media_type, tmdb_id, tvdb_id, title_key FROM unmatched_ignored"
         ).fetchall()
     return {ignore_key(r["kind"], r["media_type"], r["tmdb_id"], r["tvdb_id"], r["title_key"]) for r in rows}
+
+
+def match_ignore_key(
+    media_type: str,
+    seerr_tmdb_id: Any,
+    seerr_tvdb_id: Any,
+    library_tmdb_id: Any,
+    library_tvdb_id: Any,
+) -> tuple:
+    """Pair a Seerr title with the *arr row it must not attach to again."""
+    return (
+        media_type or "",
+        int(seerr_tmdb_id or 0),
+        int(seerr_tvdb_id or 0),
+        int(library_tmdb_id or 0),
+        int(library_tvdb_id or 0),
+    )
+
+
+def ignored_matches() -> set[tuple]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT media_type, seerr_tmdb_id, seerr_tvdb_id, library_tmdb_id, library_tvdb_id
+            FROM match_ignored
+            """
+        ).fetchall()
+    return {
+        match_ignore_key(
+            r["media_type"],
+            r["seerr_tmdb_id"],
+            r["seerr_tvdb_id"],
+            r["library_tmdb_id"],
+            r["library_tvdb_id"],
+        )
+        for r in rows
+    }
 
 
 def get_setting(key: str, default: str = "") -> str:
