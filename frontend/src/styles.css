@@ -486,10 +486,17 @@ input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
 @media (min-width: 721px) and (max-width: 1180px) {
   .filters.library-filters {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
-  .filters.library-filters > .clearable { grid-column: 1 / -1; min-width: 0; }
-  .filters.library-filters > select { width: 100%; min-width: 0; max-width: none; }
+  .filters.library-filters > * { width: 100%; min-width: 0; max-width: none; }
+  /* Search and sort share the top row; the four filters sit evenly beneath. */
+  .filters.library-filters > .clearable { grid-column: 1 / 4; grid-row: 1; }
+  .filters.library-filters > select:last-child { grid-column: 4; grid-row: 1; }
+}
+@media (min-width: 721px) and (max-width: 899px) {
+  .filters.library-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filters.library-filters > .clearable { grid-column: 1 / -1; }
+  .filters.library-filters > select:last-child { grid-column: 1 / -1; grid-row: auto; }
 }
 .filters.whitelist-form > .clearable {
   flex: 1 1 220px;
