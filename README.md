@@ -1,6 +1,6 @@
 # Cleanarr
 
-Self-hosted UI to reclaim disk from Radarr and Sonarr. Watch history comes from Tautulli (Plex), Tracearr (Jellyfin/Plex/Emby), and/or Jellystat (Jellyfin). Seerr supplies who requested a title.
+Self-hosted web app to reclaim disk from Radarr and Sonarr. It works in a desktop browser and on a phone. Watch history comes from Tautulli (Plex), Tracearr (Jellyfin/Plex/Emby), and/or Jellystat (Jellyfin). Seerr supplies who requested a title.
 
 ## Security
 

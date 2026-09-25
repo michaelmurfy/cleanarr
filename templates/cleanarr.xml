@@ -8,7 +8,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/michaelmurfy/cleanarr/issues</Support>
   <Project>https://github.com/michaelmurfy/cleanarr</Project>
-  <Overview>Reclaim disk from Radarr and Sonarr. Cleanarr matches your library to watch history from Tautulli, Tracearr, and Jellystat, and to requests from Seerr, then lets you delete titles nobody is watching. Keep the web UI on your LAN or VPN. Do not publish port 7585 to the internet. On first launch, open the web UI and create a username and password. Connect Radarr, Sonarr, Seerr, and a watch-history source from Settings.</Overview>
+  <Overview>Cleanarr is a self-hosted web app that reclaims disk from Radarr and Sonarr. It matches your library to watch history from Tautulli, Tracearr, and Jellystat, and to requests from Seerr, then lets you delete titles nobody is watching. The interface works on a desktop browser and on a phone. Keep the web UI on your LAN or VPN. Do not publish port 7585 to the internet. On first launch, open the web UI and create a username and password. Connect Radarr, Sonarr, Seerr, and a watch-history source from Settings.</Overview>
   <Category>MediaApp:Other Tools:Utilities</Category>
   <WebUI>http://[IP]:[PORT:7585]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/michaelmurfy/cleanarr/main/templates/cleanarr.xml</TemplateURL>
