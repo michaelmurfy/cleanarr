@@ -740,7 +740,6 @@ input.tick:disabled {
 .settings-block-head { display: grid; align-content: start; gap: 6px; }
 .settings-block-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .settings-block-head p { margin: 0; font-size: 13px; line-height: 1.5; }
-.settings-block-head .small-btn { justify-self: start; margin-top: 6px; }
 .settings-card {
   background: var(--bg-elev);
   border: 1px solid var(--line);
@@ -748,7 +747,34 @@ input.tick:disabled {
   padding: 18px 20px;
   min-width: 0;
 }
-.small-btn { font-size: 13px; padding: 6px 12px; }
+.small-btn { font-size: 13px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 7px; }
+.small-btn .spinner { width: 12px; height: 12px; }
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -4px 0 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(44, 55, 80, 0.55);
+  font-size: 13px;
+}
+.settings-page .settings-block {
+  animation: rise 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.settings-page .settings-block:nth-of-type(2) { animation-delay: 40ms; }
+.settings-page .settings-block:nth-of-type(3) { animation-delay: 80ms; }
+.settings-page .settings-block:nth-of-type(4) { animation-delay: 120ms; }
+.settings-page .settings-block:nth-of-type(5) { animation-delay: 160ms; }
+.settings-page .settings-block:nth-of-type(n + 6) { animation-delay: 200ms; }
+.settings-form .settings-block:nth-of-type(1) { animation-delay: 60ms; }
+.settings-form .settings-block:nth-of-type(2) { animation-delay: 100ms; }
+.settings-form .settings-block:nth-of-type(3) { animation-delay: 140ms; }
+.settings-form .settings-block:nth-of-type(n + 4) { animation-delay: 180ms; }
+.settings-card { transition: border-color 200ms ease; }
+.settings-card:focus-within { border-color: #3a4763; }
+.option-head .option-copy strong { transition: color 160ms ease; }
+.option.on .option-copy strong { color: var(--accent-2); }
 
 /* A switch with its label beside it; the whole row toggles. Options it unlocks
    appear indented underneath only while it is on. */
@@ -800,6 +826,7 @@ input.tick:disabled {
 
 .conn-list { list-style: none; margin: -6px 0; padding: 0; }
 .conn-row {
+  transition: background 200ms ease;
   display: grid;
   grid-template-columns: auto 110px minmax(0, 1fr) auto;
   gap: 12px;
@@ -816,7 +843,10 @@ input.tick:disabled {
 }
 .conn-dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(125, 190, 110, 0.15); }
 .conn-dot.fail { background: var(--danger); box-shadow: 0 0 0 3px rgba(227, 93, 85, 0.15); }
+.conn-dot { animation: dot-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1); }
 .conn-dot.running { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+.conn-state { animation: fade 220ms ease; }
+@keyframes dot-pop { from { transform: scale(0.2); } to { transform: scale(1); } }
 @keyframes pulse { 50% { opacity: 0.35; } }
 .conn-name { font-size: 14px; font-weight: 600; }
 .conn-status { display: flex; gap: 8px; min-width: 0; font-size: 13px; color: var(--muted); }
@@ -1271,9 +1301,6 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
 @media (max-width: 900px) {
   .stats, .form-grid { grid-template-columns: 1fr 1fr; }
   .settings-block { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 20px 0; }
-  .settings-block-head { grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; }
-  .settings-block-head p { grid-column: 1; }
-  .settings-block-head .small-btn { grid-column: 2; grid-row: 1 / span 2; margin-top: 0; }
   .maintenance-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page, .topbar { padding-left: 14px; padding-right: 14px; }
   .col-rating, .col-plays, .col-library, .col-type { display: none; }
@@ -1747,6 +1774,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   .bulk button { flex: 1 1 auto; }
 
   .settings-card { padding: 14px 16px; }
+  tbody tr.skeleton-row td.sk-cell { display: none; }
   .settings-block { padding: 16px 0; }
   .settings-block-head h3 { font-size: 16px; }
   .option-body { margin-left: 56px; display: grid; gap: 10px; }
@@ -1800,6 +1828,57 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   .nav-bottom-label { font-size: 9px; }
   .brand.compact .wordmark { font-size: 17px; }
 }
+.boot { min-height: 100vh; background: var(--bg); }
+
+/* First load: placeholder cards with a soft shimmer, then the real content flows in. */
+.sk {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(100deg, #1a2030 20%, #242c3e 42%, #1a2030 64%);
+  background-size: 220% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -120% 0; } }
+.sk-tick { width: 22px; height: 22px; border-radius: 6px; }
+.sk-poster { width: 46px; height: 69px; border-radius: 6px; flex: none; }
+.sk-lines { display: grid; gap: 8px; flex: 1; min-width: 0; padding-top: 4px; }
+.sk-line { height: 12px; width: 60%; }
+.sk-thin { height: 9px; opacity: 0.8; }
+.sk-chip { width: 52px; height: 16px; border-radius: 999px; }
+tbody tr.skeleton-row td,
+tbody tr.skeleton-row:hover td { cursor: default; background: transparent; }
+.skeleton-row:nth-child(2) .sk { animation-delay: 80ms; }
+.skeleton-row:nth-child(3) .sk { animation-delay: 160ms; }
+.skeleton-row:nth-child(4) .sk { animation-delay: 240ms; }
+.skeleton-row:nth-child(5) .sk { animation-delay: 320ms; }
+.skeleton-row:nth-child(6) .sk { animation-delay: 400ms; }
+.is-loading .stat b {
+  color: transparent;
+  width: 44px;
+  border-radius: 6px;
+  background: linear-gradient(100deg, #1a2030 20%, #242c3e 42%, #1a2030 64%);
+  background-size: 220% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes flow-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.flow-in .stats > *,
+.flow-in tbody tr { animation: flow-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.flow-in .stats > :nth-child(2) { animation-delay: 30ms; }
+.flow-in .stats > :nth-child(3) { animation-delay: 60ms; }
+.flow-in .stats > :nth-child(4) { animation-delay: 90ms; }
+.flow-in .stats > :nth-child(5) { animation-delay: 120ms; }
+.flow-in .stats > :nth-child(n + 6) { animation-delay: 150ms; }
+.flow-in tbody tr:nth-child(1) { animation-delay: 80ms; }
+.flow-in tbody tr:nth-child(2) { animation-delay: 120ms; }
+.flow-in tbody tr:nth-child(3) { animation-delay: 160ms; }
+.flow-in tbody tr:nth-child(4) { animation-delay: 200ms; }
+.flow-in tbody tr:nth-child(5) { animation-delay: 240ms; }
+.flow-in tbody tr:nth-child(6) { animation-delay: 280ms; }
+.flow-in tbody tr:nth-child(7) { animation-delay: 320ms; }
+.flow-in tbody tr:nth-child(8) { animation-delay: 360ms; }
+.flow-in tbody tr:nth-child(n + 9) { animation-delay: 400ms; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

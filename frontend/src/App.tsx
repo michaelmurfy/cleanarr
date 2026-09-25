@@ -443,9 +443,7 @@ export function App() {
 
   if (booting) {
     return (
-      <div className="login">
-        <div className="login-card"><Brand /><p className="muted">Loading…</p></div>
-      </div>
+      <div className="boot" aria-busy="true" />
     );
   }
   if (setupRequired) {
@@ -733,6 +731,49 @@ function Shell({ user, onLogout }: { user: string; onLogout: () => void }) {
   );
 }
 
+// Placeholder cards shaped like real rows, so first load reads as "arriving" rather than a line of text.
+function SkeletonRows({ columns, count = 6 }: { columns: number; count?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <tr className="skeleton-row" key={i} aria-hidden="true">
+          <td className="tick-cell" data-label=""><span className="sk sk-tick" /></td>
+          <td data-label="Title">
+            <div className="title-cell">
+              <span className="sk sk-poster" />
+              <div className="sk-lines">
+                <span className="sk sk-line" style={{ width: `${58 - (i % 3) * 9}%` }} />
+                <span className="sk sk-chip" />
+                <span className="sk sk-line sk-thin" style={{ width: `${74 - (i % 2) * 14}%` }} />
+              </div>
+            </div>
+          </td>
+          {Array.from({ length: columns - 2 }, (_, col) => (
+            <td className="sk-cell" key={col}>
+              <span className="sk sk-line sk-thin" style={{ width: `${[46, 62, 30, 70, 54, 40, 58][(col + i) % 7]}%` }} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
+// First successful load flips `loaded`, and `flow` stays on just long enough for the rows to ease in.
+function useFirstLoad() {
+  const [loaded, setLoaded] = useState(false);
+  const [flow, setFlow] = useState(false);
+  const done = useRef(false);
+  const markLoaded = useCallback(() => {
+    if (done.current) return;
+    done.current = true;
+    setLoaded(true);
+    setFlow(true);
+    window.setTimeout(() => setFlow(false), 1100);
+  }, []);
+  return { loaded, flow, markLoaded };
+}
+
 function Library({
   sync,
   setSync,
@@ -755,6 +796,7 @@ function Library({
   const [pending, setPending] = useState<null | { blacklist: boolean }>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { loaded, flow, markLoaded } = useFirstLoad();
   const prevSync = useRef(sync.status);
 
   useEffect(() => {
@@ -792,6 +834,7 @@ function Library({
       setStats(data.stats);
       setSync(data.sync);
       onUnmatchedCount(data.stats.unmatched || 0);
+      markLoaded();
     } finally {
       setLoading(false);
     }
@@ -871,7 +914,7 @@ function Library({
   const pages = stats.pages || 1;
 
   return (
-    <div className="page">
+    <div className={`page${loaded ? "" : " is-loading"}${flow ? " flow-in" : ""}`}>
       <div className="page-head">
         <div>
           <h2>Library</h2>
@@ -1057,11 +1100,12 @@ function Library({
                 </td>
               </tr>
             ))}
-            {!items.length && (
+            {!items.length && !loaded && <SkeletonRows columns={9} />}
+            {!items.length && loaded && (
               <tr>
                 <td colSpan={9} className="empty">
                   {loading ? (
-                    <strong>Loading library…</strong>
+                    <strong>Loading…</strong>
                   ) : (
                     <>
                       <strong>Nothing to show here</strong>
@@ -1223,6 +1267,7 @@ function Unmatched({
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const { loaded, flow, markLoaded } = useFirstLoad();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1271,6 +1316,7 @@ function Unmatched({
       setIgnored(ignoredData.items);
       setReviews(reviewData.items);
       setDecisions(decisionData.items);
+      markLoaded();
     } finally {
       setLoading(false);
     }
@@ -1395,7 +1441,7 @@ function Unmatched({
   }
 
   return (
-    <div className="page">
+    <div className={`page${loaded ? "" : " is-loading"}${flow ? " flow-in" : ""}`}>
       <h2>Unmatched</h2>
       <p className="page-intro muted">
         Gaps between Radarr/Sonarr and Seerr. Clear stale Seerr records so those titles can be requested again, or add
@@ -1516,11 +1562,12 @@ function Unmatched({
                 </tr>
               );
             })}
-            {!items.length && (
+            {!items.length && !loaded && <SkeletonRows columns={7} count={4} />}
+            {!items.length && loaded && (
               <tr>
                 <td colSpan={7} className="empty">
                   {loading ? (
-                    <strong>Loading unmatched titles…</strong>
+                    <strong>Loading…</strong>
                   ) : (
                     <>
                       <strong>Nothing to reconcile</strong>
@@ -2137,13 +2184,12 @@ function GithubIcon() {
 
 const GITHUB_REPO = "https://github.com/michaelmurfy/cleanarr";
 
-function SettingsBlock({ title, copy, aside, children }: { title: string; copy?: ReactNode; aside?: ReactNode; children: ReactNode }) {
+function SettingsBlock({ title, copy, children }: { title: string; copy?: ReactNode; children: ReactNode }) {
   return (
     <section className="settings-block">
       <div className="settings-block-head">
         <h3>{title}</h3>
         {copy ? <p className="muted">{copy}</p> : null}
-        {aside}
       </div>
       <div className="settings-card">{children}</div>
     </section>
@@ -2393,11 +2439,7 @@ function Settings() {
     try {
       const data = await api.testAll();
       for (const result of data.results) applyTest(result);
-      const ok = data.results.filter((row) => row.ok).length;
-      const total = data.results.length;
-      if (!total) setMessage("No services are configured to test.");
-      else if (ok === total) setMessage(`All ${total} configured service${total === 1 ? "" : "s"} passed.`);
-      else setMessage(`${ok} of ${total} configured services passed.`);
+      if (!data.results.length) setMessage("No services are configured to test.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Tests failed");
     } finally {
@@ -2488,6 +2530,13 @@ function Settings() {
   }
 
   const connectionLabel: Record<string, string> = { ok: "Connected", fail: "Failed", running: "Testing…", idle: "Not tested" };
+  const connectionResults = visibleServices.map((service) => testResult(service.id).kind);
+  const passedCount = connectionResults.filter((kind) => kind === "ok").length;
+  const failedCount = connectionResults.filter((kind) => kind === "fail").length;
+  const connectionSummary = [
+    passedCount ? `${passedCount} connected` : "",
+    failedCount ? `${failedCount} failed` : "",
+  ].filter(Boolean).join(" · ");
   const publicLinks = visibleGroups.find((group) => group.title === "Public links");
   const serviceGroups = visibleGroups.filter((group) => group.title !== "Public links");
 
@@ -2516,21 +2565,26 @@ function Settings() {
       {message && !savedFlash && <p className="ok-message settings-message">{message}</p>}
 
       {visibleServices.length > 0 && (
-        <SettingsBlock
-          title="Connections"
-          copy="Check Cleanarr can reach each configured service."
-          aside={<button className="ghost small-btn" type="button" disabled={testing} onClick={testAll}>{testing ? "Testing…" : "Test all"}</button>}
-        >
+        <SettingsBlock title="Connections" copy="Check Cleanarr can reach each configured service.">
+          <div className="card-head">
+            <span className="muted">
+              {visibleServices.length} service{visibleServices.length === 1 ? "" : "s"}
+              {connectionSummary ? ` · ${connectionSummary}` : ""}
+            </span>
+            <button className="ghost small-btn" type="button" disabled={testing} onClick={testAll}>
+              {testing ? <><span className="spinner" aria-hidden="true" /> Testing…</> : "Test all"}
+            </button>
+          </div>
           <ul className="conn-list">
             {visibleServices.map((service) => {
               const result = testResult(service.id);
               const detail = result.kind === "ok" ? result.detail : result.kind === "fail" ? (result.detail || result.label) : "";
               return (
                 <li className={`conn-row ${result.kind}`} key={service.id}>
-                  <span className={`conn-dot ${result.kind}`} aria-hidden="true" />
+                  <span key={result.kind} className={`conn-dot ${result.kind}`} aria-hidden="true" />
                   <strong className="conn-name">{service.label}</strong>
                   <span className="conn-status" title={detail || undefined}>
-                    <span className="conn-state">{connectionLabel[result.kind]}</span>
+                    <span key={result.kind} className="conn-state">{connectionLabel[result.kind]}</span>
                     {detail ? <span className="conn-detail">{detail}</span> : null}
                   </span>
                   <button className="ghost small-btn" type="button" disabled={testing || result.kind === "running"} onClick={() => test(service.id)}>Test</button>
