@@ -236,7 +236,7 @@ a:hover { text-decoration: underline; }
   border-color: #6a2e2a;
   background: #2a1614;
 }
-.nav button.alert:hover { background: #3a1c18; }
+@media (hover: hover) { .nav button.alert:hover { background: #3a1c18; } }
 .nav button.alert.active {
   background: var(--danger);
   color: white;
@@ -311,22 +311,26 @@ a:hover { text-decoration: underline; }
   color: inherit;
   transition: border-color 160ms ease, transform 160ms ease;
 }
-.stat:hover, .stat.active { border-color: var(--accent); transform: translateY(-1px); }
+.stat.active { border-color: var(--accent); transform: translateY(-1px); }
+@media (hover: hover) { .stat:hover { border-color: var(--accent); transform: translateY(-1px); } }
 .stat.static { cursor: default; }
-.stat.static:hover { border-color: var(--line); transform: none; }
+@media (hover: hover) { .stat.static:hover { border-color: var(--line); transform: none; } }
 .stat > span { font-size: 12px; letter-spacing: 0.01em; }
 .stat.never { border-color: #1f4a46; }
 .stat.never b { color: var(--teal); }
 .stat.stale { border-color: #4a3420; }
 .stat.stale b { color: #f4a261; }
 .stat.ok { border-color: #2a4a32; }
-.stat.ok:hover, .stat.ok.active { border-color: var(--ok); }
+.stat.ok.active { border-color: var(--ok); }
+@media (hover: hover) { .stat.ok:hover { border-color: var(--ok); } }
 .stat.ok b { color: var(--ok); }
 .stat.pending { border-color: #1a3f58; }
-.stat.pending:hover, .stat.pending.active { border-color: var(--sky); }
+.stat.pending.active { border-color: var(--sky); }
+@media (hover: hover) { .stat.pending:hover { border-color: var(--sky); } }
 .stat.pending b { color: var(--sky); }
 .stat.warn { border-color: #5a2a24; background: #241414; }
-.stat.warn:hover, .stat.warn.active { border-color: var(--danger); }
+.stat.warn.active { border-color: var(--danger); }
+@media (hover: hover) { .stat.warn:hover { border-color: var(--danger); } }
 .stat.warn b { color: #f7c4c0; }
 .stat b { display: block; font-size: 22px; margin-top: 4px; font-variant-numeric: tabular-nums; }
 
@@ -344,7 +348,7 @@ input, select {
   padding: 9px 11px;
   transition: border-color 160ms ease, background 160ms ease;
 }
-input:hover:not(:disabled), select:hover:not(:disabled) { border-color: #3a4763; }
+@media (hover: hover) { input:hover:not(:disabled), select:hover:not(:disabled) { border-color: #3a4763; } }
 input:focus, select:focus { outline: none; border-color: var(--accent); }
 input:focus-visible, select:focus-visible { outline: none; }
 input::placeholder { color: #6f7b93; }
@@ -537,15 +541,19 @@ tbody {
 tbody tr:last-child td { border-bottom: none; }
 tbody tr { transition: background 140ms ease; }
 tbody tr.clickable { cursor: pointer; }
-tbody tr:hover td { background: var(--bg-hover); }
-tbody tr.clickable:hover td { background: rgba(212, 160, 84, 0.08); }
 tbody tr.selected td { background: rgba(212, 160, 84, 0.16); }
-tbody tr.selected:hover td { background: rgba(212, 160, 84, 0.22); }
 tbody tr.unmatched-row td { background: rgba(227, 93, 85, 0.08); }
-tbody tr.unmatched-row:hover td { background: rgba(227, 93, 85, 0.14); }
 tbody tr.unmatched-row.selected td { background: rgba(227, 93, 85, 0.22); }
 tbody tr.info-row td { background: rgba(76, 179, 247, 0.06); }
-tbody tr.info-row:hover td { background: rgba(76, 179, 247, 0.1); }
+/* Touch browsers keep :hover stuck on after a tap, which reads as a half
+   selection, so the row hover tints are only for real pointers. */
+@media (hover: hover) {
+  tbody tr:hover td { background: var(--bg-hover); }
+  tbody tr.clickable:hover td { background: rgba(212, 160, 84, 0.08); }
+  tbody tr.selected:hover td { background: rgba(212, 160, 84, 0.22); }
+  tbody tr.unmatched-row:hover td { background: rgba(227, 93, 85, 0.14); }
+  tbody tr.info-row:hover td { background: rgba(76, 179, 247, 0.1); }
+}
 .tick-cell { width: 52px; padding-left: 16px; padding-right: 8px; }
 input.tick {
   appearance: none;
@@ -561,7 +569,7 @@ input.tick {
   place-content: center;
   vertical-align: middle;
 }
-input.tick:hover { border-color: var(--accent); }
+@media (hover: hover) { input.tick:hover { border-color: var(--accent); } }
 input.tick:checked {
   background: var(--accent);
   border-color: var(--accent);
@@ -643,7 +651,7 @@ input.tick:disabled {
   color: #a8d39a;
   cursor: pointer;
 }
-.keep-btn:hover { background: #1c2e22; }
+@media (hover: hover) { .keep-btn:hover { background: #1c2e22; } }
 .title-year { margin-left: 5px; white-space: nowrap; }
 .review-intro { margin: 0 0 14px; max-width: 72ch; font-size: 14px; }
 .col-seerr .cell-value { color: var(--text); }
@@ -676,7 +684,7 @@ input.tick:disabled {
   line-height: 1.2;
 }
 .service-pill-full { display: none; }
-.service-pill:hover { text-decoration: none; filter: brightness(1.14); transform: translateY(-1px); }
+@media (hover: hover) { .service-pill:hover { text-decoration: none; filter: brightness(1.14); transform: translateY(-1px); } }
 .service-pill.radarr { color: #ffc107; border-color: #5a4a14; background: linear-gradient(180deg, #2f2812, #1f1a0d); }
 .service-pill.radarr-4k { color: #ffdb6e; border-color: #6a5418; background: linear-gradient(180deg, #3a3014, #241c0c); }
 .service-pill.sonarr { color: #35c5f0; border-color: #1a4d5c; background: linear-gradient(180deg, #16303a, #0f1d24); }
@@ -1023,7 +1031,7 @@ input.tick:disabled {
   border-radius: 8px;
   cursor: pointer;
 }
-.danger-ghost:hover { background: #3a1c18; }
+@media (hover: hover) { .danger-ghost:hover { background: #3a1c18; } }
 .lock { font-size: 12px; color: var(--accent-2); }
 .modal-back {
   position: fixed;
@@ -1074,7 +1082,7 @@ input.tick:disabled {
   background: var(--bg-elev);
   transition: border-color 160ms ease;
 }
-.list-item:hover { border-color: #3a4763; }
+@media (hover: hover) { .list-item:hover { border-color: #3a4763; } }
 .list-item strong { font-weight: 600; }
 .list-item .muted { font-size: 12px; margin-top: 3px; }
 .whitelist-item { align-items: flex-start; }
@@ -1107,7 +1115,7 @@ input.tick:disabled {
   font-size: 13px;
   text-align: left;
 }
-.whitelist-match:hover { background: #1c2e22; border-color: var(--ok); }
+@media (hover: hover) { .whitelist-match:hover { background: #1c2e22; border-color: var(--ok); } }
 .whitelist-match > span:first-child {
   min-width: 0;
   overflow: hidden;
@@ -1239,7 +1247,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   cursor: pointer;
   white-space: nowrap;
 }
-.log-toggle:hover { background: var(--bg-hover); color: var(--text); }
+@media (hover: hover) { .log-toggle:hover { background: var(--bg-hover); color: var(--text); } }
 .log-message {
   color: var(--text);
   font-size: 14px;
@@ -1298,7 +1306,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
 
 .stat.info { border-color: #1a3f58; }
 .stat.info b { color: var(--sky); }
-.stat.info:hover, .stat.info.active { border-color: var(--sky); }
+.stat.info.active { border-color: var(--sky); }
+@media (hover: hover) { .stat.info:hover { border-color: var(--sky); } }
 
 .warn-banner {
   margin: 0 0 14px;
@@ -1317,7 +1326,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   text-decoration: none;
   color: var(--text);
 }
-.link-button:hover { text-decoration: none; background: var(--bg-hover); }
+@media (hover: hover) { .link-button:hover { text-decoration: none; background: var(--bg-hover); } }
 .inline-icon { width: 15px; height: 15px; flex: none; }
 @media (max-width: 1100px) {
   .topbar { flex-wrap: wrap; }
@@ -1627,17 +1636,18 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     background: rgba(227, 93, 85, 0.1);
     box-shadow: inset 0 0 0 1px rgba(227, 93, 85, 0.18);
   }
-  /* Selection is on the card, not each cell, or the gold wash stacks into stripes. */
-  tbody tr.selected td,
-  tbody tr.selected:hover td,
-  tbody tr.unmatched-row.selected td,
-  tbody tr.unmatched-row.selected:hover td,
-  tbody tr.clickable:hover td,
-  tbody tr.unmatched-row:hover td,
-  tbody tr.info-row td,
-  tbody tr.info-row:hover td {
-    background: transparent;
+  /* A card's tint lives on the card. Any background on a cell turns into a box
+     per detail line (the desktop row tints above are more specific than a plain
+     reset), so cells are always transparent here. */
+  tbody tr > td,
+  tbody tr:hover > td { background: transparent !important; }
+  tbody tr.unmatched-row { background: linear-gradient(rgba(227, 93, 85, 0.05), rgba(227, 93, 85, 0.05)), var(--bg-elev); }
+  tbody tr.info-row { background: linear-gradient(rgba(76, 179, 247, 0.04), rgba(76, 179, 247, 0.04)), var(--bg-elev); }
+  tbody tr.clickable {
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 120ms ease, border-color 160ms ease, background 160ms ease;
   }
+  tbody tr.clickable:active { transform: scale(0.985); }
   tbody tr td { border: none; padding: 0; background: transparent; }
   /* Checkbox sits top-right so the poster and title own the left edge. */
   tbody tr .tick-cell {
