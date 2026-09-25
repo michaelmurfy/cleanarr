@@ -2137,6 +2137,51 @@ function GithubIcon() {
 
 const GITHUB_REPO = "https://github.com/michaelmurfy/cleanarr";
 
+function SettingsBlock({ title, copy, aside, children }: { title: string; copy?: ReactNode; aside?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="settings-block">
+      <div className="settings-block-head">
+        <h3>{title}</h3>
+        {copy ? <p className="muted">{copy}</p> : null}
+        {aside}
+      </div>
+      <div className="settings-card">{children}</div>
+    </section>
+  );
+}
+
+function SettingSwitch({
+  checked,
+  onChange,
+  title,
+  copy,
+  disabled = false,
+  children,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  title: string;
+  copy: ReactNode;
+  disabled?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div className={`option${checked ? " on" : ""}${disabled ? " disabled" : ""}`}>
+      <label className="option-head">
+        <span className="toggle">
+          <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+          <span className="toggle-track" />
+        </span>
+        <span className="option-copy">
+          <strong>{title}</strong>
+          <span className="muted">{copy}</span>
+        </span>
+      </label>
+      {checked && children ? <div className="option-body">{children}</div> : null}
+    </div>
+  );
+}
+
 function Settings() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [flags, setFlags] = useState<Record<string, boolean>>({});
@@ -2442,26 +2487,9 @@ function Settings() {
     return { kind: "idle" as const, label: "Not tested yet", detail: "" };
   }
 
-  function settingRow(title: string, copy: string | null, control: ReactNode, extra = "") {
-    return (
-      <div className={`setting-row ${extra}`.trim()}>
-        <div className="setting-copy">
-          <strong>{title}</strong>
-          {copy ? <span className="muted">{copy}</span> : null}
-        </div>
-        <div className="setting-control">{control}</div>
-      </div>
-    );
-  }
-
-  function toggle(checked: boolean, onChange: (next: boolean) => void, label: string, disabled = false) {
-    return (
-      <label className="toggle" title={checked ? "On" : "Off"}>
-        <input type="checkbox" checked={checked} disabled={disabled} aria-label={label} onChange={(e) => onChange(e.target.checked)} />
-        <span className="toggle-track" />
-      </label>
-    );
-  }
+  const connectionLabel: Record<string, string> = { ok: "Connected", fail: "Failed", running: "Testing…", idle: "Not tested" };
+  const publicLinks = visibleGroups.find((group) => group.title === "Public links");
+  const serviceGroups = visibleGroups.filter((group) => group.title !== "Public links");
 
   return (
     <div className="page settings-page">
@@ -2485,120 +2513,106 @@ function Settings() {
         </p>
       )}
       {error && <p className="error">{error}</p>}
-      {message && !savedFlash && <p className="ok-message">{message}</p>}
+      {message && !savedFlash && <p className="ok-message settings-message">{message}</p>}
 
       {visibleServices.length > 0 && (
-        <section className="settings-section">
-          <div className="settings-head">
-            <div>
-              <h3>Connections</h3>
-              <p className="muted">
-                {visibleServices.length} configured service{visibleServices.length === 1 ? "" : "s"}. Check Cleanarr can reach each one.
-              </p>
-            </div>
-            <button className="ghost" type="button" disabled={testing} onClick={testAll}>{testing ? "Testing…" : "Test all"}</button>
-          </div>
-          <div className="test-list">
+        <SettingsBlock
+          title="Connections"
+          copy="Check Cleanarr can reach each configured service."
+          aside={<button className="ghost small-btn" type="button" disabled={testing} onClick={testAll}>{testing ? "Testing…" : "Test all"}</button>}
+        >
+          <ul className="conn-list">
             {visibleServices.map((service) => {
               const result = testResult(service.id);
+              const detail = result.kind === "ok" ? result.detail : result.kind === "fail" ? (result.detail || result.label) : "";
               return (
-                <div className={`test-row ${result.kind}`} key={service.id}>
-                  <div className="test-name">
-                    <strong>{service.label}</strong>
-                  </div>
-                  <div className={`test-status ${result.kind}`}>
-                    <span className={`test-badge ${result.kind}`}>
-                      {result.kind === "ok" ? "Passed" : result.kind === "fail" ? "Failed" : result.kind === "running" ? "Testing" : "Idle"}
-                    </span>
-                    <span className="test-detail">
-                      {result.kind === "ok"
-                        ? (result.detail ? `Connected · ${result.detail}` : "Connected")
-                        : result.kind === "fail"
-                          ? (result.detail || result.label)
-                          : result.label}
-                    </span>
-                  </div>
-                  <button className="ghost" type="button" disabled={testing} onClick={() => test(service.id)}>Test</button>
-                </div>
+                <li className={`conn-row ${result.kind}`} key={service.id}>
+                  <span className={`conn-dot ${result.kind}`} aria-hidden="true" />
+                  <strong className="conn-name">{service.label}</strong>
+                  <span className="conn-status" title={detail || undefined}>
+                    <span className="conn-state">{connectionLabel[result.kind]}</span>
+                    {detail ? <span className="conn-detail">{detail}</span> : null}
+                  </span>
+                  <button className="ghost small-btn" type="button" disabled={testing || result.kind === "running"} onClick={() => test(service.id)}>Test</button>
+                </li>
               );
             })}
-          </div>
-        </section>
+          </ul>
+        </SettingsBlock>
       )}
 
       <form onSubmit={save} className="settings-form">
-        <section className="settings-section">
-          <h3>Schedule</h3>
-          <p className="muted">Runs while Cleanarr is up. Sync now never deletes anything.</p>
-          <div className="setting-rows">
-            {settingRow(
-              "Automatic sync",
-              "Refresh the library on a timer.",
-              toggle(scheduleEnabled, setScheduleEnabled, "Automatic sync"),
-            )}
-            {settingRow(
-              "Sync every",
-              null,
-              <select className="control-select" value={interval} onChange={(e) => setIntervalHours(e.target.value)} disabled={!scheduleEnabled} aria-label="Sync interval">
-                <option value="1">Hour</option>
+        <SettingsBlock title="Schedule" copy="Runs while Cleanarr is up. Sync now never deletes anything.">
+          <SettingSwitch
+            checked={scheduleEnabled}
+            onChange={setScheduleEnabled}
+            title="Automatic sync"
+            copy="Refresh the library on a timer."
+          >
+            <label className="inline-field">
+              <span>Every</span>
+              <select className="control-select" value={interval} onChange={(e) => setIntervalHours(e.target.value)}>
+                <option value="1">hour</option>
                 <option value="3">3 hours</option>
                 <option value="6">6 hours</option>
                 <option value="12">12 hours</option>
-                <option value="24">Day</option>
+                <option value="24">day</option>
                 <option value="48">2 days</option>
-                <option value="168">Week</option>
-              </select>,
-              scheduleEnabled ? "" : "is-off",
-            )}
-            {settingRow(
-              "Automatic delete",
-              "After a scheduled sync, remove stale titles from disk. Whitelisted titles are always kept.",
-              toggle(autoDelete && scheduleEnabled, setAutoDelete, "Automatic delete", !scheduleEnabled),
-              scheduleEnabled ? "" : "is-off",
-            )}
-            {settingRow(
-              "Unwatched for",
-              null,
-              <select className="control-select" value={autoDeleteDays} onChange={(e) => setAutoDeleteDays(e.target.value)} disabled={!autoDelete || !scheduleEnabled} aria-label="Unwatched cutoff">
+                <option value="168">week</option>
+              </select>
+            </label>
+          </SettingSwitch>
+          <SettingSwitch
+            checked={autoDelete && scheduleEnabled}
+            onChange={setAutoDelete}
+            disabled={!scheduleEnabled}
+            title="Automatic delete"
+            copy={scheduleEnabled
+              ? "After each scheduled sync, remove stale titles from disk. Whitelisted titles are always kept."
+              : "Needs automatic sync. Deletes only ever run after a scheduled sync."}
+          >
+            <label className="inline-field">
+              <span>Unwatched for</span>
+              <select className="control-select" value={autoDeleteDays} onChange={(e) => setAutoDeleteDays(e.target.value)}>
                 <option value="90">90 days</option>
                 <option value="180">6 months</option>
                 <option value="365">1 year</option>
                 <option value="730">2 years</option>
-              </select>,
-              autoDelete && scheduleEnabled ? "" : "is-off",
-            )}
-            {settingRow(
-              "Most per run",
-              null,
-              <select className="control-select" value={autoDeleteCap} onChange={(e) => setAutoDeleteCap(e.target.value)} disabled={!autoDelete || !scheduleEnabled} aria-label="Delete cap per run">
-                <option value="5">5 titles</option>
-                <option value="10">10 titles</option>
-                <option value="25">25 titles</option>
-                <option value="50">50 titles</option>
-              </select>,
-              autoDelete && scheduleEnabled ? "" : "is-off",
-            )}
-          </div>
-          {autoDelete && scheduleEnabled && (
-            <p className="settings-note">
-              A run is skipped if watch history looks untrustworthy (no source, a failed source, or zero plays).
+              </select>
+            </label>
+            <label className="inline-field">
+              <span>At most</span>
+              <select className="control-select" value={autoDeleteCap} onChange={(e) => setAutoDeleteCap(e.target.value)}>
+                <option value="5">5 per run</option>
+                <option value="10">10 per run</option>
+                <option value="25">25 per run</option>
+                <option value="50">50 per run</option>
+              </select>
+            </label>
+            <p className="option-note">
+              A run is skipped if watch history looks untrustworthy: no source, a failed source, or zero plays.
             </p>
-          )}
-        </section>
+          </SettingSwitch>
+        </SettingsBlock>
 
-        {visibleGroups.map((group) => (
-          <section className="settings-section" key={group.title}>
-            <h3>{group.title}</h3>
-            <p className="muted">{group.copy}</p>
+        {serviceGroups.map((group) => (
+          <SettingsBlock title={group.title} copy={group.copy} key={group.title}>
             <div className="form-grid">{group.fields.map(([key, label]) => field(key, label))}</div>
-          </section>
+          </SettingsBlock>
         ))}
+        {publicLinks && (
+          <SettingsBlock title="Public links" copy={publicLinks.copy}>
+            <details className="settings-more" open={publicLinks.fields.some(([key]) => values[key])}>
+              <summary>{publicLinks.fields.some(([key]) => values[key]) ? "Edit public links" : "Set public links"}</summary>
+              <div className="form-grid">{publicLinks.fields.map(([key, label]) => field(key, label))}</div>
+            </details>
+          </SettingsBlock>
+        )}
         {!hideSettings && (
-          <section className="settings-section">
-            <h3>Account</h3>
+          <SettingsBlock title="Account" copy="The login for this Cleanarr instance.">
             <div className="form-grid">
               <label>
-                Cleanarr username {usernameLocked && <span className="lock">env</span>}
+                Username {usernameLocked && <span className="lock">env</span>}
                 <input value={username} disabled={usernameLocked} autoComplete="off" onChange={(e) => setUsername(e.target.value)} />
               </label>
               <label>
@@ -2606,7 +2620,7 @@ function Settings() {
                 <input type="password" value={password} disabled={usernameLocked} autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} placeholder="Leave blank to keep" />
               </label>
             </div>
-          </section>
+          </SettingsBlock>
         )}
 
         <div className={`save-bar${dirty || saving || savedFlash ? " show" : ""}`} aria-live="polite">
@@ -2622,27 +2636,13 @@ function Settings() {
         </div>
       </form>
 
-      <section className="settings-section">
-        <h3>Maintenance</h3>
-        <p className="muted">Clearing the library removes synced titles, users, and unmatched rows. Whitelist, login, and connection settings stay.</p>
-        <div className="maintenance-grid">
-          <div>
-            <span className="muted">Synced titles</span>
-            <b>{num(maintenance.library_count)}</b>
-          </div>
-          <div>
-            <span className="muted">Users</span>
-            <b>{num(maintenance.people_count)}</b>
-          </div>
-          <div>
-            <span className="muted">Unmatched</span>
-            <b>{num(maintenance.unmatched_count)}</b>
-          </div>
-          <div>
-            <span className="muted">Poster cache</span>
-            <b>{maintenance.cache_files} · {bytes(maintenance.cache_bytes)}</b>
-          </div>
-        </div>
+      <SettingsBlock title="Maintenance" copy="Clearing the library removes synced titles, users, and unmatched rows. Whitelist, login, and connections stay.">
+        <dl className="maintenance-list">
+          <div><dt>Synced titles</dt><dd>{num(maintenance.library_count)}</dd></div>
+          <div><dt>Users</dt><dd>{num(maintenance.people_count)}</dd></div>
+          <div><dt>Unmatched</dt><dd>{num(maintenance.unmatched_count)}</dd></div>
+          <div><dt>Poster cache</dt><dd>{maintenance.cache_files ? `${num(maintenance.cache_files)} · ${bytes(maintenance.cache_bytes)}` : "Empty"}</dd></div>
+        </dl>
         <div className="settings-actions">
           <button className="ghost" type="button" disabled={Boolean(busy)} onClick={clearCache}>
             {busy === "cache" ? "Clearing…" : "Clear poster cache"}
@@ -2651,7 +2651,7 @@ function Settings() {
             {busy === "library" ? "Clearing…" : "Clear synced library"}
           </button>
         </div>
-      </section>
+      </SettingsBlock>
     </div>
   );
 }
