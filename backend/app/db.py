@@ -39,7 +39,9 @@ _settings_version: int | None = None
 _settings_cache: dict[str, str] = {}
 
 
-def _settings_snapshot() -> dict[str, str]:
+def _settings_snapshot(key: str | None = None, default: str = "") -> Any:
+    """The whole table as a copy, or one value when `key` is given; either way
+    read under the lock, so no caller sees a cache that is mid-reload."""
     global _settings_conn, _settings_version, _settings_cache
     with _settings_lock:
         if _settings_conn is None:
@@ -47,9 +49,11 @@ def _settings_snapshot() -> dict[str, str]:
         version = _settings_conn.execute("PRAGMA data_version").fetchone()[0]
         if version != _settings_version:
             rows = _settings_conn.execute("SELECT key, value FROM settings").fetchall()
-            _settings_cache = {key: value for key, value in rows}
+            _settings_cache = dict(rows)
             _settings_version = version
-        return _settings_cache
+        if key is not None:
+            return _settings_cache.get(key, default)
+        return dict(_settings_cache)
 
 
 def init_db() -> None:
@@ -335,7 +339,7 @@ def ignored_matches(action: str = "unlink") -> set[tuple]:
 
 
 def get_setting(key: str, default: str = "") -> str:
-    return _settings_snapshot().get(key, default)
+    return _settings_snapshot(key, default)
 
 
 def set_setting(key: str, value: str) -> None:
@@ -347,7 +351,7 @@ def set_setting(key: str, value: str) -> None:
 
 
 def all_settings() -> dict[str, str]:
-    return dict(_settings_snapshot())
+    return _settings_snapshot()
 
 
 def clear_library() -> dict[str, int]:

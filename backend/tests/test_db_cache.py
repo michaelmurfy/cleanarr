@@ -43,3 +43,17 @@ def test_prepared_whitelist_matches_like_the_plain_rules():
     for title, media_type, tmdb, expected in cases:
         assert rules.match(title, media_type, tmdb) is expected
         assert is_protected(title, media_type, tmdb, rows) is expected
+
+
+def test_password_change_rejects_old_session_cookie(auth_client):
+    from app import auth
+
+    assert auth_client.get("/api/auth/me").status_code == 200
+    try:
+        auth.set_credentials("tester", "a-brand-new-password")
+        # The session key is derived from cached settings, so this also proves
+        # the cache picked up the new hash before the next request.
+        assert auth_client.get("/api/auth/me").status_code == 401
+    finally:
+        auth.bootstrap_auth()
+        auth_client.post("/api/auth/login", json={"username": "tester", "password": "hunter2"})
