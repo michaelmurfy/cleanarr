@@ -477,6 +477,20 @@ input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
 .chip-scroller.fade-left::before,
 .chip-scroller.fade-right::after { opacity: 1; }
 
+/* A select is as wide as its longest option, so without a cap one long label
+   pushes the last filter onto a line of its own. */
+.filters > select { flex: 0 1 auto; min-width: 120px; max-width: 200px; }
+.filters > .clearable { min-width: 240px; }
+/* Between phone and wide desktop the library filters stop fitting on one line:
+   search takes its own row and the selects line up in an even grid beneath it. */
+@media (min-width: 721px) and (max-width: 1180px) {
+  .filters.library-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  }
+  .filters.library-filters > .clearable { grid-column: 1 / -1; min-width: 0; }
+  .filters.library-filters > select { width: 100%; min-width: 0; max-width: none; }
+}
 .filters.whitelist-form > .clearable {
   flex: 1 1 220px;
   min-width: 180px;
@@ -1493,7 +1507,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   .filters > input[type="search"],
   .filters > .clearable { flex: 1 1 100%; }
   /* Two selects per row keeps the controls from pushing results off screen. */
-  .filters > select { flex: 1 1 calc(50% - 4px); min-width: 0; }
+  .filters > select { flex: 1 1 calc(50% - 4px); min-width: 0; max-width: none; }
   .filters > button, .toolbar > * { flex: 1 1 auto; }
   .filters .spacer, .pager .spacer { display: none; }
   .filters.whitelist-form {

@@ -964,10 +964,10 @@ function Library({
           </button>
         ) : null}
       </FilterChips>
-      <div className="filters">
+      <div className="filters library-filters">
         <ClearableField
           type="search"
-          placeholder="Search title, requester, watcher, requested"
+          placeholder="Search titles and people"
           value={qInput}
           onValue={setQInput}
           enterKeyHint="search"
@@ -999,7 +999,7 @@ function Library({
         </select>
         <select value={filters.sort} onChange={(e) => patch({ sort: e.target.value })}>
           <option value="oldest">Oldest first</option>
-          <option value="requests">Never watched, then oldest request</option>
+          <option value="requests">Never watched first</option>
           <option value="last_watched">Recently watched</option>
           <option value="rating">Lowest rating</option>
           <option value="plays">Play count</option>
