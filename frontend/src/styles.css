@@ -453,33 +453,30 @@ input[type="search"] {
 }
 input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
 
-.chip-scroller {
-  position: relative;
-  margin-bottom: 14px;
+/* Quick filters wrap instead of scrolling so every option stays in view; an
+   active chip carries a tick so on/off does not rely on colour alone. */
+.filters.chips { gap: 8px; }
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease;
 }
-.chip-scroller .filters.chips { margin-bottom: 0; }
-.chip-scroller::before,
-.chip-scroller::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 2px;
-  width: 36px;
-  z-index: 2;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 160ms ease;
+.chip-btn:active { transform: scale(0.96); }
+/* "On" is a solid fill rather than a tick so a chip keeps its width and the
+   wrapped rows never reshuffle under the thumb. */
+.filters.chips .chip-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1308;
+  font-weight: 600;
 }
-.chip-scroller::before {
-  left: 0;
-  background: linear-gradient(90deg, var(--bg) 35%, transparent);
-}
-.chip-scroller::after {
-  right: 0;
-  background: linear-gradient(270deg, var(--bg) 35%, transparent);
-}
-.chip-scroller.fade-left::before,
-.chip-scroller.fade-right::after { opacity: 1; }
+.filters.chips .chip-btn.ok.active { background: var(--ok); border-color: var(--ok); color: #0f1a10; }
+.filters.chips .chip-btn.pending.active { background: var(--sky); border-color: var(--sky); color: #06141f; }
+.chip-btn.removable svg { width: 13px; height: 13px; margin-right: -3px; opacity: 0.8; }
 
 /* A select is as wide as its longest option, so without a cap one long label
    pushes the last filter onto a line of its own. */
@@ -1563,30 +1560,16 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     grid-column: 1 / -1;
     width: 100%;
   }
-  /* Quick filters scroll sideways with edge fades instead of stacking. */
-  .chip-scroller {
-    margin-left: calc(-1 * max(14px, var(--safe-left)));
-    margin-right: calc(-1 * max(14px, var(--safe-right)));
-    margin-bottom: 12px;
+  /* Compact pills that wrap onto two rows: nothing hidden off screen, and the
+     row does not become a wall of full-height buttons. */
+  .filters.chips { gap: 6px; margin-bottom: 12px; }
+  .filters.chips > .chip-btn {
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 5px 11px;
+    font-size: 13px;
+    gap: 5px;
   }
-  .chip-scroller::before {
-    left: max(14px, var(--safe-left));
-    width: 40px;
-    background: linear-gradient(90deg, var(--bg) 40%, transparent);
-  }
-  .chip-scroller::after {
-    right: max(14px, var(--safe-right));
-    width: 40px;
-    background: linear-gradient(270deg, var(--bg) 40%, transparent);
-  }
-  .filters.chips {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding: 0 max(14px, var(--safe-left)) 2px max(14px, var(--safe-right));
-  }
-  .filters.chips::-webkit-scrollbar { display: none; }
-  .filters.chips > .chip-btn { flex: 0 0 auto; }
   .table-wrap {
     border: none;
     background: transparent;

@@ -294,40 +294,18 @@ function ClearableField({
 }
 
 function FilterChips({ children }: { children: ReactNode }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const [edge, setEdge] = useState({ left: false, right: false });
-
-  const update = useCallback(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const max = el.scrollWidth - el.clientWidth;
-    setEdge({
-      left: el.scrollLeft > 4,
-      right: max > 4 && el.scrollLeft < max - 4,
-    });
-  }, []);
-
-  useEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    update();
-    el.addEventListener("scroll", update, { passive: true });
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
-    ro?.observe(el);
-    window.addEventListener("resize", update);
-    return () => {
-      el.removeEventListener("scroll", update);
-      ro?.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, [update, children]);
-
   return (
-    <div className={`chip-scroller${edge.left ? " fade-left" : ""}${edge.right ? " fade-right" : ""}`}>
-      <div className="filters chips" ref={scroller}>
-        {children}
-      </div>
+    <div className="filters chips" role="group" aria-label="Quick filters">
+      {children}
     </div>
+  );
+}
+
+function Chip({ active, tone = "", onClick, children }: { active: boolean; tone?: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" className={`chip-btn ${tone} ${active ? "active" : ""}`.trim()} aria-pressed={active} onClick={onClick}>
+      {children}
+    </button>
   );
 }
 
@@ -1036,21 +1014,17 @@ function Library({
         )}
       </div>
       <FilterChips>
-        <button className={`chip-btn ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>Never watched</button>
-        <button className={`chip-btn ${filters.watched === "stale" && filters.sort === "oldest" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>Oldest / stale</button>
-        <button className={`chip-btn pending ${filters.watched === "requested" ? "active" : ""}`} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title" })}>Requested</button>
-        <button className={`chip-btn ok ${filters.watched === "protected" ? "active" : ""}`} onClick={() => patch(filters.watched === "protected" ? { watched: "" } : { watched: "protected", maxRating: "", sort: "title" })}>Protected</button>
-        <button className={`chip-btn ${filters.sort === "rating" ? "active" : ""}`} onClick={() => patch({ sort: filters.sort === "rating" ? "oldest" : "rating" })}>Lowest rated</button>
-        <button className={`chip-btn ${filters.sort === "size" ? "active" : ""}`} onClick={() => patch({ sort: filters.sort === "size" ? "oldest" : "size" })}>Largest</button>
-        <button
-          className={`chip-btn ${filters.hideUnprocessed ? "active" : ""}`}
-          onClick={() => patch({ hideUnprocessed: !filters.hideUnprocessed })}
-        >
-          Hide unprocessed
-        </button>
+        <Chip active={filters.watched === "never"} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>Never watched</Chip>
+        <Chip active={filters.watched === "stale" && filters.sort === "oldest"} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>Stale</Chip>
+        <Chip tone="pending" active={filters.watched === "requested"} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title" })}>Requested</Chip>
+        <Chip tone="ok" active={filters.watched === "protected"} onClick={() => patch(filters.watched === "protected" ? { watched: "" } : { watched: "protected", maxRating: "", sort: "title" })}>Protected</Chip>
+        <Chip active={filters.sort === "rating"} onClick={() => patch({ sort: filters.sort === "rating" ? "oldest" : "rating" })}>Low rated</Chip>
+        <Chip active={filters.sort === "size"} onClick={() => patch({ sort: filters.sort === "size" ? "oldest" : "size" })}>Largest</Chip>
+        <Chip active={filters.hideUnprocessed} onClick={() => patch({ hideUnprocessed: !filters.hideUnprocessed })}>Hide pending</Chip>
         {filters.requester ? (
-          <button className="chip-btn active" onClick={() => patch({ requester: "", sort: "oldest" })}>
-            Requester: {filters.requester} ×
+          <button type="button" className="chip-btn active removable" aria-label={`Remove requester filter ${filters.requester}`} onClick={() => patch({ requester: "", sort: "oldest" })}>
+            {filters.requester}
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           </button>
         ) : null}
       </FilterChips>
@@ -1204,7 +1178,7 @@ function Library({
                           ? "No library titles match the current whitelist."
                           : filters.watched === "requested"
                             ? "Nothing is sitting in a requested, not-downloaded state."
-                            : "No titles match these filters. Try Never watched or Oldest / stale."}
+                            : "No titles match these filters. Try Never watched or Stale."}
                       </span>
                     </>
                   )}
