@@ -201,7 +201,7 @@ a:hover { text-decoration: underline; }
   border-radius: inherit;
   background: var(--accent);
 }
-.nav button, .ghost, .primary, .danger, .chip-btn {
+.nav button, .ghost, .primary, .danger {
   border: 1px solid var(--line);
   background: transparent;
   padding: 8px 12px;
@@ -218,7 +218,7 @@ a:hover { text-decoration: underline; }
 }
 /* Sticky :hover on touch devices was painting the active tab dark over the gold. */
 @media (hover: hover) {
-  .ghost:hover, .nav button:hover, .chip-btn:hover { background: var(--bg-hover); }
+  .ghost:hover, .nav button:hover { background: var(--bg-hover); }
   .nav button.active:hover {
     background: var(--accent);
     color: #1a1308;
@@ -255,9 +255,6 @@ a:hover { text-decoration: underline; }
 }
 .nav-bottom { display: none; }
 .danger { background: var(--danger); border-color: var(--danger); color: white; font-weight: 600; }
-.chip-btn.active { border-color: var(--accent); color: var(--accent-2); background: #2b2418; }
-.chip-btn.ok.active { border-color: var(--ok); color: var(--ok); background: #16241a; }
-.chip-btn.pending.active { border-color: var(--sky); color: var(--sky); background: #102433; }
 .primary:active, .danger:active { transform: translateY(1px); }
 .spacer { flex: 1; }
 .muted { color: var(--muted); }
@@ -453,52 +450,121 @@ input[type="search"] {
 }
 input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
 
-/* Quick filters wrap instead of scrolling so every option stays in view; an
-   active chip carries a tick so on/off does not rely on colour alone. */
-.filters.chips { gap: 8px; }
-.chip-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  padding: 7px 14px;
-  font-size: 13px;
-  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease;
-}
-.chip-btn:active { transform: scale(0.96); }
-/* "On" is a solid fill rather than a tick so a chip keeps its width and the
-   wrapped rows never reshuffle under the thumb. */
-.filters.chips .chip-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #1a1308;
-  font-weight: 600;
-}
-.filters.chips .chip-btn.ok.active { background: var(--ok); border-color: var(--ok); color: #0f1a10; }
-.filters.chips .chip-btn.pending.active { background: var(--sky); border-color: var(--sky); color: #06141f; }
-.chip-btn.removable svg { width: 13px; height: 13px; margin-right: -3px; opacity: 0.8; }
-
 /* A select is as wide as its longest option, so without a cap one long label
    pushes the last filter onto a line of its own. */
 .filters > select { flex: 0 1 auto; min-width: 120px; max-width: 200px; }
 .filters > .clearable { min-width: 240px; }
-/* Between phone and wide desktop the library filters stop fitting on one line:
-   search takes its own row and the selects line up in an even grid beneath it. */
-@media (min-width: 721px) and (max-width: 1180px) {
-  .filters.library-filters {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-  .filters.library-filters > * { width: 100%; min-width: 0; max-width: none; }
-  /* Search and sort share the top row; the four filters sit evenly beneath. */
-  .filters.library-filters > .clearable { grid-column: 1 / 4; grid-row: 1; }
-  .filters.library-filters > select:last-child { grid-column: 4; grid-row: 1; }
+
+/* Library toolbar: search, sort, and one Filters button for everything else. */
+.library-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
 }
-@media (min-width: 721px) and (max-width: 899px) {
-  .filters.library-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .filters.library-filters > .clearable { grid-column: 1 / -1; }
-  .filters.library-filters > select:last-child { grid-column: 1 / -1; grid-row: auto; }
+.library-toolbar > .clearable { flex: 1 1 auto; min-width: 0; }
+.toolbar-sort { flex: none; width: 190px; }
+.filter-menu { position: relative; flex: none; }
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
 }
+.filter-toggle .inline-icon { width: 16px; height: 16px; }
+.filter-toggle.has-filters,
+.filter-toggle.open { border-color: var(--accent); color: var(--accent-2); }
+.filter-count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--accent);
+  color: #1a1308;
+  font-size: 12px;
+  font-weight: 700;
+  animation: dot-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.filter-backdrop { position: fixed; inset: 0; z-index: 55; }
+.filter-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 320px;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  transform-origin: top right;
+  animation: panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes panel-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+.filter-panel-head { display: flex; align-items: center; justify-content: space-between; }
+.filter-panel-head strong { font-size: 15px; }
+.filter-panel-head .linkish { font-size: 13px; }
+.filter-panel-head .linkish:disabled { color: var(--muted); opacity: 0.5; text-decoration: none; cursor: default; }
+.filter-field { display: grid; gap: 6px; min-width: 0; }
+.filter-field > span { font-size: 12px; color: var(--muted); }
+.filter-field select { width: 100%; }
+.filter-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.segmented button {
+  border: none;
+  border-radius: 7px;
+  padding: 7px 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 160ms ease, color 160ms ease;
+}
+.segmented button.on { background: #262d3d; color: var(--text); font-weight: 600; }
+.filter-switch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid rgba(44, 55, 80, 0.55);
+  cursor: pointer;
+}
+.filter-switch > span:first-child { display: grid; gap: 2px; }
+.filter-switch strong { font-size: 14px; font-weight: 600; }
+.filter-switch .muted { font-size: 12px; }
+.filter-done, .mobile-only-block { display: none; }
+.active-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: #2b2418;
+  color: var(--accent-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.filter-pill svg { width: 13px; height: 13px; opacity: 0.8; }
+.empty-action { margin-top: 14px; }
 .filters.whitelist-form > .clearable {
   flex: 1 1 220px;
   min-width: 180px;
@@ -1535,7 +1601,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     padding: 0;
     flex: none;
   }
-  .nav button, .ghost, .primary, .danger, .danger-ghost, .chip-btn { min-height: 42px; }
+  .nav button, .ghost, .primary, .danger, .danger-ghost { min-height: 42px; }
   .filters, .toolbar, .pager { gap: 8px; }
   .filters > input[type="search"],
   .filters > .clearable { flex: 1 1 100%; }
@@ -1560,16 +1626,44 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
     grid-column: 1 / -1;
     width: 100%;
   }
-  /* Compact pills that wrap onto two rows: nothing hidden off screen, and the
-     row does not become a wall of full-height buttons. */
-  .filters.chips { gap: 6px; margin-bottom: 12px; }
-  .filters.chips > .chip-btn {
-    flex: 0 0 auto;
-    min-height: 36px;
-    padding: 5px 11px;
-    font-size: 13px;
-    gap: 5px;
+  /* Search and one Filters button; sort moves into the sheet. */
+  .library-toolbar { gap: 8px; margin-bottom: 12px; }
+  .toolbar-sort { display: none; }
+  .filter-toggle { height: 44px; min-height: 44px; padding: 0 14px; }
+  .filter-backdrop {
+    background: rgba(5, 7, 12, 0.6);
+    backdrop-filter: blur(2px);
+    animation: fade 180ms ease;
   }
+  .filter-panel {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 86dvh;
+    overflow: auto;
+    padding: 18px 18px calc(18px + var(--safe-bottom));
+    border-radius: 18px 18px 0 0;
+    border-bottom: none;
+    animation: sheet 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .filter-panel::before {
+    content: "";
+    justify-self: center;
+    width: 38px;
+    height: 4px;
+    margin: -8px 0 -4px;
+    border-radius: 999px;
+    background: #3a4458;
+  }
+  .filter-panel-head strong { font-size: 17px; }
+  .segmented button { padding: 10px 0; font-size: 15px; }
+  .filter-field > span { font-size: 13px; }
+  .filter-done { display: block; width: 100%; min-height: 46px; }
+  .mobile-only-block { display: grid; }
+  .library-page .page-head .page-intro { display: none; }
   .table-wrap {
     border: none;
     background: transparent;
