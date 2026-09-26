@@ -49,10 +49,9 @@ def job_status() -> dict[str, Any]:
     current = int(data.get("current") or 0)
     if data.get("status") == "running" and total:
         data["percent"] = min(100, int((current * 100) / total))
-    elif data.get("status") == "running":
-        data["percent"] = None
     else:
-        data["percent"] = 100 if data.get("status") == "idle" else 0
+        # Only while a sync is running — idle/error leave percent unset so the UI can hide the bar.
+        data["percent"] = None
     return data
 
 
