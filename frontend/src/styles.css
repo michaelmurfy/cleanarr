@@ -866,7 +866,13 @@ input.tick:disabled {
 .settings-page .page-head h2 { margin-top: 0; }
 .repo-link { flex: none; font-size: 13px; padding: 7px 12px; color: var(--muted); }
 .repo-link:hover { color: var(--text); }
-.settings-message { margin: 0 0 12px; }
+.settings-message {
+  /* Keep left/right unset so `.settings-page > *` centering still applies. */
+  margin-block: 0 12px;
+  margin-inline: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
 .settings-block {
   display: grid;
   grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
