@@ -1421,7 +1421,11 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
 @media (hover: hover) { .stat.info:hover { border-color: var(--sky); } }
 
 .warn-banner {
-  margin: 0 0 14px;
+  /* Keep left/right unset so `.settings-page > *` centering (margin: auto) still applies. */
+  margin-block: 0 14px;
+  margin-inline: auto;
+  width: 100%;
+  box-sizing: border-box;
   padding: 11px 14px;
   border: 1px solid #6a4a20;
   border-radius: 10px;
