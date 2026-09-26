@@ -395,6 +395,7 @@ async def restore_settings(request: Request):
         detail={
             "settings_applied": result["settings_applied"],
             "settings_skipped": result["settings_skipped"],
+            "settings_cleared": result.get("settings_cleared", 0),
             "whitelist": result["whitelist"],
             "unmatched_ignored": result["unmatched_ignored"],
             "match_decisions": result["match_decisions"],

@@ -51,6 +51,13 @@ def _normalize_app_setting(key: str, value: str) -> str:
     return cleaned
 
 
+def _app_setting_defaults() -> dict[str, str]:
+    defaults = {key: "0" for key in BOOL_SETTINGS}
+    for key, (default, _, _) in NUMERIC_SETTINGS.items():
+        defaults[key] = default
+    return defaults
+
+
 def _exportable_settings() -> tuple[dict[str, str], list[str]]:
     """DB-stored settings only. Env-locked and hide-settings keys are skipped."""
     locked = locked_setting_keys()
@@ -128,13 +135,34 @@ def _as_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _clear_writable_settings() -> int:
+    """Wipe DB-stored connection + app settings that restore is allowed to own."""
+    locked = locked_setting_keys()
+    hide = hide_env_settings()
+    cleared = 0
+    with connect() as conn:
+        for key in KEYS:
+            if hide or key in locked:
+                continue
+            cur = conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+            cleared += int(cur.rowcount or 0)
+        for key in APP_SETTING_KEYS:
+            cur = conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+            cleared += int(cur.rowcount or 0)
+    return cleared
+
+
 def _apply_settings(raw: Any) -> dict[str, int]:
+    """Replace writable settings with the backup snapshot (no merge leftovers)."""
     if raw is None:
-        return {"applied": 0, "skipped": 0}
+        raw = {}
     if not isinstance(raw, dict):
         raise HTTPException(400, "settings must be an object")
     locked = locked_setting_keys()
     hide = hide_env_settings()
+    cleared = _clear_writable_settings()
+    for key, default in _app_setting_defaults().items():
+        set_setting(key, default)
     applied = 0
     skipped = 0
     for key, value in raw.items():
@@ -152,19 +180,23 @@ def _apply_settings(raw: Any) -> dict[str, int]:
             continue
         if name.endswith("_api_key"):
             if not text or set(text) <= {"•", "*"}:
+                # Already cleared above; blank in the backup means leave it empty.
                 skipped += 1
                 continue
             set_setting(name, text)
             applied += 1
             continue
-        set_setting(name, text)
-        applied += 1
-    return {"applied": applied, "skipped": skipped}
+        if text:
+            set_setting(name, text)
+            applied += 1
+        else:
+            skipped += 1
+    return {"applied": applied, "skipped": skipped, "cleared": cleared}
 
 
 def _replace_whitelist(rows: Any) -> int:
     if rows is None:
-        return 0
+        rows = []
     if not isinstance(rows, list):
         raise HTTPException(400, "whitelist must be a list")
     if len(rows) > 5000:
@@ -207,7 +239,7 @@ def _replace_whitelist(rows: Any) -> int:
 
 def _replace_unmatched_ignored(rows: Any) -> int:
     if rows is None:
-        return 0
+        rows = []
     if not isinstance(rows, list):
         raise HTTPException(400, "unmatched_ignored must be a list")
     if len(rows) > 20000:
@@ -251,7 +283,7 @@ def _replace_unmatched_ignored(rows: Any) -> int:
 
 def _replace_match_decisions(rows: Any) -> int:
     if rows is None:
-        return 0
+        rows = []
     if not isinstance(rows, list):
         raise HTTPException(400, "match_decisions must be a list")
     if len(rows) > 20000:
@@ -314,6 +346,7 @@ def apply_backup(payload: Any) -> dict[str, Any]:
     if version != BACKUP_VERSION:
         raise HTTPException(400, f"Unsupported backup version {version}")
 
+    # Full replace: wipe writable config first, then write the backup snapshot.
     settings_stats = _apply_settings(payload.get("settings"))
     whitelist_count = _replace_whitelist(payload.get("whitelist"))
     ignored_count = _replace_unmatched_ignored(payload.get("unmatched_ignored"))
@@ -322,6 +355,7 @@ def apply_backup(payload: Any) -> dict[str, Any]:
         "ok": True,
         "settings_applied": settings_stats["applied"],
         "settings_skipped": settings_stats["skipped"],
+        "settings_cleared": settings_stats["cleared"],
         "whitelist": whitelist_count,
         "unmatched_ignored": ignored_count,
         "match_decisions": decisions_count,

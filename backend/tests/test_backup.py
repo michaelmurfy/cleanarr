@@ -131,3 +131,47 @@ def test_restore_skips_locked_keys(auth_client, monkeypatch):
     assert get_setting("radarr_url") != "http://attacker"
     assert get_setting("sonarr_url") == "http://ok"
     assert result["settings_skipped"] >= 1
+
+
+def test_restore_fully_replaces_prior_config(auth_client):
+    set_setting("radarr_url", "http://old-radarr")
+    set_setting("jellystat_url", "http://old-jellystat")
+    set_setting("jellystat_api_key", "old-jelly-key")
+    set_setting("auto_delete_enabled", "1")
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO whitelist (match_type, media_type, tmdb_id, pattern, note, created_at)
+            VALUES ('title', 'any', 0, 'Stale Rule', '', 1)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO unmatched_ignored
+                (kind, media_type, tmdb_id, tvdb_id, title_key, title, reason, created_at)
+            VALUES ('no_seerr', 'movie', 1, 0, 'gone', 'Gone', '', 1)
+            """
+        )
+
+    apply_backup(
+        {
+            "format": "cleanarr-config",
+            "version": 1,
+            "settings": {
+                "radarr_url": "http://new-radarr",
+                "radarr_api_key": "new-key",
+            },
+            "whitelist": [],
+            "unmatched_ignored": [],
+            "match_decisions": [],
+        }
+    )
+
+    assert get_setting("radarr_url") == "http://new-radarr"
+    assert get_setting("radarr_api_key") == "new-key"
+    assert get_setting("jellystat_url") == ""
+    assert get_setting("jellystat_api_key") == ""
+    assert get_setting("auto_delete_enabled") == "0"
+    with connect() as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM whitelist").fetchone()["n"] == 0
+        assert conn.execute("SELECT COUNT(*) AS n FROM unmatched_ignored").fetchone()["n"] == 0

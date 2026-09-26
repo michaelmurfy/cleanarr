@@ -2659,7 +2659,7 @@ function Settings() {
 
   async function restoreBackup(file: File | null) {
     if (!file) return;
-    if (!window.confirm("Restore this configuration backup? Connection settings, schedule, whitelist, and match decisions in the file replace the ones saved here. Login stays unchanged. Env-locked values are skipped.")) return;
+    if (!window.confirm("Restore this configuration backup? This fully replaces writable connections, schedule, whitelist, ignored unmatched, and match decisions with the file. Login stays unchanged. Env-locked values are skipped.")) return;
     setBusy("restore");
     setError("");
     setMessage("");
@@ -2904,7 +2904,7 @@ function Settings() {
 
       <SettingsBlock
         title="Backup & restore"
-        copy="Download a JSON file with connections, schedule, whitelist, and match decisions. Login and the synced library are not included. Treat the file as a secret."
+        copy="Download a JSON file with connections, schedule, whitelist, and match decisions. Restoring replaces those with the file (no leftovers). Login and the synced library are not included. Treat the file as a secret."
       >
         {(hideSettings || envFile || lockedKeys.length > 0) && (
           <p className="warn-banner" role="status">
