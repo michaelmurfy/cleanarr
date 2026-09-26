@@ -2403,6 +2403,7 @@ function Settings() {
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const savedFlashTimer = useRef<number | null>(null);
+  const restoreInput = useRef<HTMLInputElement>(null);
   const [baseline, setBaseline] = useState("");
   const services = [
     { id: "tautulli", label: "Tautulli", urlKey: "tautulli_url" },
@@ -2630,6 +2631,56 @@ function Settings() {
     }
   }
 
+  async function downloadBackup() {
+    setBusy("backup");
+    setError("");
+    setMessage("");
+    try {
+      const { blob, filename } = await api.downloadBackup();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage("Configuration backup downloaded. Keep the file private — it can include API keys.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not download backup");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function restoreBackup(file: File | null) {
+    if (!file) return;
+    if (!window.confirm("Restore this configuration backup? Connection settings, schedule, whitelist, and match decisions in the file replace the ones saved here. Login stays unchanged. Env-locked values are skipped.")) return;
+    setBusy("restore");
+    setError("");
+    setMessage("");
+    try {
+      const text = await file.text();
+      let payload: unknown;
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        throw new Error("That file is not valid JSON");
+      }
+      const result = await api.restoreBackup(payload);
+      await loadSettings();
+      setMessage(
+        `Restored ${result.settings_applied} settings, ${result.whitelist} whitelist rules, ${result.unmatched_ignored} ignored unmatched, ${result.match_decisions} match decisions`
+        + (result.settings_skipped ? ` (${result.settings_skipped} skipped).` : "."),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not restore backup");
+    } finally {
+      setBusy("");
+      if (restoreInput.current) restoreInput.current.value = "";
+    }
+  }
+
   function hiddenKey(key: string) {
     return hideSettings || Boolean(flags[`${key}_hidden`]);
   }
@@ -2696,7 +2747,7 @@ function Settings() {
           <h2>Settings</h2>
           <p className="page-intro muted">
             {hideSettings
-              ? <>Service URLs, API keys, and login are hidden because <code>CLEANARR_HIDE_SETTINGS=1</code> is set. Edit <code>.env</code> and restart to change them.</>
+              ? "Schedule and automatic delete stay editable here. Connections and login are managed outside the UI."
               : "Values set in the environment are locked. Saved API keys are never shown again."}
           </p>
         </div>
@@ -2704,6 +2755,12 @@ function Settings() {
           <GithubIcon /> <span>GitHub</span>
         </a>
       </div>
+      {hideSettings && (
+        <p className="warn-banner" role="status">
+          Service URLs, API keys, and login are hidden because <code>CLEANARR_HIDE_SETTINGS=1</code> is set.
+          Edit <code>.env</code> and restart to change them.
+        </p>
+      )}
       {defaultPassword && (
         <p className="warn-banner" role="alert">
           Cleanarr is still using the default password. Set a real one
@@ -2840,6 +2897,27 @@ function Settings() {
           ) : null}
         </div>
       </form>
+
+      <SettingsBlock
+        title="Backup & restore"
+        copy="Download a JSON file with connections, schedule, whitelist, and match decisions. Login and the synced library are not included. Treat the file as a secret."
+      >
+        <input
+          ref={restoreInput}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          onChange={(e) => restoreBackup(e.target.files?.[0] || null)}
+        />
+        <div className="settings-actions">
+          <button className="ghost" type="button" disabled={Boolean(busy)} onClick={downloadBackup}>
+            {busy === "backup" ? "Preparing…" : "Download backup"}
+          </button>
+          <button className="ghost" type="button" disabled={Boolean(busy)} onClick={() => restoreInput.current?.click()}>
+            {busy === "restore" ? "Restoring…" : "Restore from file…"}
+          </button>
+        </div>
+      </SettingsBlock>
 
       <SettingsBlock title="Maintenance" copy="Clearing the library removes synced titles, users, and unmatched rows. Whitelist, login, and connections stay.">
         <dl className="maintenance-list">

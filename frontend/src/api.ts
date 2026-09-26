@@ -143,6 +143,28 @@ export const api = {
   clearCache: () => request<{ removed: number; cache_files: number; cache_bytes: number }>("/api/settings/clear-cache", { method: "POST" }),
   clearLibrary: () =>
     request<{ media: number; people: number; unmatched: number; posters: number }>("/api/settings/clear-library", { method: "POST" }),
+  downloadBackup: async () => {
+    const response = await fetch("/api/settings/backup", { credentials: "include" });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const detail = data.detail;
+      throw new Error(typeof detail === "string" ? detail : data.message || response.statusText);
+    }
+    const blob = await response.blob();
+    const header = response.headers.get("Content-Disposition") || "";
+    const match = /filename="([^"]+)"/.exec(header);
+    const filename = match?.[1] || "cleanarr-config.json";
+    return { blob, filename };
+  },
+  restoreBackup: (body: unknown) =>
+    request<{
+      ok: boolean;
+      settings_applied: number;
+      settings_skipped: number;
+      whitelist: number;
+      unmatched_ignored: number;
+      match_decisions: number;
+    }>("/api/settings/restore", { method: "POST", body: JSON.stringify(body) }),
   unmatched: (params: Record<string, string>) => {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {

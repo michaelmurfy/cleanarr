@@ -11,6 +11,7 @@ def test_protected_routes_reject_anonymous_callers(client):
     for path in (
         "/api/auth/me",
         "/api/settings",
+        "/api/settings/backup",
         "/api/sync",
         "/api/whitelist",
         "/api/library",
@@ -19,7 +20,7 @@ def test_protected_routes_reject_anonymous_callers(client):
         "/api/matches/decisions",
     ):
         assert client.get(path).status_code == 401, path
-    for path in ("/api/matches/1/unlink", "/api/matches/1/keep"):
+    for path in ("/api/matches/1/unlink", "/api/matches/1/keep", "/api/settings/restore"):
         assert client.post(path, json={}).status_code == 401, path
     assert client.delete("/api/matches/decisions/1").status_code == 401
 
