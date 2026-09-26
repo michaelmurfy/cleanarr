@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -26,10 +26,11 @@ from .auth import (
     verify_password,
     COOKIE,
 )
+from .backup import MAX_RESTORE_BYTES, apply_backup, build_backup
 from .config import APP_SETTING_KEYS, env_file_present, hide_env_settings, locked_setting_keys
 from .db import all_settings, clear_library, connect, init_db, set_setting
 from .security import SecurityMiddleware, client_key, login_throttle, redact
-from .services.clients import KEYS, cfg, public_url, jellystat, radarr, radarr_4k, seerr, sonarr, tautulli, tracearr
+from .services.clients import KEYS, cfg, prune_env_overridden_settings, public_url, jellystat, radarr, radarr_4k, seerr, sonarr, tautulli, tracearr
 from .logs import add_log, list_logs
 from .sync import job_status, reset_job, restore_job, start_scheduler, start_sync
 from .version import current_version
@@ -41,6 +42,8 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 async def lifespan(app: FastAPI):
     init_db()
     bootstrap_auth()
+    # Drop DB copies of anything .env / process env already defines so config cannot fork.
+    prune_env_overridden_settings()
     restore_job()
     start_scheduler()
     yield
@@ -243,6 +246,7 @@ def put_settings(payload: SettingsIn, request: Request):
         set_setting(key, value.strip())
     if not hide_settings and "auth_username" not in locked and (payload.username or payload.password):
         set_credentials(payload.username or "", payload.password)
+    prune_env_overridden_settings()
     return {"ok": True, "hide_settings": hide_settings}
 
 
@@ -341,6 +345,66 @@ def clear_synced_library(request: Request):
         detail={**counts, "posters": posters},
     )
     return {"ok": True, **counts, "posters": posters}
+
+
+@app.get("/api/settings/backup")
+def backup_settings(request: Request):
+    user = current_user(request)
+    payload = build_backup()
+    stamp = time.strftime("%Y%m%d", time.gmtime(payload["exported_at"]))
+    filename = f"cleanarr-config-{stamp}.json"
+    add_log(
+        "Downloaded configuration backup",
+        category="audit",
+        action="backup",
+        actor=user,
+        detail={
+            "settings": len(payload.get("settings") or {}),
+            "skipped_locked": len(payload.get("skipped_locked") or []),
+            "whitelist": len(payload.get("whitelist") or []),
+            "unmatched_ignored": len(payload.get("unmatched_ignored") or []),
+            "match_decisions": len(payload.get("match_decisions") or []),
+        },
+    )
+    body = json.dumps(payload, indent=2, sort_keys=True)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post("/api/settings/restore")
+async def restore_settings(request: Request):
+    user = current_user(request)
+    raw = await request.body()
+    if len(raw) > MAX_RESTORE_BYTES:
+        raise HTTPException(400, "Backup file is too large")
+    if not raw.strip():
+        raise HTTPException(400, "Backup file is empty")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(400, "Backup file is not valid JSON") from exc
+    result = apply_backup(payload)
+    add_log(
+        "Restored configuration backup",
+        category="audit",
+        action="restore",
+        actor=user,
+        detail={
+            "settings_applied": result["settings_applied"],
+            "settings_skipped": result["settings_skipped"],
+            "settings_cleared": result.get("settings_cleared", 0),
+            "whitelist": result["whitelist"],
+            "unmatched_ignored": result["unmatched_ignored"],
+            "match_decisions": result["match_decisions"],
+        },
+    )
+    return result
 
 
 @app.get("/api/sync")

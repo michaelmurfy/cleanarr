@@ -31,3 +31,33 @@ def test_locked_keys_track_individual_env_vars(monkeypatch):
     locked = config.locked_setting_keys()
     assert "radarr_url" in locked
     assert "sonarr_url" not in locked
+
+
+def test_cfg_prefers_env_and_dotenv_over_db(monkeypatch, tmp_path):
+    from app.db import init_db, set_setting
+    from app.services import clients
+
+    init_db()
+    monkeypatch.setattr(config, "dotenv_values", lambda: {"RADARR_URL": "http://from-dotenv:7878"})
+    monkeypatch.delenv("RADARR_URL", raising=False)
+    set_setting("radarr_url", "http://from-db:7878")
+    assert clients.cfg("radarr_url") == "http://from-dotenv:7878"
+
+    monkeypatch.setenv("RADARR_URL", "http://from-process:7878")
+    assert clients.cfg("radarr_url") == "http://from-process:7878"
+
+
+def test_prune_removes_db_duplicates_of_env_keys(monkeypatch):
+    from app.db import get_setting, init_db, set_setting
+    from app.services import clients
+
+    init_db()
+    monkeypatch.setenv("RADARR_URL", "http://env-radarr")
+    monkeypatch.setattr(config, "dotenv_values", dict)
+    set_setting("radarr_url", "http://db-radarr")
+    set_setting("sonarr_url", "http://sonarr-db")
+    removed = clients.prune_env_overridden_settings()
+    assert removed >= 1
+    assert get_setting("radarr_url") == ""
+    assert get_setting("sonarr_url") == "http://sonarr-db"
+    assert clients.cfg("radarr_url") == "http://env-radarr"

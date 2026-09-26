@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import os
 from .arr import Radarr, Sonarr
 from .jellystat import Jellystat
 from .seerr import Seerr
 from .tautulli import Tautulli
 from .tracearr import Tracearr
-from ..config import ENV_KEY_MAP, settings
-from ..db import get_setting
+from ..config import ENV_KEY_MAP, env_value, settings
+from ..db import connect, get_setting
 
 KEYS = [
     "tautulli_url",
@@ -35,14 +34,28 @@ KEYS = [
 
 
 def cfg(key: str) -> str:
+    """Resolve a service setting. Process env and .env always win over the DB."""
     env_name = ENV_KEY_MAP.get(key, key.upper())
-    env_val = (os.environ.get(env_name) or "").strip()
+    env_val = env_value(env_name)
     if env_val:
         return env_val
     stored = get_setting(key)
     if stored:
         return stored.strip()
     return str(getattr(settings, key, "") or "").strip()
+
+
+def prune_env_overridden_settings() -> int:
+    """Remove DB copies of keys already defined in the environment or .env."""
+    removed = 0
+    with connect() as conn:
+        for key in KEYS:
+            env_name = ENV_KEY_MAP.get(key, key.upper())
+            if not env_value(env_name):
+                continue
+            cur = conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+            removed += int(cur.rowcount or 0)
+    return removed
 
 
 def tautulli() -> Tautulli | None:
