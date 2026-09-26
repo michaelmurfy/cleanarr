@@ -16,7 +16,39 @@
   <ReadMe>https://raw.githubusercontent.com/michaelmurfy/cleanarr/main/README.md</ReadMe>
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
-  <Changes>Initial Community Apps template.</Changes>
+  <Changes><![CDATA[
+## 2026.0926.0
+- Merge pull request #27 from michaelmurfy/feat/releases-and-sync-meter (add6f69)
+- Add UTC date releases and hide the idle sync progress bar. (82ba944)
+- Sell Cleanarr in the Unraid listing by describing what it does. (278f2b1)
+- Document installing Cleanarr from Unraid Community Apps. (56355c2)
+- Describe Cleanarr as a mobile-friendly web app in the Unraid listing. (d0a278a)
+- License the repository under MIT, including the Unraid templates and docs. (27081f4)
+- Note how Cleanarr stays private, and give the mobile sync bar room under the percentage. (7bfe210)
+- Keep the sync status from resizing the top bar, and add the Unraid Community Apps template. (6cc7ee0)
+- Merge pull request #26 from michaelmurfy/cursor/card-highlight-fix-e050 (8ec0efe)
+- Read cached settings under the lock (87d204d)
+- Speed up the library API (8b0e83e)
+- Consolidate library filters behind one Filters button (64b5251)
+- Replace the sideways-scrolling quick filters with wrapping pills (3ae383d)
+- Stop cards half-highlighting after a tap on mobile (a2319a4)
+- Merge pull request #25 from michaelmurfy/cursor/matching-smarts-mobile-polish-e050 (e295301)
+- Keep bottom bars out of the way of the on-screen keyboard (418e9af)
+- Pair search with sort on mid-width library filters (cfcd312)
+- Keep the library filters on one tidy line on desktop (ca05c31)
+- Redact probe success detail and action errors (a56b9a7)
+- Give the Connections card a proper header band (8b4a5d1)
+- Flow content in on first load and tidy Connections (5431a29)
+- Redesign the Settings page layout (99daae5)
+- Move Seerr match review to Unmatched and tidy Settings (c10905c)
+- Tidy mobile library cards and draw our own select boxes (46c2598)
+- Redo the field clear button so it only pops in when there is text (ac491f6)
+- Give mobile search more left padding so the icon clears text (d42a21e)
+- Strengthen mobile chip scroll fades and settings select fit (153fc15)
+- Harden Seerr matching and polish mobile search UX (14c1e74)
+- Merge pull request #24 from michaelmurfy/cursor/whitelist-mobile-search-e050 (bf3b177)
+- Fix Whitelist page overflow and native text-selection on mobile cards (76fc5fa)
+]]></Changes>
   <Date>2026-09-26</Date>
   <License>MIT</License>
   <Config Name="Web UI" Target="7585" Default="7585" Mode="tcp" Description="Container port for the Cleanarr web UI." Type="Port" Display="always" Required="true" Mask="false">7585</Config>
