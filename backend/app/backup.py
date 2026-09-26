@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from .config import APP_SETTING_KEYS, hide_env_settings, locked_setting_keys
 from .db import connect, get_setting, ignore_key, set_setting
-from .services.clients import KEYS
+from .services.clients import KEYS, prune_env_overridden_settings
 
 BACKUP_FORMAT = "cleanarr-config"
 BACKUP_VERSION = 1
@@ -348,6 +348,8 @@ def apply_backup(payload: Any) -> dict[str, Any]:
 
     # Full replace: wipe writable config first, then write the backup snapshot.
     settings_stats = _apply_settings(payload.get("settings"))
+    # If .env defines a key, drop any DB copy restore just wrote or left behind.
+    pruned = prune_env_overridden_settings()
     whitelist_count = _replace_whitelist(payload.get("whitelist"))
     ignored_count = _replace_unmatched_ignored(payload.get("unmatched_ignored"))
     decisions_count = _replace_match_decisions(payload.get("match_decisions"))
@@ -356,6 +358,7 @@ def apply_backup(payload: Any) -> dict[str, Any]:
         "settings_applied": settings_stats["applied"],
         "settings_skipped": settings_stats["skipped"],
         "settings_cleared": settings_stats["cleared"],
+        "settings_pruned": pruned,
         "whitelist": whitelist_count,
         "unmatched_ignored": ignored_count,
         "match_decisions": decisions_count,

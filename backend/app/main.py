@@ -30,7 +30,7 @@ from .backup import MAX_RESTORE_BYTES, apply_backup, build_backup
 from .config import APP_SETTING_KEYS, env_file_present, hide_env_settings, locked_setting_keys
 from .db import all_settings, clear_library, connect, init_db, set_setting
 from .security import SecurityMiddleware, client_key, login_throttle, redact
-from .services.clients import KEYS, cfg, public_url, jellystat, radarr, radarr_4k, seerr, sonarr, tautulli, tracearr
+from .services.clients import KEYS, cfg, prune_env_overridden_settings, public_url, jellystat, radarr, radarr_4k, seerr, sonarr, tautulli, tracearr
 from .logs import add_log, list_logs
 from .sync import job_status, reset_job, restore_job, start_scheduler, start_sync
 from .version import current_version
@@ -42,6 +42,8 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 async def lifespan(app: FastAPI):
     init_db()
     bootstrap_auth()
+    # Drop DB copies of anything .env / process env already defines so config cannot fork.
+    prune_env_overridden_settings()
     restore_job()
     start_scheduler()
     yield
@@ -244,6 +246,7 @@ def put_settings(payload: SettingsIn, request: Request):
         set_setting(key, value.strip())
     if not hide_settings and "auth_username" not in locked and (payload.username or payload.password):
         set_credentials(payload.username or "", payload.password)
+    prune_env_overridden_settings()
     return {"ok": True, "hide_settings": hide_settings}
 
 

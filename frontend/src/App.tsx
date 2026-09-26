@@ -2752,7 +2752,7 @@ function Settings() {
           <p className="page-intro muted">
             {hideSettings
               ? "Schedule and automatic delete stay editable here. Connections and login are managed outside the UI."
-              : "Values set in the environment are locked. Saved API keys are never shown again."}
+              : "Environment and .env values always win over saved settings. Saved API keys are never shown again."}
           </p>
         </div>
         <a className="ghost link-button repo-link" href={GITHUB_REPO} target="_blank" rel="noreferrer" title="Cleanarr on GitHub">
@@ -2915,7 +2915,7 @@ function Settings() {
               </>
             ) : (
               <>
-                Values set in <code>.env</code> (or the environment) are locked and omitted from the backup — including API keys and service URLs.
+                Values set in <code>.env</code> (or the environment) always win and are omitted from the backup — including API keys and service URLs.
                 Keep your <code>.env</code> file separately; the download still covers schedule, whitelist, and match decisions saved in Cleanarr.
               </>
             )}
