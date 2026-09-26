@@ -2388,6 +2388,8 @@ function Settings() {
   const [password, setPassword] = useState("");
   const [usernameLocked, setUsernameLocked] = useState(false);
   const [hideSettings, setHideSettings] = useState(false);
+  const [envFile, setEnvFile] = useState(false);
+  const [lockedKeys, setLockedKeys] = useState<string[]>([]);
   const [defaultPassword, setDefaultPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -2475,6 +2477,8 @@ function Settings() {
     setUsername(data.username);
     setUsernameLocked(data.username_locked);
     setHideSettings(Boolean(data.hide_settings));
+    setEnvFile(Boolean(data.env_file));
+    setLockedKeys(Array.isArray(data.locked) ? data.locked : []);
     setDefaultPassword(Boolean(data.using_default_password));
     setScheduleEnabled((next.sync_schedule_enabled || "0") === "1");
     setIntervalHours(next.sync_interval_hours || "24");
@@ -2902,6 +2906,21 @@ function Settings() {
         title="Backup & restore"
         copy="Download a JSON file with connections, schedule, whitelist, and match decisions. Login and the synced library are not included. Treat the file as a secret."
       >
+        {(hideSettings || envFile || lockedKeys.length > 0) && (
+          <p className="warn-banner" role="status">
+            {hideSettings ? (
+              <>
+                Because <code>CLEANARR_HIDE_SETTINGS=1</code> is set, service URLs and API keys are omitted from the backup.
+                Keep your <code>.env</code> separately for a full restore.
+              </>
+            ) : (
+              <>
+                Values set in <code>.env</code> (or the environment) are locked and omitted from the backup — including API keys and service URLs.
+                Keep your <code>.env</code> file separately; the download still covers schedule, whitelist, and match decisions saved in Cleanarr.
+              </>
+            )}
+          </p>
+        )}
         <input
           ref={restoreInput}
           type="file"
