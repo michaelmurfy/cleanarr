@@ -17,6 +17,9 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.0926.3
+- Center Settings status messages with the page content. (8bd34e2)
+
 ## 2026.0926.2
 - Center Settings warning banners with the page content. (c837bf4)
 
