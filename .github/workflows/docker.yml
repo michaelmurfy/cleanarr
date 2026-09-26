@@ -3,7 +3,9 @@ name: Docker
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags:
+      - "v*"
+      - "[0-9][0-9][0-9][0-9].[0-9][0-9][0-9][0-9].[0-9]+"
   pull_request:
   workflow_dispatch:
 
@@ -44,6 +46,8 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=match,pattern=^(\d{4}\.\d{4}\.\d+)$,group=1
+            type=ref,event=tag
             type=sha,prefix=
 
       - uses: docker/build-push-action@v6

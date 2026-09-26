@@ -1,0 +1,163 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create dated release
+    runs-on: ubuntu-latest
+    # Ship from the tip of main. Bot commits that only refresh the Unraid
+    # changelog use [skip release] so they do not mint another version.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       !contains(github.event.head_commit.message || '', '[skip release]'))
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next UTC date version
+        id: version
+        run: |
+          set -euo pipefail
+          DATE="$(date -u +%Y.%m%d)"
+          DAY="$(date -u +%Y-%m-%d)"
+          NEXT=0
+          # Existing tags for today: 2026.0926.0, 2026.0926.1, …
+          while IFS= read -r tag; do
+            [[ -z "$tag" ]] && continue
+            n="${tag##*.}"
+            if [[ "$n" =~ ^[0-9]+$ ]] && (( n >= NEXT )); then
+              NEXT=$((n + 1))
+            fi
+          done < <(git tag -l "${DATE}.*" | sort -t. -k3,3n)
+          VERSION="${DATE}.${NEXT}"
+          {
+            echo "version=${VERSION}"
+            echo "tag=${VERSION}"
+            echo "day=${DAY}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Computed release version ${VERSION}"
+
+      - name: Build release notes
+        id: notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          PREV="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [[ -n "$PREV" ]]; then
+            git log --pretty=format:'- %s (%h)' "${PREV}..HEAD" > /tmp/change-bullets.md
+          else
+            git log --pretty=format:'- %s (%h)' -n 30 > /tmp/change-bullets.md
+          fi
+          # Drop empty file edge case
+          if [[ ! -s /tmp/change-bullets.md ]]; then
+            echo "- Maintenance release" > /tmp/change-bullets.md
+          fi
+          {
+            echo "## Changes"
+            echo
+            if [[ -n "$PREV" ]]; then
+              echo "Compared to \`${PREV}\`:"
+              echo
+            else
+              echo "First dated release."
+              echo
+            fi
+            cat /tmp/change-bullets.md
+            echo
+            echo
+            echo "### Meta"
+            echo
+            echo "- Version: \`${VERSION}\` (UTC date stamp)"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+          } > /tmp/release-notes.md
+          echo "Wrote notes ($(wc -l < /tmp/release-notes.md) lines)"
+
+      - name: Update Unraid Community Apps changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DAY: ${{ steps.version.outputs.day }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          path = Path("templates/cleanarr.xml")
+          text = path.read_text(encoding="utf-8")
+          version = os.environ["VERSION"]
+          day = os.environ["DAY"]
+          bullets = Path("/tmp/change-bullets.md").read_text(encoding="utf-8").strip()
+          new_block = f"## {version}\n{bullets}\n"
+
+          match = re.search(r"<Changes>(.*?)</Changes>", text, flags=re.S)
+          old = (match.group(1) if match else "").strip()
+          if old.startswith("<![CDATA[") and old.endswith("]]>"):
+              old = old[9:-3].strip()
+          if old in {"", "Initial Community Apps template."}:
+              old = ""
+
+          combined = new_block + (("\n" + old) if old else "")
+          # Community Apps shows this field in the UI; keep it bounded.
+          if len(combined) > 8000:
+              combined = combined[:8000].rsplit("\n", 1)[0]
+
+          replacement = "<Changes><![CDATA[\n" + combined.rstrip() + "\n]]></Changes>"
+          text, n_changes = re.subn(r"<Changes>.*?</Changes>", replacement, text, count=1, flags=re.S)
+          if n_changes != 1:
+              raise SystemExit("Could not find <Changes> in templates/cleanarr.xml")
+          text, n_date = re.subn(r"<Date>.*?</Date>", f"<Date>{day}</Date>", text, count=1)
+          if n_date != 1:
+              raise SystemExit("Could not find <Date> in templates/cleanarr.xml")
+          path.write_text(text, encoding="utf-8")
+          print(f"Updated Unraid Changes for {version} ({day})")
+          PY
+
+      - name: Commit Unraid template
+        id: commit
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add templates/cleanarr.xml
+          if git diff --cached --quiet; then
+            echo "No Unraid template changes to commit"
+            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "chore: Unraid changelog for ${VERSION} [skip release]"
+          git push
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGET: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists; skipping"
+            exit 0
+          fi
+          gh release create "$TAG" \
+            --title "$VERSION" \
+            --notes-file /tmp/release-notes.md \
+            --target "$TARGET"

@@ -189,8 +189,9 @@ function SyncMeter({ sync }: { sync: SyncStatus }) {
   const finishedAt = sync.finished_at ?? null;
   const ago = whenSync(finishedAt);
   const exact = finishedAt ? new Date(finishedAt * 1000).toLocaleString() : "";
-  const progress = sync.percent != null ? Math.max(0, Math.min(100, sync.percent)) : null;
-  const counted = sync.total ? `${sync.current || 0} / ${sync.total}` : "";
+  const progress = running && sync.percent != null ? Math.max(0, Math.min(100, sync.percent)) : null;
+  const counted = running && sync.total ? `${sync.current || 0} / ${sync.total}` : "";
+  const showBar = running;
 
   let label = sync.message || "Synced";
   let meta = ago || "Up to date";
@@ -211,7 +212,7 @@ function SyncMeter({ sync }: { sync: SyncStatus }) {
 
   return (
     <div
-      className={`sync-meter${running ? " live" : ""}${failed ? " fail" : ""}`}
+      className={`sync-meter${running ? " live" : ""}${failed ? " fail" : ""}${showBar ? " has-bar" : ""}`}
       title={tip || label}
       role="status"
       aria-live="polite"
@@ -223,12 +224,14 @@ function SyncMeter({ sync }: { sync: SyncStatus }) {
         <span className="sync-meter-label">{label}</span>
         <span className="sync-meter-meta">{meta}</span>
       </span>
-      <span className="sync-meter-bar" aria-hidden="true">
-        <i
-          className={running && progress == null ? "indet" : ""}
-          style={progress != null ? { width: `${Math.max(progress, running ? 4 : 0)}%` } : undefined}
-        />
-      </span>
+      {showBar ? (
+        <span className="sync-meter-bar" aria-hidden="true">
+          <i
+            className={progress == null ? "indet" : ""}
+            style={progress != null ? { width: `${Math.max(progress, 4)}%` } : undefined}
+          />
+        </span>
+      ) : null}
     </div>
   );
 }
