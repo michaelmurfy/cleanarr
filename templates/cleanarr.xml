@@ -17,6 +17,9 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.0926.2
+- Center Settings warning banners with the page content. (c837bf4)
+
 ## 2026.0926.1
 - Merge pull request #28 from michaelmurfy/feat/settings-backup-restore (32dd281)
 - Let .env always win over saved settings and drop DB duplicates. (ab11e23)
