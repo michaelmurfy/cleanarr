@@ -17,6 +17,13 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.0926.1
+- Merge pull request #28 from michaelmurfy/feat/settings-backup-restore (32dd281)
+- Let .env always win over saved settings and drop DB duplicates. (ab11e23)
+- Make configuration restore a full replace, not a merge. (c6ce680)
+- Warn on Backup when .env-managed secrets are omitted. (1459c03)
+- Add Settings config backup/restore and tidy the hide-settings warning. (139e9ac)
+
 ## 2026.0926.0
 - Merge pull request #27 from michaelmurfy/feat/releases-and-sync-meter (add6f69)
 - Add UTC date releases and hide the idle sync progress bar. (82ba944)
