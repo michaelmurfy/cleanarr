@@ -17,6 +17,13 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.1025.1
+- Merge pull request #31 from michaelmurfy/cursor/pocket-id-oidc-e050 (1827fd9)
+- OIDC hardening: safe usernames in cookies, discovery backoff, open allow-list warning (fbf0c9b)
+- OIDC: prefer client_secret_basic, configurable scopes, provider notes (ad1b5f9)
+- Show the SSO callback URL as wrapping text with a copy button (a195bf9)
+- Add Pocket ID / OpenID Connect sign-in (248ed47)
+
 ## 2026.1025.0
 - Merge pull request #30 from michaelmurfy/cursor/reverse-sort-e050 (dc6d1ea)
 - Add reverse sort to the library (#29) (9517620)
