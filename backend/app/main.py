@@ -565,6 +565,7 @@ def library(
     media_type: str = "",
     watched: str = "",
     sort: str = "oldest",
+    reverse: bool = False,
     page: int = 1,
     page_size: int = 50,
     stale_days: int = 365,
@@ -665,8 +666,17 @@ def library(
             return (never, requested_at, item["title"].lower())
         return item["last_watched_at"] or 0
 
-    reverse = sort in {"size", "plays", "last_watched"}
-    items.sort(key=sort_value, reverse=reverse)
+    def missing(item):
+        if sort == "rating":
+            return item.get("rating") is None
+        if sort == "requested":
+            return not (item["requested_by"] or "").strip()
+        return False
+
+    descending = sort in {"size", "plays", "last_watched"}
+    items.sort(key=sort_value, reverse=descending != reverse)
+    # Stable second pass: titles with no value for the sort stay at the bottom in both directions.
+    items.sort(key=missing)
 
     total = len(items)
     start = (page - 1) * page_size

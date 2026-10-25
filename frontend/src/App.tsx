@@ -103,6 +103,7 @@ type Filters = {
   mediaType: string;
   watched: string;
   sort: string;
+  reverse: boolean;
   staleDays: string;
   maxRating: string;
   requester: string;
@@ -116,6 +117,7 @@ const defaultFilters: Filters = {
   mediaType: "",
   watched: "",
   sort: "oldest",
+  reverse: false,
   staleDays: "365",
   maxRating: "",
   requester: "",
@@ -283,22 +285,50 @@ function ClearableField({
   );
 }
 
-const SORT_OPTIONS: [string, string][] = [
-  ["oldest", "Oldest first"],
-  ["requests", "Never watched first"],
-  ["last_watched", "Recently watched"],
-  ["rating", "Lowest rating"],
-  ["plays", "Play count"],
-  ["size", "Largest"],
-  ["title", "Title"],
-  ["requested", "Requested by"],
+/* Each sort with its label in the natural direction and reversed. */
+const SORT_OPTIONS: [string, string, string][] = [
+  ["oldest", "Oldest watch first", "Newest watch first"],
+  ["requests", "Never watched first", "Watched first"],
+  ["last_watched", "Recently watched", "Least recently watched"],
+  ["rating", "Lowest rating", "Highest rating"],
+  ["plays", "Most played", "Least played"],
+  ["size", "Largest", "Smallest"],
+  ["title", "Title A to Z", "Title Z to A"],
+  ["requested", "Requester A to Z", "Requester Z to A"],
 ];
 
-function SortSelect({ value, onChange, className = "" }: { value: string; onChange: (next: string) => void; className?: string }) {
+function SortControl({
+  sort,
+  reverse,
+  onChange,
+  className = "",
+}: {
+  sort: string;
+  reverse: boolean;
+  onChange: (next: { sort?: string; reverse?: boolean }) => void;
+  className?: string;
+}) {
+  const option = SORT_OPTIONS.find(([key]) => key === sort) ?? SORT_OPTIONS[0];
+  const flipped = option[reverse ? 1 : 2];
   return (
-    <select className={className} value={value} onChange={(e) => onChange(e.target.value)} aria-label="Sort by">
-      {SORT_OPTIONS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-    </select>
+    <div className={`sort-control ${className}`}>
+      <select value={sort} onChange={(e) => onChange({ sort: e.target.value })} aria-label="Sort by">
+        {SORT_OPTIONS.map(([key, natural, reversed]) => <option key={key} value={key}>{reverse ? reversed : natural}</option>)}
+      </select>
+      <button
+        type="button"
+        className={`sort-direction${reverse ? " reversed" : ""}`}
+        aria-pressed={reverse}
+        aria-label={`Reverse sort: ${flipped.toLowerCase()}`}
+        title={`Switch to ${flipped.toLowerCase()}`}
+        onClick={() => onChange({ reverse: !reverse })}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path className="arrow-down" d="M5 2.5v10M2.5 10l2.5 2.5L7.5 10" />
+          <path className="arrow-up" d="M11 13.5v-10M8.5 6L11 3.5 13.5 6" />
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -373,7 +403,7 @@ function FilterPanel({
           </label>
           <label className="filter-field">
             <span>Rating</span>
-            <select value={filters.maxRating} onChange={(e) => patch({ maxRating: e.target.value, sort: e.target.value ? "rating" : filters.sort })}>
+            <select value={filters.maxRating} onChange={(e) => patch({ maxRating: e.target.value, ...(e.target.value ? { sort: "rating", reverse: false } : {}) })}>
               <option value="">Any</option>
               <option value="5">5 or below</option>
               <option value="6">6 or below</option>
@@ -381,10 +411,10 @@ function FilterPanel({
             </select>
           </label>
         </div>
-        <label className="filter-field mobile-only-block">
+        <div className="filter-field mobile-only-block">
           <span>Sort by</span>
-          <SortSelect value={filters.sort} onChange={(sort) => patch({ sort })} />
-        </label>
+          <SortControl sort={filters.sort} reverse={filters.reverse} onChange={patch} />
+        </div>
         <label className="filter-switch">
           <span>
             <strong>Hide pending requests</strong>
@@ -978,6 +1008,7 @@ function Library({
         media_type: next.mediaType,
         watched: next.watched,
         sort: next.sort,
+        reverse: next.reverse ? "true" : "",
         page: String(next.page),
         page_size: next.pageSize,
         stale_days: next.staleDays,
@@ -1002,11 +1033,11 @@ function Library({
 
   useEffect(() => {
     load().catch((err) => setError(err.message));
-  }, [filters.q, filters.mediaType, filters.watched, filters.sort, filters.page, filters.pageSize, filters.staleDays, filters.maxRating, filters.requester, filters.hideUnprocessed]);
+  }, [filters.q, filters.mediaType, filters.watched, filters.sort, filters.reverse, filters.page, filters.pageSize, filters.staleDays, filters.maxRating, filters.requester, filters.hideUnprocessed]);
 
   useEffect(() => {
     setSelected(new Set());
-  }, [filters.q, filters.mediaType, filters.watched, filters.sort, filters.page, filters.pageSize, filters.staleDays, filters.maxRating, filters.requester, filters.hideUnprocessed]);
+  }, [filters.q, filters.mediaType, filters.watched, filters.sort, filters.reverse, filters.page, filters.pageSize, filters.staleDays, filters.maxRating, filters.requester, filters.hideUnprocessed]);
 
   useEffect(() => {
     if (prevSync.current === "running" && sync.status !== "running") {
@@ -1107,16 +1138,16 @@ function Library({
         <button className={`stat ${!filters.watched && !filters.maxRating ? "active" : ""}`} onClick={() => patch({ watched: "", maxRating: "" })}>
           <span className="muted">Matching titles</span><b>{num(stats.count)}</b>
         </button>
-        <button className={`stat never ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size" })}>
+        <button className={`stat never ${filters.watched === "never" ? "active" : ""}`} onClick={() => patch(filters.watched === "never" ? { watched: "" } : { watched: "never", sort: "size", reverse: false })}>
           <span className="muted">Never watched</span><b>{num(stats.never_watched)}</b>
         </button>
-        <button className={`stat stale ${filters.watched === "stale" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest" })}>
+        <button className={`stat stale ${filters.watched === "stale" ? "active" : ""}`} onClick={() => patch(filters.watched === "stale" ? { watched: "" } : { watched: "stale", sort: "oldest", reverse: false })}>
           <span className="muted">Stale / unwatched</span><b>{num(stats.stale)}</b>
         </button>
-        <button className={`stat pending ${filters.watched === "requested" ? "active" : ""}`} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title" })}>
+        <button className={`stat pending ${filters.watched === "requested" ? "active" : ""}`} onClick={() => patch(filters.watched === "requested" ? { watched: "" } : { watched: "requested", maxRating: "", sort: "title", reverse: false })}>
           <span className="muted">Requested</span><b>{num(stats.requested)}</b>
         </button>
-        <button className={`stat ok ${filters.watched === "protected" ? "active" : ""}`} onClick={() => patch(filters.watched === "protected" ? { watched: "" } : { watched: "protected", maxRating: "", sort: "title" })}>
+        <button className={`stat ok ${filters.watched === "protected" ? "active" : ""}`} onClick={() => patch(filters.watched === "protected" ? { watched: "" } : { watched: "protected", maxRating: "", sort: "title", reverse: false })}>
           <span className="muted">Protected</span><b>{num(stats.whitelisted)}</b>
         </button>
         {unmatchedCount > 0 && (
@@ -1133,7 +1164,7 @@ function Library({
           onValue={setQInput}
           enterKeyHint="search"
         />
-        <SortSelect className="toolbar-sort" value={filters.sort} onChange={(sort) => patch({ sort })} />
+        <SortControl className="toolbar-sort" sort={filters.sort} reverse={filters.reverse} onChange={patch} />
         <div className="filter-menu">
           <button
             type="button"
@@ -1152,7 +1183,7 @@ function Library({
       </div>
       {filters.requester ? (
         <div className="active-filters">
-          <button type="button" className="filter-pill" aria-label={`Remove requester filter ${filters.requester}`} onClick={() => patch({ requester: "", sort: "oldest" })}>
+          <button type="button" className="filter-pill" aria-label={`Remove requester filter ${filters.requester}`} onClick={() => patch({ requester: "", sort: "oldest", reverse: false })}>
             Requested by {filters.requester}
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           </button>
