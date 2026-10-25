@@ -915,8 +915,22 @@ input.tick:disabled {
 .login-card .error + .login-submit, .login-card .error + .primary { margin-top: 14px; }
 .callback-field { display: grid; gap: 6px; margin-top: 14px; font-size: 13px; color: var(--muted); }
 .callback-field > span .muted { font-size: 12px; opacity: 0.8; margin-left: 4px; }
-.copy-row { display: flex; gap: 8px; }
-.copy-row input { flex: 1 1 auto; min-width: 0; color: var(--muted); font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; }
+.copy-row { display: flex; align-items: stretch; gap: 8px; }
+.callback-url {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 9px 11px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
 .copy-row .small-btn { flex: none; min-width: 72px; }
 .stack { display: grid; gap: 10px; margin: 18px 0; }
 .form-grid {

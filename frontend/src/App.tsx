@@ -2989,7 +2989,7 @@ function Settings() {
             <div className="callback-field">
               <span>Callback URL <span className="muted">add this to the client in Pocket ID</span></span>
               <div className="copy-row">
-                <input readOnly value={sso.callback_url} onFocus={(e) => e.currentTarget.select()} aria-label="Callback URL" />
+                <code className="callback-url">{sso.callback_url}</code>
                 <button
                   type="button"
                   className="ghost small-btn"
