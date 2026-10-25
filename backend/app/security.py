@@ -50,12 +50,13 @@ CONTENT_SECURITY_POLICY = "; ".join(
 def _configured_secrets() -> list[str]:
     """Every API key Cleanarr currently holds, longest first so overlaps mask fully."""
     try:
+        from .config import OIDC_KEYS, is_secret_key
         from .services.clients import KEYS, cfg
     except Exception:
         return []
     values = set()
-    for key in KEYS:
-        if not key.endswith("_api_key"):
+    for key in (*KEYS, *OIDC_KEYS):
+        if not is_secret_key(key):
             continue
         try:
             value = cfg(key)

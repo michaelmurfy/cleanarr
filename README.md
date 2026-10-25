@@ -45,6 +45,23 @@ The template maps port `7585` and stores the database in `/mnt/user/appdata/clea
 
 Open **Settings** and enter URLs and API keys for the apps you use: Radarr (optional second instance for 4K), Sonarr, Seerr, and at least one watch-history source (Tautulli, Tracearr, Jellystat). Leave unused services blank, **Test** each row, then **Sync now**.
 
+### Single sign-on (Pocket ID)
+
+Cleanarr can sign you in through [Pocket ID](https://pocket-id.org) or any other OpenID Connect provider.
+
+1. In Pocket ID, add an OIDC client. Set its callback URL to `https://<your-cleanarr>/api/auth/oidc/callback` (Settings > Single sign-on shows the exact value). Restrict it to a user group if only some people should get in.
+2. In Cleanarr, open **Settings > Single sign-on** and enter the issuer URL (your Pocket ID address, e.g. `https://id.example.com`), the client ID and the client secret. Save.
+3. The sign-in page now has a **Sign in with Pocket ID** button.
+
+The issuer, client ID and client secret can also come from `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` in `.env`.
+
+- `OIDC_ALLOWED_GROUPS` / `OIDC_ALLOWED_USERS` (comma separated) limit who gets in by group, username or email. Left blank, anyone the provider lets through is allowed.
+- `OIDC_BUTTON_LABEL` changes the button text.
+- `OIDC_REDIRECT_URI` pins the callback URL. Without it, Cleanarr builds the URL from the request and honours `X-Forwarded-Proto` / `X-Forwarded-Host`.
+- `CLEANARR_DISABLE_PASSWORD_LOGIN=1` turns off password sign-in while single sign-on is configured. It is env-only, so a bad Settings change cannot lock you out.
+
+Sign-in uses the authorization code flow with PKCE. The ID token's signature, issuer, audience, expiry and nonce are all checked. Changing the provider, client or allow lists signs out every single sign-on session. Single sign-on settings are part of the login, so they are hidden by `CLEANARR_HIDE_SETTINGS=1` and left out of backups.
+
 ### 3. Optional `.env` (lock config to the host)
 
 To keep secrets out of the UI, or to set `PUID`/`PGID`:

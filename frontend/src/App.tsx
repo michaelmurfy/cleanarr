@@ -1,5 +1,5 @@
 import { FormEvent, InputHTMLAttributes, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, IgnoredItem, LogItem, MatchDecision, MediaItem, Person, ServiceTest, ReviewMatch, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
+import { api, AuthStatus, IgnoredItem, LogItem, MatchDecision, MediaItem, Person, ServiceTest, ReviewMatch, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
 const PAGES = ["library", "unmatched", "users", "whitelist", "logs", "settings"] as const;
@@ -525,12 +525,20 @@ function ServiceLinks({ links }: { links?: Record<string, string> }) {
 export function App() {
   const [user, setUser] = useState<string | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [ssoError] = useState(() => new URLSearchParams(window.location.search).get("sso_error") || "");
   const [booting, setBooting] = useState(true);
   useKeyboardAware();
 
   useEffect(() => {
+    if (ssoError) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("sso_error");
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
     api.authStatus()
       .then(async (status) => {
+        setAuthStatus(status);
         setSetupRequired(status.setup_required);
         if (status.setup_required) {
           setUser(null);
@@ -562,7 +570,7 @@ export function App() {
       />
     );
   }
-  if (!user) return <Login onDone={setUser} />;
+  if (!user) return <Login status={authStatus} ssoError={ssoError} onDone={setUser} />;
   return <Shell user={user} onLogout={() => setUser(null)} />;
 }
 
@@ -636,10 +644,32 @@ function Setup({ onDone }: { onDone: (user: string) => void }) {
   );
 }
 
-function Login({ onDone }: { onDone: (user: string) => void }) {
+const SSO_ERRORS: Record<string, string> = {
+  cancelled: "Sign-in was cancelled.",
+  state: "That sign-in expired or was started in another tab. Try again.",
+  denied: "Your account is not allowed to use Cleanarr.",
+  token: "The sign-in could not be verified. Check the client ID and issuer.",
+  exchange: "The provider turned the sign-in down. Check the client ID and secret.",
+  provider: "Could not reach the sign-in provider. Check the issuer URL.",
+  disabled: "Single sign-on is not set up.",
+};
+
+function KeyIcon() {
+  return (
+    <svg className="inline-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="5.5" cy="8" r="3" fill="none" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M8.5 8h6M12 8v2.5M14.5 8v1.8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function Login({ status, ssoError, onDone }: { status: AuthStatus | null; ssoError: string; onDone: (user: string) => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(ssoError ? SSO_ERRORS[ssoError] || "Single sign-on failed." : "");
+  const [redirecting, setRedirecting] = useState(false);
+  const sso = status?.sso.enabled ? status.sso : null;
+  const passwordLogin = status?.password_login ?? true;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -658,31 +688,44 @@ function Login({ onDone }: { onDone: (user: string) => void }) {
         <Brand />
         <h1>Sign in</h1>
         <p className="muted">Find the titles nobody watches, keep the ones that matter.</p>
-        <div className="stack">
-          <label>Username
-            <input
-              name="username"
-              value={username}
-              autoComplete="username"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              autoFocus
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </label>
-          <label>Password
-            <input
-              type="password"
-              name="password"
-              value={password}
-              autoComplete="current-password"
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
-        </div>
-        {error && <p className="error">{error}</p>}
-        <button className="primary" type="submit">Continue</button>
+        {sso && (
+          <a
+            className={`sso-button${redirecting ? " busy" : ""}`}
+            href="/api/auth/oidc/login"
+            onClick={() => setRedirecting(true)}
+          >
+            {redirecting ? <span className="spinner" aria-hidden="true" /> : <KeyIcon />}
+            <span>Sign in with {sso.label}</span>
+          </a>
+        )}
+        {sso && passwordLogin && <div className="login-divider"><span>or use your password</span></div>}
+        {passwordLogin && (
+          <div className="stack">
+            <label>Username
+              <input
+                name="username"
+                value={username}
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoFocus={!sso}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </label>
+            <label>Password
+              <input
+                type="password"
+                name="password"
+                value={password}
+                autoComplete="current-password"
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
+        {error && <p className="error" role="alert">{error}</p>}
+        {passwordLogin && <button className={sso ? "ghost login-submit" : "primary"} type="submit">Continue</button>}
       </form>
     </div>
   );
@@ -2412,6 +2455,10 @@ function SettingSwitch({
   );
 }
 
+function isSecretKey(key: string) {
+  return key.endsWith("_api_key") || key === "oidc_client_secret";
+}
+
 function Settings() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [flags, setFlags] = useState<Record<string, boolean>>({});
@@ -2422,6 +2469,8 @@ function Settings() {
   const [envFile, setEnvFile] = useState(false);
   const [lockedKeys, setLockedKeys] = useState<string[]>([]);
   const [defaultPassword, setDefaultPassword] = useState(false);
+  const [sso, setSso] = useState({ enabled: false, callback_url: "", password_login: true });
+  const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
@@ -2511,6 +2560,7 @@ function Settings() {
     setEnvFile(Boolean(data.env_file));
     setLockedKeys(Array.isArray(data.locked) ? data.locked : []);
     setDefaultPassword(Boolean(data.using_default_password));
+    if (data.sso) setSso(data.sso);
     setScheduleEnabled((next.sync_schedule_enabled || "0") === "1");
     setIntervalHours(next.sync_interval_hours || "24");
     setAutoDelete((next.auto_delete_enabled || "0") === "1");
@@ -2579,7 +2629,7 @@ function Settings() {
       for (const [key, value] of Object.entries(values)) {
         if (APP_SETTING_KEYS.includes(key)) continue;
         if (flags[`${key}_hidden`] || flags[`${key}_locked`]) continue;
-        if (key.endsWith("_api_key") && !value) continue;
+        if (isSecretKey(key) && !value) continue;
         outgoing[key] = value;
       }
     }
@@ -2727,20 +2777,24 @@ function Settings() {
         .map((group) => ({ ...group, fields: group.fields.filter(([key]) => !hiddenKey(key)) }))
         .filter((group) => group.fields.length > 0);
 
-  function field(key: string, label: string) {
+  function field(key: string, label: string, options: { type?: "text" | "url"; placeholder?: string } = {}) {
     const locked = Boolean(flags[`${key}_locked`]);
     const configured = Boolean(flags[`${key}_set`]);
-    const secret = key.includes("api_key");
+    const secret = isSecretKey(key);
     return (
       <label key={key}>
         {label} {locked && <span className="lock">env</span>}
         <input
-          type={secret ? "password" : "url"}
+          type={secret ? "password" : options.type || "url"}
           name={key}
           value={secret ? (locked ? "" : values[key] || "") : values[key] || ""}
           disabled={locked}
           autoComplete="off"
-          placeholder={secret ? (configured ? "Configured, leave blank" : "API key") : "https://"}
+          autoCapitalize="none"
+          spellCheck={false}
+          placeholder={secret
+            ? (configured ? "Configured, leave blank" : options.placeholder || "API key")
+            : options.placeholder || "https://"}
           onChange={(e) => setValues((current) => ({ ...current, [key]: e.target.value }))}
         />
       </label>
@@ -2917,6 +2971,47 @@ function Settings() {
                 <input type="password" value={password} disabled={usernameLocked} autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} placeholder="Leave blank to keep" />
               </label>
             </div>
+          </SettingsBlock>
+        )}
+        {!hideSettings && (
+          <SettingsBlock
+            title="Single sign-on"
+            copy="Sign in with Pocket ID or any OpenID Connect provider. Changing these signs out anyone who came in through single sign-on."
+          >
+            <div className="form-grid">
+              {field("oidc_issuer", "Issuer URL", { placeholder: "https://id.example.com" })}
+              {field("oidc_client_id", "Client ID", { type: "text", placeholder: "From the OIDC client" })}
+              {field("oidc_client_secret", "Client secret", { placeholder: "Leave blank for a public client" })}
+              {field("oidc_button_label", "Button label", { type: "text", placeholder: "Pocket ID" })}
+              {field("oidc_allowed_groups", "Allowed groups", { type: "text", placeholder: "Anyone the provider lets in" })}
+              {field("oidc_allowed_users", "Allowed users", { type: "text", placeholder: "Usernames or emails" })}
+            </div>
+            <div className="callback-field">
+              <span>Callback URL <span className="muted">add this to the client in Pocket ID</span></span>
+              <div className="copy-row">
+                <input readOnly value={sso.callback_url} onFocus={(e) => e.currentTarget.select()} aria-label="Callback URL" />
+                <button
+                  type="button"
+                  className="ghost small-btn"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(sso.callback_url).then(() => {
+                      setCopied(true);
+                      window.setTimeout(() => setCopied(false), 1800);
+                    }).catch(() => undefined);
+                  }}
+                >
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            </div>
+            <p className="option-note">
+              {sso.enabled ? <span className="chip ok">On</span> : <span className="chip">Off</span>}{" "}
+              {sso.enabled
+                ? sso.password_login
+                  ? "Password sign-in still works. Set CLEANARR_DISABLE_PASSWORD_LOGIN=1 to turn it off."
+                  : "Password sign-in is off (CLEANARR_DISABLE_PASSWORD_LOGIN)."
+                : "Needs an issuer URL and a client ID. Separate groups or users with commas."}
+            </p>
           </SettingsBlock>
         )}
 

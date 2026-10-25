@@ -30,7 +30,7 @@ def _fresh_client(client, monkeypatch):
 def test_fresh_install_without_env_requires_setup(client, monkeypatch):
     _fresh_client(client, monkeypatch)
 
-    assert client.get("/api/auth/status").json() == {"setup_required": True}
+    assert client.get("/api/auth/status").json()["setup_required"] is True
     assert client.post("/api/auth/login", json={"username": "admin", "password": "changeme"}).status_code == 403
     assert get_setting("session_secret")
     assert get_setting("session_secret") not in auth.PLACEHOLDER_SECRETS
@@ -47,7 +47,7 @@ def test_setup_creates_account_and_signs_in(client, monkeypatch):
     assert created.status_code == 200
     assert created.json()["username"] == "admin"
     assert "cleanarr_session" in created.cookies
-    assert client.get("/api/auth/status").json() == {"setup_required": False}
+    assert client.get("/api/auth/status").json()["setup_required"] is False
     assert client.get("/api/auth/me").json()["username"] == "admin"
 
     again = client.post("/api/auth/setup", json={"username": "other", "password": "another-one"})
@@ -61,7 +61,7 @@ def test_setup_stays_closed_even_if_setup_flag_is_cleared(client, monkeypatch):
 
     set_setting("setup_complete", "0")
     assert auth.needs_setup() is False
-    assert client.get("/api/auth/status").json() == {"setup_required": False}
+    assert client.get("/api/auth/status").json()["setup_required"] is False
     blocked = client.post("/api/auth/setup", json={"username": "hacker", "password": "totally-new"})
     assert blocked.status_code == 403
     assert get_setting("auth_username") == "admin"
@@ -75,7 +75,7 @@ def test_env_credentials_block_setup(client, monkeypatch):
     client.cookies.clear()
     auth.bootstrap_auth()
 
-    assert client.get("/api/auth/status").json() == {"setup_required": False}
+    assert client.get("/api/auth/status").json()["setup_required"] is False
     assert client.post("/api/auth/setup", json={"username": "other", "password": "another-pass"}).status_code == 403
 
 

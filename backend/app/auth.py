@@ -8,7 +8,9 @@ import time
 from functools import wraps
 
 from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+
+from . import oidc
 
 from .config import env_file_present, env_value, settings
 from .db import get_setting, set_setting
@@ -37,8 +39,8 @@ def ensure_session_secret() -> str:
 
 
 def credentials_configured() -> bool:
-    """True once an admin password exists or env/.env supplies credentials."""
-    if get_setting("auth_password_hash"):
+    """True once an admin password exists, env/.env supplies credentials, or SSO is set up."""
+    if get_setting("auth_password_hash") or oidc.enabled():
         return True
     env_user = (os.environ.get("CLEANARR_USERNAME") or env_value("CLEANARR_USERNAME") or "").strip()
     env_pass = (os.environ.get("CLEANARR_PASSWORD") or env_value("CLEANARR_PASSWORD") or "").strip()
@@ -125,24 +127,29 @@ def session_secret() -> str:
     return ensure_session_secret()
 
 
-def _session_key() -> bytes:
-    """Signing key bound to the stored credentials.
+def _session_key(method: str = "password") -> bytes:
+    """Signing key bound to whatever let the session in.
 
-    Because the password hash is part of the key material, changing the password
-    or the username invalidates every cookie handed out before the change.
+    Password sessions fold in the stored credentials, so changing the password or
+    the username invalidates every cookie handed out before the change. SSO
+    sessions fold in the provider, client, and allow lists instead.
     """
-    material = f"{session_secret()}|{get_setting('auth_username')}|{get_setting('auth_password_hash')}"
+    if method == "oidc":
+        material = f"{session_secret()}|oidc|{oidc.session_material()}"
+    else:
+        material = f"{session_secret()}|{get_setting('auth_username')}|{get_setting('auth_password_hash')}"
     return hashlib.sha256(material.encode()).digest()
 
 
-def sign_session(username: str) -> str:
+def sign_session(username: str, method: str = "password") -> str:
     nonce = secrets.token_hex(8)
     payload = f"{username}:{int(time.time())}:{nonce}"
-    sig = hmac.new(_session_key(), payload.encode(), hashlib.sha256).hexdigest()
+    sig = hmac.new(_session_key(method), payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}:{sig}"
 
 
-def read_session(token: str | None) -> str | None:
+def session_info(token: str | None) -> tuple[str, str] | None:
+    """(username, method) for a valid session cookie, else None."""
     if not token:
         return None
     # Split from the right so a username containing ":" still parses.
@@ -150,19 +157,28 @@ def read_session(token: str | None) -> str | None:
     if len(parts) != 4:
         return None
     username, issued, nonce, sig = parts
-    payload = f"{username}:{issued}:{nonce}"
-    expected = hmac.new(_session_key(), payload.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, sig):
-        return None
     if not issued.isdigit():
         return None
     age = time.time() - int(issued)
     # A little slack for clock skew, then a hard expiry.
     if age < -300 or age > SESSION_MAX_AGE:
         return None
-    if username != get_setting("auth_username"):
-        return None
-    return username
+    payload = f"{username}:{issued}:{nonce}".encode()
+    password_sig = hmac.new(_session_key("password"), payload, hashlib.sha256).hexdigest()
+    if hmac.compare_digest(password_sig, sig):
+        if username != get_setting("auth_username") or not oidc.password_login_enabled():
+            return None
+        return username, "password"
+    if oidc.enabled():
+        oidc_sig = hmac.new(_session_key("oidc"), payload, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(oidc_sig, sig):
+            return username, "oidc"
+    return None
+
+
+def read_session(token: str | None) -> str | None:
+    info = session_info(token)
+    return info[0] if info else None
 
 
 def current_user(request: Request) -> str:
@@ -185,6 +201,18 @@ def _secure_cookie(request: Request | None) -> bool:
     return forwarded == "https" or request.url.scheme == "https"
 
 
+def set_session_cookie(response: Response, username: str, request: Request | None, method: str = "password") -> None:
+    response.set_cookie(
+        COOKIE,
+        sign_session(username, method),
+        httponly=True,
+        samesite="lax",
+        secure=_secure_cookie(request),
+        max_age=SESSION_MAX_AGE,
+        path="/",
+    )
+
+
 def login_response(username: str, request: Request | None = None) -> JSONResponse:
     response = JSONResponse(
         {
@@ -193,15 +221,7 @@ def login_response(username: str, request: Request | None = None) -> JSONRespons
             "using_default_password": get_setting("using_default_password") == "1",
         }
     )
-    response.set_cookie(
-        COOKIE,
-        sign_session(username),
-        httponly=True,
-        samesite="lax",
-        secure=_secure_cookie(request),
-        max_age=SESSION_MAX_AGE,
-        path="/",
-    )
+    set_session_cookie(response, username, request)
     return response
 
 

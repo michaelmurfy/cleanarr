@@ -28,7 +28,28 @@ ENV_KEY_MAP = {
     "tracearr_external_url": "TRACEARR_EXTERNAL_URL",
     "jellystat_external_url": "JELLYSTAT_EXTERNAL_URL",
     "auth_username": "CLEANARR_USERNAME",
+    "oidc_issuer": "OIDC_ISSUER",
+    "oidc_client_id": "OIDC_CLIENT_ID",
+    "oidc_client_secret": "OIDC_CLIENT_SECRET",
+    "oidc_allowed_groups": "OIDC_ALLOWED_GROUPS",
+    "oidc_allowed_users": "OIDC_ALLOWED_USERS",
+    "oidc_button_label": "OIDC_BUTTON_LABEL",
 }
+
+# Single sign-on (OpenID Connect, e.g. Pocket ID). Part of the login, so these
+# are hidden by CLEANARR_HIDE_SETTINGS and left out of backups like the password.
+OIDC_KEYS = (
+    "oidc_issuer",
+    "oidc_client_id",
+    "oidc_client_secret",
+    "oidc_allowed_groups",
+    "oidc_allowed_users",
+    "oidc_button_label",
+)
+
+
+def is_secret_key(key: str) -> bool:
+    return key.endswith("_api_key") or key == "oidc_client_secret"
 
 
 def env_value(name: str) -> str:
