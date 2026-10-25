@@ -17,6 +17,10 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.1025.2
+- Merge pull request #32 from michaelmurfy/cursor/security-hardening-e050 (104c87b)
+- Stream poster downloads under the size cap, redact fetch errors, bump Vite 6.4.5 (dab0537)
+
 ## 2026.1025.1
 - Merge pull request #31 from michaelmurfy/cursor/pocket-id-oidc-e050 (1827fd9)
 - OIDC hardening: safe usernames in cookies, discovery backoff, open allow-list warning (fbf0c9b)
