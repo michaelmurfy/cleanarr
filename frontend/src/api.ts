@@ -91,9 +91,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+export type AuthStatus = {
+  setup_required: boolean;
+  sso: { enabled: boolean; label: string };
+  password_login: boolean;
+};
+
 export const api = {
-  me: () => request<{ username: string; using_default_password: boolean }>("/api/auth/me"),
-  authStatus: () => request<{ setup_required: boolean }>("/api/auth/status"),
+  me: () => request<{ username: string; method: "password" | "oidc"; using_default_password: boolean }>("/api/auth/me"),
+  authStatus: () => request<AuthStatus>("/api/auth/status"),
   setup: (username: string, password: string) =>
     request<{ username: string }>("/api/auth/setup", { method: "POST", body: JSON.stringify({ username, password }) }),
   login: (username: string, password: string) =>
@@ -133,6 +139,7 @@ export const api = {
       username: string;
       username_locked: boolean;
       using_default_password: boolean;
+      sso: { enabled: boolean; callback_url: string; password_login: boolean };
       maintenance: Maintenance;
       sync: SyncStatus;
     }>("/api/settings"),

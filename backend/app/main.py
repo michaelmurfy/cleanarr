@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -22,12 +22,16 @@ from .auth import (
     get_setting,
     login_response,
     needs_setup,
+    session_info,
     set_credentials,
+    set_session_cookie,
+    _secure_cookie,
     verify_password,
     COOKIE,
 )
+from . import oidc
 from .backup import MAX_RESTORE_BYTES, apply_backup, build_backup
-from .config import APP_SETTING_KEYS, env_file_present, hide_env_settings, locked_setting_keys
+from .config import APP_SETTING_KEYS, OIDC_KEYS, env_file_present, is_secret_key, hide_env_settings, locked_setting_keys
 from .db import all_settings, clear_library, connect, init_db, set_setting
 from .security import SecurityMiddleware, client_key, login_throttle, redact
 from .services.clients import KEYS, cfg, prune_env_overridden_settings, public_url, jellystat, radarr, radarr_4k, seerr, sonarr, tautulli, tracearr
@@ -98,7 +102,65 @@ class TestIn(BaseModel):
 
 @app.get("/api/auth/status")
 def auth_status():
-    return {"setup_required": needs_setup()}
+    sso = oidc.enabled()
+    return {
+        "setup_required": needs_setup(),
+        "sso": {"enabled": sso, "label": oidc.button_label() if sso else ""},
+        "password_login": oidc.password_login_enabled(),
+    }
+
+
+def _sso_failed(code: str, message: str, request: Request) -> RedirectResponse:
+    add_log(
+        f"Single sign-on failed: {message}",
+        level="warn",
+        category="audit",
+        action="sso_failed",
+        detail={"client": request.client.host if request.client else "unknown", "reason": code},
+    )
+    response = RedirectResponse(f"/?sso_error={quote(code)}", status_code=303)
+    response.delete_cookie(oidc.STATE_COOKIE, path=oidc.STATE_COOKIE_PATH)
+    return response
+
+
+@app.get("/api/auth/oidc/login")
+def sso_login(request: Request):
+    if not oidc.enabled():
+        return RedirectResponse("/?sso_error=disabled", status_code=303)
+    try:
+        url, state = oidc.begin(request)
+    except Exception as exc:
+        return _sso_failed("provider", str(exc), request)
+    response = RedirectResponse(url, status_code=303)
+    response.set_cookie(
+        oidc.STATE_COOKIE,
+        state,
+        httponly=True,
+        # Lax still sends the cookie on the provider's top-level redirect back.
+        samesite="lax",
+        secure=_secure_cookie(request),
+        max_age=oidc.STATE_MAX_AGE,
+        path=oidc.STATE_COOKIE_PATH,
+    )
+    return response
+
+
+@app.get("/api/auth/oidc/callback")
+def sso_callback(request: Request):
+    if not oidc.enabled():
+        return RedirectResponse("/?sso_error=disabled", status_code=303)
+    params = {key: request.query_params.get(key) or "" for key in ("code", "state", "error")}
+    try:
+        username = oidc.complete(request, params, request.cookies.get(oidc.STATE_COOKIE))
+    except oidc.OIDCError as exc:
+        return _sso_failed(exc.code, str(exc), request)
+    except Exception as exc:
+        return _sso_failed("provider", str(exc), request)
+    add_log(f"Signed in with single sign-on as '{username}'", category="audit", action="sso_login", actor=username)
+    response = RedirectResponse("/", status_code=303)
+    response.delete_cookie(oidc.STATE_COOKIE, path=oidc.STATE_COOKIE_PATH)
+    set_session_cookie(response, username, request, method="oidc")
+    return response
 
 
 @app.post("/api/auth/setup")
@@ -111,6 +173,8 @@ def setup(payload: LoginIn, request: Request):
 def login(payload: LoginIn, request: Request):
     if needs_setup():
         raise HTTPException(status_code=403, detail="Create an admin account first")
+    if not oidc.password_login_enabled():
+        raise HTTPException(status_code=403, detail="Password sign-in is turned off. Use single sign-on.")
     throttle_key = client_key(request, payload.username)
     wait = login_throttle.retry_after(throttle_key)
     if wait:
@@ -149,8 +213,10 @@ def logout():
 @app.get("/api/auth/me")
 def me(request: Request):
     user = current_user(request)
+    info = session_info(request.cookies.get(COOKIE))
     return {
         "username": user,
+        "method": info[1] if info else "password",
         "using_default_password": get_setting("using_default_password") == "1",
     }
 
@@ -163,12 +229,12 @@ def get_settings(request: Request):
     env_locked = env_file_present()
     hide_settings = hide_env_settings()
     values = {}
-    for key in KEYS:
+    for key in (*KEYS, *OIDC_KEYS):
         configured = bool(cfg(key) or stored.get(key))
         values[f"{key}_set"] = configured
         values[f"{key}_locked"] = hide_settings or key in locked
         values[f"{key}_hidden"] = hide_settings
-        if key.endswith("_api_key"):
+        if is_secret_key(key):
             values[key] = ""
         elif values[f"{key}_locked"]:
             values[key] = cfg(key)
@@ -192,6 +258,11 @@ def get_settings(request: Request):
         "username": get_setting("auth_username"),
         "username_locked": hide_settings or "auth_username" in locked,
         "using_default_password": get_setting("using_default_password") == "1",
+        "sso": {
+            "enabled": oidc.enabled(),
+            "callback_url": oidc.redirect_uri(request),
+            "password_login": oidc.password_login_enabled(),
+        },
         "sync": job_status(),
         "maintenance": {
             "cache_files": cache["files"],
@@ -235,9 +306,9 @@ def put_settings(payload: SettingsIn, request: Request):
         if key in APP_SETTING_KEYS:
             set_setting(key, _normalize_app_setting(key, value))
             continue
-        if hide_settings or key not in KEYS or key in locked:
+        if hide_settings or (key not in KEYS and key not in OIDC_KEYS) or key in locked:
             continue
-        if key.endswith("_api_key"):
+        if is_secret_key(key):
             cleaned = value.strip()
             if not cleaned or set(cleaned) <= {"•", "*"}:
                 continue
@@ -247,6 +318,7 @@ def put_settings(payload: SettingsIn, request: Request):
     if not hide_settings and "auth_username" not in locked and (payload.username or payload.password):
         set_credentials(payload.username or "", payload.password)
     prune_env_overridden_settings()
+    oidc.clear_cache()
     return {"ok": True, "hide_settings": hide_settings}
 
 

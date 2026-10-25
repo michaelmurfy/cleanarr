@@ -880,7 +880,59 @@ input.tick:disabled {
 .login-card h1 { font-family: "IBM Plex Serif", serif; margin: 0 0 8px; font-size: 26px; font-weight: 500; }
 .login-card > .muted { margin: 0; line-height: 1.5; }
 .login-card .stack { text-align: left; }
-.login-card .primary { width: 100%; padding: 11px 12px; }
+.login-card .primary, .login-card .login-submit { width: 100%; padding: 11px 12px; }
+.sso-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 22px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #1a1308;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 6px 20px rgba(212, 160, 84, 0.18);
+  transition: filter 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+  animation: rise 360ms ease 60ms both;
+}
+.sso-button .inline-icon { width: 18px; height: 18px; }
+.sso-button .spinner { border-color: rgba(26, 19, 8, 0.25); border-top-color: #1a1308; }
+.sso-button:active { transform: translateY(1px); }
+.sso-button.busy { pointer-events: none; filter: saturate(0.8); }
+@media (hover: hover) { .sso-button:hover { filter: brightness(1.07); box-shadow: 0 8px 26px rgba(212, 160, 84, 0.26); } }
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.login-divider::before, .login-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.login-card .error { margin: 14px 0 0; }
+.login-card .error + .login-submit, .login-card .error + .primary { margin-top: 14px; }
+.callback-field { display: grid; gap: 6px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+.callback-field > span .muted { font-size: 12px; opacity: 0.8; margin-left: 4px; }
+.sso-open { margin: 14px 0 0; }
+.copy-row { display: flex; align-items: stretch; gap: 8px; }
+.callback-url {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 9px 11px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.copy-row .small-btn { flex: none; min-width: 72px; }
 .stack { display: grid; gap: 10px; margin: 18px 0; }
 .form-grid {
   display: grid;

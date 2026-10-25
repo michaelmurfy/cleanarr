@@ -5,7 +5,7 @@ from .jellystat import Jellystat
 from .seerr import Seerr
 from .tautulli import Tautulli
 from .tracearr import Tracearr
-from ..config import ENV_KEY_MAP, env_value, settings
+from ..config import ENV_KEY_MAP, OIDC_KEYS, env_value, settings
 from ..db import connect, get_setting
 
 KEYS = [
@@ -49,7 +49,7 @@ def prune_env_overridden_settings() -> int:
     """Remove DB copies of keys already defined in the environment or .env."""
     removed = 0
     with connect() as conn:
-        for key in KEYS:
+        for key in (*KEYS, *OIDC_KEYS):
             env_name = ENV_KEY_MAP.get(key, key.upper())
             if not env_value(env_name):
                 continue
