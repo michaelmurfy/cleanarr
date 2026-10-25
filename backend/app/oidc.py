@@ -14,7 +14,7 @@ import secrets
 import threading
 import time
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote_plus, urlencode
 
 import httpx
 import jwt
@@ -27,7 +27,7 @@ STATE_COOKIE = "cleanarr_oidc"
 STATE_COOKIE_PATH = "/api/auth/oidc"
 STATE_MAX_AGE = 600
 CALLBACK_PATH = "/api/auth/oidc/callback"
-SCOPES = "openid profile email groups"
+DEFAULT_SCOPES = "openid profile email groups"
 CACHE_SECONDS = 3600
 # Asymmetric only: an HS* token would be "signed" with the client secret, and
 # "none" is not signed at all.
@@ -69,6 +69,15 @@ def password_login_enabled() -> bool:
     """Password sign-in can only be switched off from the environment, and only
     while SSO is configured, so a bad Settings change cannot lock everyone out."""
     return not (enabled() and env_flag("CLEANARR_DISABLE_PASSWORD_LOGIN"))
+
+
+def scopes() -> str:
+    """Providers that check scopes against the client (Authelia) reject any the
+    client was not given, so the list can be trimmed with OIDC_SCOPES."""
+    requested = env_value("OIDC_SCOPES").replace(",", " ").split() or DEFAULT_SCOPES.split()
+    if "openid" not in requested:
+        requested.insert(0, "openid")
+    return " ".join(requested)
 
 
 def _split(value: str) -> list[str]:
@@ -218,7 +227,7 @@ def begin(request: Request) -> tuple[str, str]:
             "response_type": "code",
             "client_id": client_id(),
             "redirect_uri": callback,
-            "scope": SCOPES,
+            "scope": scopes(),
             "state": state,
             "nonce": nonce,
             "code_challenge": challenge,
@@ -242,11 +251,14 @@ def _exchange(doc: dict[str, Any], code: str, verifier: str, callback: str) -> d
     secret = _cfg("oidc_client_secret")
     auth = None
     if secret:
+        # Basic is the spec default and what Authelia, Keycloak and Kanidm register
+        # clients with; some providers refuse a method the client was not set up for.
         methods = doc.get("token_endpoint_auth_methods_supported") or ["client_secret_basic"]
-        if "client_secret_post" in methods:
-            data["client_secret"] = secret
+        if "client_secret_basic" in methods or "client_secret_post" not in methods:
+            # RFC 6749 2.3.1: both halves are form-encoded before going into the header.
+            auth = (quote_plus(client_id()), quote_plus(secret))
         else:
-            auth = (client_id(), secret)
+            data["client_secret"] = secret
     tokens = _post_form(doc["token_endpoint"], data, auth)
     if not isinstance(tokens, dict) or not tokens.get("id_token"):
         raise OIDCError("exchange", "Token endpoint returned no ID token")

@@ -58,7 +58,19 @@ The issuer, client ID and client secret can also come from `OIDC_ISSUER`, `OIDC_
 - `OIDC_ALLOWED_GROUPS` / `OIDC_ALLOWED_USERS` (comma separated) limit who gets in by group, username or email. Left blank, anyone the provider lets through is allowed.
 - `OIDC_BUTTON_LABEL` changes the button text.
 - `OIDC_REDIRECT_URI` pins the callback URL. Without it, Cleanarr builds the URL from the request and honours `X-Forwarded-Proto` / `X-Forwarded-Host`.
+- `OIDC_SCOPES` replaces the requested scopes (default `openid profile email groups`). Trim it if your provider rejects a scope the client was not given.
 - `CLEANARR_DISABLE_PASSWORD_LOGIN=1` turns off password sign-in while single sign-on is configured. It is env-only, so a bad Settings change cannot lock you out.
+
+Other providers work the same way. Use the issuer the provider shows for the client:
+
+| Provider | Issuer URL | Groups |
+| --- | --- | --- |
+| Pocket ID | `https://id.example.com` | `groups` claim, built in |
+| Authelia | `https://auth.example.com` | add `groups` to the client's `scopes` |
+| Authentik | `https://authentik.example.com/application/o/<slug>/` | included with `profile` |
+| Keycloak | `https://kc.example.com/realms/<realm>` | needs a Group Membership mapper named `groups` (full path off); otherwise use allowed users |
+| Kanidm | `https://idm.example.com/oauth2/openid/<client_id>` | add a scope map for `groups` |
+| Zitadel | `https://<instance>.zitadel.cloud` | roles use a custom claim; use allowed users |
 
 Sign-in uses the authorization code flow with PKCE. The ID token's signature, issuer, audience, expiry and nonce are all checked. Changing the provider, client or allow lists signs out every single sign-on session. Single sign-on settings are part of the login, so they are hidden by `CLEANARR_HIDE_SETTINGS=1` and left out of backups.
 

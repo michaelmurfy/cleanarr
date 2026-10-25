@@ -45,7 +45,7 @@ class FakeProvider:
         raise AssertionError(url)
 
     def post_form(self, url, data, auth):
-        self.token_requests.append(data)
+        self.token_requests.append({**data, "_auth": auth})
         return {"access_token": "at", "id_token": self.id_token(), "token_type": "Bearer"}
 
 
@@ -101,7 +101,8 @@ def test_full_sign_in_creates_an_sso_session(client, provider):
     me = client.get("/api/auth/me").json()
     assert me == {"username": "ada", "method": "oidc", "using_default_password": me["using_default_password"]}
     sent = provider.token_requests[0]
-    assert sent["code_verifier"] and sent["client_secret"] == SECRET
+    assert sent["code_verifier"] and sent["_auth"] == (CLIENT, SECRET)
+    assert "client_secret" not in sent
     assert client.get("/api/library").status_code == 200
 
 
@@ -253,3 +254,32 @@ def test_hidden_settings_hide_sso(auth_client, monkeypatch):
     monkeypatch.setenv("CLEANARR_HIDE_SETTINGS", "1")
     values = auth_client.get("/api/settings").json()["values"]
     assert values["oidc_issuer_hidden"] is True and values["oidc_issuer_locked"] is True
+
+
+def test_client_secret_post_when_basic_is_not_offered(client, provider, monkeypatch):
+    original = provider.get_json
+
+    def post_only(url, headers=None):
+        doc = original(url, headers)
+        if url.endswith("openid-configuration"):
+            doc["token_endpoint_auth_methods_supported"] = ["client_secret_post"]
+        return doc
+
+    monkeypatch.setattr(oidc, "_get_json", post_only)
+    query = start(client, provider)
+    callback(client, code="abc", state=query["state"][0])
+    sent = provider.token_requests[0]
+    assert sent["client_secret"] == SECRET and sent["_auth"] is None
+
+
+def test_basic_auth_form_encodes_the_secret(client, provider, monkeypatch):
+    monkeypatch.setenv("OIDC_CLIENT_SECRET", "a:b/c d")
+    query = start(client, provider)
+    callback(client, code="abc", state=query["state"][0])
+    assert provider.token_requests[0]["_auth"] == (CLIENT, "a%3Ab%2Fc+d")
+
+
+def test_scopes_can_be_trimmed_but_keep_openid(client, provider, monkeypatch):
+    monkeypatch.setenv("OIDC_SCOPES", "profile, email")
+    query = start(client, provider)
+    assert query["scope"] == ["openid profile email"]
