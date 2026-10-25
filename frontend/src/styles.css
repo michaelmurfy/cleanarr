@@ -511,7 +511,47 @@ input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
   margin-bottom: 14px;
 }
 .library-toolbar > .clearable { flex: 1 1 auto; min-width: 0; }
-.toolbar-sort { flex: none; width: 190px; }
+.toolbar-sort { flex: none; width: 236px; }
+/* Sort select and its direction button read as one control. */
+.sort-control { display: flex; min-width: 0; }
+.sort-control select {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.sort-direction {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  margin-left: -1px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0 8px 8px 0;
+  background: var(--bg-elev);
+  color: var(--muted);
+  cursor: pointer;
+}
+.sort-direction svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 120ms ease;
+}
+.sort-direction path { transition: opacity 200ms ease, transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+.sort-direction .arrow-up { opacity: 0.35; }
+.sort-direction.reversed { color: var(--accent-2); border-color: var(--accent); position: relative; }
+.sort-direction.reversed .arrow-down { opacity: 0.35; transform: translateY(1.5px); }
+.sort-direction.reversed .arrow-up { opacity: 1; transform: translateY(-1.5px); }
+.sort-direction:active svg { transform: scale(0.88); }
+@media (hover: hover) { .sort-direction:not(.reversed):hover { color: var(--text); border-color: #3a4763; position: relative; } }
+.sort-direction:focus-visible { outline: none; border-color: var(--accent); position: relative; }
+.sort-control select:focus { position: relative; z-index: 1; }
 .filter-menu { position: relative; flex: none; }
 .filter-toggle {
   display: inline-flex;
@@ -1732,6 +1772,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: n
   .filter-panel-head strong { font-size: 17px; }
   .segmented button { padding: 10px 0; font-size: 15px; }
   .filter-field > span { font-size: 13px; }
+  .sort-direction { width: 48px; }
   .filter-done { display: block; width: 100%; min-height: 46px; }
   .mobile-only-block { display: grid; }
   .library-page .page-head .page-intro { display: none; }
