@@ -17,6 +17,10 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.1025.0
+- Merge pull request #30 from michaelmurfy/cursor/reverse-sort-e050 (dc6d1ea)
+- Add reverse sort to the library (#29) (9517620)
+
 ## 2026.0926.3
 - Center Settings status messages with the page content. (8bd34e2)
 
@@ -62,7 +66,7 @@
 - Merge pull request #24 from michaelmurfy/cursor/whitelist-mobile-search-e050 (bf3b177)
 - Fix Whitelist page overflow and native text-selection on mobile cards (76fc5fa)
 ]]></Changes>
-  <Date>2026-09-26</Date>
+  <Date>2026-10-25</Date>
   <License>MIT</License>
   <Config Name="Web UI" Target="7585" Default="7585" Mode="tcp" Description="Container port for the Cleanarr web UI." Type="Port" Display="always" Required="true" Mask="false">7585</Config>
   <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/cleanarr" Mode="rw" Description="Database, poster cache, and the generated session secret." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cleanarr</Config>
