@@ -915,6 +915,7 @@ input.tick:disabled {
 .login-card .error + .login-submit, .login-card .error + .primary { margin-top: 14px; }
 .callback-field { display: grid; gap: 6px; margin-top: 14px; font-size: 13px; color: var(--muted); }
 .callback-field > span .muted { font-size: 12px; opacity: 0.8; margin-left: 4px; }
+.sso-open { margin: 14px 0 0; }
 .copy-row { display: flex; align-items: stretch; gap: 8px; }
 .callback-url {
   flex: 1 1 auto;

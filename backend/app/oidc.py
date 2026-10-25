@@ -33,6 +33,7 @@ CACHE_SECONDS = 3600
 # "none" is not signed at all.
 ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA"]
 DEFAULT_LABEL = "Pocket ID"
+MAX_USERNAME = 64
 
 
 class OIDCError(Exception):
@@ -144,10 +145,21 @@ def _cached(key: str, loader, refresh: bool = False) -> Any:
 def clear_cache() -> None:
     with _cache_lock:
         _cache.clear()
+    _failed_at.clear()
+
+
+_failed_at: dict[str, float] = {}
+FAILURE_BACKOFF = 30
 
 
 def discovery() -> dict[str, Any]:
+    """The provider's metadata. A failed lookup is remembered briefly, so anyone
+    hammering the unauthenticated login route while the provider is down does
+    not hold a worker thread per request."""
     base = issuer()
+    failed = _failed_at.get(base)
+    if failed and time.time() - failed < FAILURE_BACKOFF:
+        raise OIDCError("provider", "Provider was unreachable moments ago")
 
     def load() -> dict[str, Any]:
         doc = _get_json(f"{base}/.well-known/openid-configuration")
@@ -158,7 +170,13 @@ def discovery() -> dict[str, Any]:
                 raise OIDCError("provider", f"Discovery document has no {field}")
         return doc
 
-    return _cached(f"discovery:{base}", load)
+    try:
+        doc = _cached(f"discovery:{base}", load)
+    except Exception:
+        _failed_at[base] = time.time()
+        raise
+    _failed_at.pop(base, None)
+    return doc
 
 
 def _signing_key(token: str, jwks_uri: str):
@@ -303,7 +321,8 @@ def _userinfo(doc: dict[str, Any], access_token: str, subject: str) -> dict[str,
 
 def identity(claims: dict[str, Any]) -> tuple[str, list[str], list[str]]:
     """Display name, the names it can be allowed by, and its groups (lowercased)."""
-    username = str(claims.get("preferred_username") or claims.get("email") or claims.get("name") or claims["sub"])
+    raw = str(claims.get("preferred_username") or claims.get("email") or claims.get("name") or claims["sub"])
+    username = "".join(ch for ch in raw if ch.isprintable()).strip()[:MAX_USERNAME] or str(claims["sub"])[:MAX_USERNAME]
     names = {str(claims[key]).strip().lower() for key in ("preferred_username", "email", "sub") if claims.get(key)}
     raw_groups = claims.get("groups") or []
     if isinstance(raw_groups, str):

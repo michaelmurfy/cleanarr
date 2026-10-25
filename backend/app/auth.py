@@ -5,6 +5,7 @@ import hmac
 import os
 import secrets
 import time
+from urllib.parse import quote, unquote
 from functools import wraps
 
 from fastapi import HTTPException, Request
@@ -143,7 +144,9 @@ def _session_key(method: str = "password") -> bytes:
 
 def sign_session(username: str, method: str = "password") -> str:
     nonce = secrets.token_hex(8)
-    payload = f"{username}:{int(time.time())}:{nonce}"
+    # Cookies only carry printable ASCII, so anything else in a name is percent-encoded.
+    # Plain names encode to themselves, which keeps older cookies valid.
+    payload = f"{quote(username, safe='')}:{int(time.time())}:{nonce}"
     sig = hmac.new(_session_key(method), payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}:{sig}"
 
@@ -156,14 +159,15 @@ def session_info(token: str | None) -> tuple[str, str] | None:
     parts = token.rsplit(":", 3)
     if len(parts) != 4:
         return None
-    username, issued, nonce, sig = parts
+    encoded, issued, nonce, sig = parts
     if not issued.isdigit():
         return None
     age = time.time() - int(issued)
     # A little slack for clock skew, then a hard expiry.
     if age < -300 or age > SESSION_MAX_AGE:
         return None
-    payload = f"{username}:{issued}:{nonce}".encode()
+    payload = f"{encoded}:{issued}:{nonce}".encode()
+    username = unquote(encoded)
     password_sig = hmac.new(_session_key("password"), payload, hashlib.sha256).hexdigest()
     if hmac.compare_digest(password_sig, sig):
         if username != get_setting("auth_username") or not oidc.password_login_enabled():

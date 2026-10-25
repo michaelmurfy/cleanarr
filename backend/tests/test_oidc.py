@@ -283,3 +283,25 @@ def test_scopes_can_be_trimmed_but_keep_openid(client, provider, monkeypatch):
     monkeypatch.setenv("OIDC_SCOPES", "profile, email")
     query = start(client, provider)
     assert query["scope"] == ["openid profile email"]
+
+
+def test_failed_discovery_backs_off(client, provider, monkeypatch):
+    calls = []
+
+    def down(url, headers=None):
+        calls.append(url)
+        raise oidc.OIDCError("provider", "down")
+
+    monkeypatch.setattr(oidc, "_get_json", down)
+    for _ in range(3):
+        response = client.get("/api/auth/oidc/login", follow_redirects=False)
+        assert response.headers["location"] == "/?sso_error=provider"
+    assert len(calls) == 1
+
+
+def test_unusual_usernames_round_trip(client, provider):
+    provider.claims["preferred_username"] = "Zoë 名前\r\n" + "x" * 200
+    query = start(client, provider)
+    assert callback(client, code="abc", state=query["state"][0]).headers["location"] == "/"
+    name = client.get("/api/auth/me").json()["username"]
+    assert name.startswith("Zoë 名前") and "\n" not in name and len(name) == oidc.MAX_USERNAME

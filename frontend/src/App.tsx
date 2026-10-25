@@ -3004,6 +3004,12 @@ function Settings() {
                 </button>
               </div>
             </div>
+            {sso.enabled && !flags.oidc_allowed_groups_set && !flags.oidc_allowed_users_set && (
+              <p className="warn-banner sso-open" role="status">
+                Anyone who can sign in to this client at the provider gets full access to Cleanarr. Limit the client to a group
+                there, or fill in Allowed groups or Allowed users.
+              </p>
+            )}
             <p className="option-note">
               {sso.enabled ? <span className="chip ok">On</span> : <span className="chip">Off</span>}{" "}
               {sso.enabled
