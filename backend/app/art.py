@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, Response
 
 from .config import settings
 from .db import connect
+from .security import redact
 
 ART_DIR = Path(settings.data_dir) / "art"
 ALLOWED_SCHEMES = {"http", "https"}
@@ -90,22 +91,27 @@ def _download(url: str, cached: Path) -> tuple[bytes, str]:
         raise HTTPException(status_code=400, detail="Invalid artwork URL")
     try:
         # Poster URLs come from *arr metadata, so cap the redirect chain and the
-        # response size rather than trusting whatever they point at.
+        # response size rather than trusting whatever they point at. The body is
+        # streamed so an endless response is cut off at the cap, not buffered.
         with httpx.Client(timeout=20.0, follow_redirects=True, max_redirects=3) as client:
-            response = client.get(url, headers={"User-Agent": "Cleanarr"})
-            response.raise_for_status()
+            with client.stream("GET", url, headers={"User-Agent": "Cleanarr"}) as response:
+                response.raise_for_status()
+                declared = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
+                if declared and not declared.startswith(ALLOWED_ART_TYPES):
+                    raise HTTPException(status_code=502, detail="Artwork URL did not return an image")
+                chunks, total = [], 0
+                for chunk in response.iter_bytes():
+                    total += len(chunk)
+                    if total > MAX_ART_BYTES:
+                        raise HTTPException(status_code=502, detail="Artwork is too large")
+                    chunks.append(chunk)
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Artwork fetch failed: {exc}") from exc
-    declared = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
-    if declared and not declared.startswith(ALLOWED_ART_TYPES):
-        raise HTTPException(status_code=502, detail="Artwork URL did not return an image")
-    data = response.content
+        raise HTTPException(status_code=502, detail=f"Artwork fetch failed: {redact(exc)}") from exc
+    data = b"".join(chunks)
     if not data:
         raise HTTPException(status_code=502, detail="Empty artwork")
-    if len(data) > MAX_ART_BYTES:
-        raise HTTPException(status_code=502, detail="Artwork is too large")
     ART_DIR.mkdir(parents=True, exist_ok=True)
     tmp = cached.with_suffix(".tmp")
     tmp.write_bytes(data)
