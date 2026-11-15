@@ -16,7 +16,7 @@ import time
 from typing import Any
 from urllib.parse import quote_plus, urlencode
 
-import httpx
+import httpx2
 import jwt
 from fastapi import Request
 
@@ -115,7 +115,7 @@ _cache_lock = threading.Lock()
 
 
 def _get_json(url: str, headers: dict[str, str] | None = None) -> Any:
-    with httpx.Client(timeout=15.0, follow_redirects=False) as client:
+    with httpx2.Client(timeout=15.0, follow_redirects=False) as client:
         response = client.get(url, headers=headers)
     if response.status_code >= 400:
         raise OIDCError("provider", f"{url} returned {response.status_code}")
@@ -123,7 +123,7 @@ def _get_json(url: str, headers: dict[str, str] | None = None) -> Any:
 
 
 def _post_form(url: str, data: dict[str, str], auth: tuple[str, str] | None) -> Any:
-    with httpx.Client(timeout=15.0, follow_redirects=False) as client:
+    with httpx2.Client(timeout=15.0, follow_redirects=False) as client:
         response = client.post(url, data=data, auth=auth, headers={"Accept": "application/json"})
     if response.status_code >= 400:
         raise OIDCError("exchange", f"Token endpoint returned {response.status_code}")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+import httpx2
 
 
 class ServiceError(RuntimeError):
@@ -12,8 +12,8 @@ class ServiceError(RuntimeError):
         self.status = status
 
 
-def _client() -> httpx.Client:
-    return httpx.Client(timeout=45.0, follow_redirects=True)
+def _client() -> httpx2.Client:
+    return httpx2.Client(timeout=45.0, follow_redirects=True)
 
 
 def json_get(url: str, headers: dict[str, str] | None = None, params: dict[str, Any] | None = None) -> Any:

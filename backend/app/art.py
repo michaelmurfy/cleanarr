@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
-import httpx
+import httpx2
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, Response
 
@@ -93,7 +93,7 @@ def _download(url: str, cached: Path) -> tuple[bytes, str]:
         # Poster URLs come from *arr metadata, so cap the redirect chain and the
         # response size rather than trusting whatever they point at. The body is
         # streamed so an endless response is cut off at the cap, not buffered.
-        with httpx.Client(timeout=20.0, follow_redirects=True, max_redirects=3) as client:
+        with httpx2.Client(timeout=20.0, follow_redirects=True, max_redirects=3) as client:
             with client.stream("GET", url, headers={"User-Agent": "Cleanarr"}) as response:
                 response.raise_for_status()
                 declared = (response.headers.get("content-type") or "").split(";")[0].strip().lower()

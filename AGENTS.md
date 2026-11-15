@@ -51,7 +51,7 @@ CI (`.github/workflows/ci.yml`) runs backend pytest + frontend typecheck/build o
 
 ## Style
 
-- Python 3.14, `from __future__ import annotations`, httpx for outbound calls.
+- Python 3.14, `from __future__ import annotations`, httpx2 for outbound calls.
 - Keep service clients small; put cross-service logic in `sync.py`, `identity.py`, `match.py`, `actions.py`.
 - Add or extend tests next to the behavior you change (`backend/tests/test_*.py`). Auto-delete, Seerr status, and client headers already have coverage, so use those as the spec.
 - Prefer a small, accurate change over a rewrite of `App.tsx` or `sync.py`.
