@@ -1,5 +1,5 @@
 COMPOSE ?= docker compose
-TEST_IMAGE ?= python:3.14-slim
+TEST_IMAGE ?= python:3.15-slim
 IMAGE ?= ghcr.io/michaelmurfy/cleanarr:latest
 
 .PHONY: help up build test pull update env

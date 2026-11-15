@@ -5,7 +5,7 @@ RUN npm ci
 COPY frontend .
 RUN npm run build
 
-FROM python:3.14-slim
+FROM python:3.15-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DATA_DIR=/data
 RUN groupadd -g 1000 cleanarr && useradd -u 1000 -g cleanarr -d /app -s /sbin/nologin cleanarr

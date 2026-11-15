@@ -9,7 +9,7 @@ Cleanarr is a FastAPI + React app that reclaims disk from Radarr/Sonarr using wa
 - `backend/tests/`: pytest. `conftest.py` must set `DATA_DIR` **before** importing `app` (`config` and `db` pin paths at import).
 - `frontend/src/`: Vite + React 19. Almost everything lives in `App.tsx`; `api.ts` is the client.
 - `frontend/public/`: icons and the web manifest, copied to the bundle root by Vite. Generated, not hand-edited.
-- Docker image: Node 24 builds the UI, Python 3.14 serves it from `backend/static`. Entrypoint drops to `PUID`/`PGID`.
+- Docker image: Node 24 builds the UI, Python 3.15 serves it from `backend/static`. Entrypoint drops to `PUID`/`PGID`.
 
 ## Commands
 
@@ -21,7 +21,7 @@ cd frontend && npm ci && npm run typecheck && npm run build
 
 Local run: API `uvicorn app.main:app --reload --port 7585` from `backend/`; UI `npm run dev` from `frontend/` (Vite proxies `/api` to 7585). Docker: `make up` (optional `make env` copies `.env.example`).
 
-CI (`.github/workflows/ci.yml`) runs backend pytest + frontend typecheck/build on every push and PR. Python 3.14, Node 24.
+CI (`.github/workflows/ci.yml`) runs backend pytest + frontend typecheck/build on every push and PR. Python 3.15, Node 24.
 
 ## Domain rules (do not regress)
 
@@ -51,7 +51,7 @@ CI (`.github/workflows/ci.yml`) runs backend pytest + frontend typecheck/build o
 
 ## Style
 
-- Python 3.14, `from __future__ import annotations`, httpx2 for outbound calls.
+- Python 3.15, `from __future__ import annotations`, httpx2 for outbound calls.
 - Keep service clients small; put cross-service logic in `sync.py`, `identity.py`, `match.py`, `actions.py`.
 - Add or extend tests next to the behavior you change (`backend/tests/test_*.py`). Auto-delete, Seerr status, and client headers already have coverage, so use those as the spec.
 - Prefer a small, accurate change over a rewrite of `App.tsx` or `sync.py`.
