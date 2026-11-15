@@ -17,6 +17,11 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.1115.0
+- Bump Python from 3.14 to 3.15 (88f9e32)
+- Switch backend HTTP client from httpx to httpx2 (388c14a)
+- chore(deps): upgrade dependencies to latest (166 packages) - 2026/11/15 (8acb505)
+
 ## 2026.1025.2
 - Merge pull request #32 from michaelmurfy/cursor/security-hardening-e050 (104c87b)
 - Stream poster downloads under the size cap, redact fetch errors, bump Vite 6.4.5 (dab0537)
@@ -77,7 +82,7 @@
 - Merge pull request #24 from michaelmurfy/cursor/whitelist-mobile-search-e050 (bf3b177)
 - Fix Whitelist page overflow and native text-selection on mobile cards (76fc5fa)
 ]]></Changes>
-  <Date>2026-10-25</Date>
+  <Date>2026-11-15</Date>
   <License>MIT</License>
   <Config Name="Web UI" Target="7585" Default="7585" Mode="tcp" Description="Container port for the Cleanarr web UI." Type="Port" Display="always" Required="true" Mask="false">7585</Config>
   <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/cleanarr" Mode="rw" Description="Database, poster cache, and the generated session secret." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/cleanarr</Config>
