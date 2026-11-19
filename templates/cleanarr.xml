@@ -17,6 +17,34 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.1119.7
+- Merge pull request #39 from michaelmurfy/dependabot/pip/backend/httpx2-2.16.2 (6053c5e)
+- Bump httpx2 from 2.16.0 to 2.16.2 in /backend (cc782af)
+
+## 2026.1119.6
+- Merge pull request #38 from michaelmurfy/dependabot/github_actions/actions/setup-python-7 (6172c0e)
+- Bump actions/setup-python from 5 to 7 (e2f616e)
+
+## 2026.1119.5
+- Merge pull request #37 from michaelmurfy/dependabot/github_actions/actions/checkout-7 (8404ee5)
+- Bump actions/checkout from 4 to 7 (29ff3eb)
+
+## 2026.1119.4
+- Merge pull request #36 from michaelmurfy/dependabot/github_actions/docker/build-push-action-7 (04d721c)
+- Bump docker/build-push-action from 6 to 7 (260d9d8)
+
+## 2026.1119.3
+- Merge pull request #35 from michaelmurfy/dependabot/github_actions/docker/login-action-4 (0cec3c0)
+- Bump docker/login-action from 3 to 4 (a9f45e8)
+
+## 2026.1119.2
+- Merge pull request #34 from michaelmurfy/dependabot/github_actions/actions/setup-node-7 (80b6e42)
+- Bump actions/setup-node from 4 to 7 (0a03afa)
+
+## 2026.1119.1
+- Merge pull request #33 from michaelmurfy/dependabot/docker/node-26-alpine (0fb51ec)
+- Bump node from 24-alpine to 26-alpine (754e33c)
+
 ## 2026.1119.0
 - Harden auth and fix matching bugs that could delete the wrong titles. (a13def1)
 

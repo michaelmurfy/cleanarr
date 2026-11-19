@@ -1,6 +1,6 @@
 fastapi==0.163.1
 uvicorn[standard]==0.54.0
-httpx2==2.16.0
+httpx2==2.16.2
 python-multipart==0.0.34
 pydantic-settings==2.16.3
 PyJWT==2.15.1
