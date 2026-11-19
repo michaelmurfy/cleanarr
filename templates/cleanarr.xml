@@ -17,6 +17,10 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.1119.5
+- Merge pull request #37 from michaelmurfy/dependabot/github_actions/actions/checkout-7 (8404ee5)
+- Bump actions/checkout from 4 to 7 (29ff3eb)
+
 ## 2026.1119.4
 - Merge pull request #36 from michaelmurfy/dependabot/github_actions/docker/build-push-action-7 (04d721c)
 - Bump docker/build-push-action from 6 to 7 (260d9d8)
