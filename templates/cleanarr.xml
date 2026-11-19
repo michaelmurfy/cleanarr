@@ -17,6 +17,10 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.1119.1
+- Merge pull request #33 from michaelmurfy/dependabot/docker/node-26-alpine (0fb51ec)
+- Bump node from 24-alpine to 26-alpine (754e33c)
+
 ## 2026.1119.0
 - Harden auth and fix matching bugs that could delete the wrong titles. (a13def1)
 
