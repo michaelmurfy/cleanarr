@@ -213,9 +213,9 @@ def _load_media(media_type: str, tmdb_id: int, tvdb_id: int = 0) -> dict | None:
         row = conn.execute(
             """
             SELECT * FROM media
-            WHERE media_type = ? AND tmdb_id = ? AND (tvdb_id = ? OR ? = 0)
+            WHERE media_type = ? AND tmdb_id = ? AND tvdb_id = ?
             """,
-            (media_type, tmdb_id, tvdb_id, tvdb_id),
+            (media_type, tmdb_id, tvdb_id),
         ).fetchone()
     return dict(row) if row else None
 
@@ -250,12 +250,16 @@ def delete_item(
         if not item.get("sonarr_id") or not sonarr_client:
             raise RuntimeError("No Sonarr id for this series")
         sonarr_client.delete(int(item["sonarr_id"]), delete_files, blacklist)
+    ban_error = ""
+    banned = False
     if seerr_client:
         if blacklist and item.get("tmdb_id"):
             try:
                 seerr_client.blacklist(int(item["tmdb_id"]), item["media_type"], item["title"])
-            except Exception:
-                pass
+                banned = True
+            except Exception as exc:
+                # *arr delete already succeeded; keep going and report the ban miss.
+                ban_error = redact(exc)
         if item.get("seerr_media_id"):
             try:
                 seerr_client.delete_media(int(item["seerr_media_id"]))
@@ -264,19 +268,36 @@ def delete_item(
     with connect() as conn:
         conn.execute("DELETE FROM media WHERE id = ?", (item["id"],))
     remove_art(item["media_type"], item.get("tmdb_id") or 0, item.get("tvdb_id") or 0)
+    if blacklist and banned:
+        label, action = "Banned and deleted", "ban"
+    elif blacklist:
+        label, action = "Deleted (Seerr ban failed)", "delete"
+    else:
+        label, action = "Deleted", "delete"
     add_log(
-        f"{'Banned and deleted' if blacklist else 'Deleted'} {item['title']}",
+        f"{label} {item['title']}",
+        level="warn" if ban_error else "info",
         category="audit",
-        action="ban" if blacklist else "delete",
+        action=action,
         actor=actor,
-        detail={"media_type": item["media_type"], "tmdb_id": item.get("tmdb_id")},
+        detail={"media_type": item["media_type"], "tmdb_id": item.get("tmdb_id"), "banned": banned, "ban_error": ban_error},
     )
-    return {"title": item["title"], "ok": True}
+    result = {"title": item["title"], "ok": True}
+    if blacklist:
+        result["banned"] = banned
+        if ban_error:
+            result["ban_error"] = ban_error
+    return result
 
 
 @router.post("/cleanup")
 def cleanup(payload: CleanupIn, request: Request):
     user = current_user(request)
+    from .sync import job_status
+
+    # Sync wipe-and-inserts the library; deleting mid-run can resurrect the row.
+    if job_status().get("status") == "running":
+        raise HTTPException(409, "Wait for the sync to finish before deleting")
     results = []
     radarr_client = radarr()
     radarr_4k_client = radarr_4k()
@@ -509,6 +530,11 @@ SHAKY_MATCHES = ("title", "title_alt")
 
 
 def _pair(item: dict) -> tuple:
+    """Seerr↔library ignore key. Seerr is TMDB-keyed, so seerr_tvdb stays 0.
+
+    Sync writes the same shape; a real Seerr tvdb here used to make TV unlinks
+    miss on the next sync because media never stores seerr_tvdb_id.
+    """
     seerr_tmdb = int(item.get("seerr_tmdb_id") or 0)
     if not seerr_tmdb and (item.get("seerr_match_via") or "") == "tmdb":
         seerr_tmdb = int(item.get("tmdb_id") or 0)
@@ -539,7 +565,10 @@ def matches_to_review(conn) -> list[dict]:
 
 
 def _remaining(conn) -> int:
-    unmatched = conn.execute("SELECT COUNT(*) AS n FROM unmatched").fetchone()["n"]
+    # seerr_deleted is history, not work — same rule as stats.actionable.
+    unmatched = conn.execute(
+        "SELECT COUNT(*) AS n FROM unmatched WHERE kind != 'seerr_deleted'"
+    ).fetchone()["n"]
     return unmatched + len(matches_to_review(conn))
 
 

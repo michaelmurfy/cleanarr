@@ -79,7 +79,13 @@ class UserDirectory:
         )
 
     def ingest_jellystat(self, user: dict[str, Any]) -> dict[str, Any]:
-        uid = user.get("Id") or user.get("UserId") or user.get("userid") or user.get("user_id")
+        # History rows carry an activity Id and a UserId; prefer the stable user id.
+        uid = (
+            user.get("UserId")
+            or user.get("userid")
+            or user.get("user_id")
+            or user.get("Id")
+        )
         name = (
             user.get("Name")
             or user.get("UserName")

@@ -20,7 +20,6 @@ def _fresh_client(client, monkeypatch):
     monkeypatch.delenv("CLEANARR_USERNAME", raising=False)
     monkeypatch.delenv("CLEANARR_PASSWORD", raising=False)
     monkeypatch.delenv("CLEANARR_SECRET", raising=False)
-    monkeypatch.setattr(auth, "env_file_present", lambda: False)
     monkeypatch.setattr(auth, "env_value", lambda _name: "")
     _clear_auth_state()
     client.cookies.clear()
@@ -70,13 +69,37 @@ def test_setup_stays_closed_even_if_setup_flag_is_cleared(client, monkeypatch):
 def test_env_credentials_block_setup(client, monkeypatch):
     monkeypatch.setenv("CLEANARR_USERNAME", "env-admin")
     monkeypatch.setenv("CLEANARR_PASSWORD", "env-secret-password")
-    monkeypatch.setattr(auth, "env_file_present", lambda: False)
     _clear_auth_state()
     client.cookies.clear()
     auth.bootstrap_auth()
 
     assert client.get("/api/auth/status").json()["setup_required"] is False
     assert client.post("/api/auth/setup", json={"username": "other", "password": "another-pass"}).status_code == 403
+
+
+def test_env_file_alone_does_not_overwrite_a_ui_password(client, monkeypatch):
+    """A bare .env (or username-only env) must not reset a password set in the UI."""
+    _fresh_client(client, monkeypatch)
+    assert client.post("/api/auth/setup", json={"username": "admin", "password": "correct-horse"}).status_code == 200
+
+    monkeypatch.setattr(auth, "env_value", lambda name: "admin" if name == "CLEANARR_USERNAME" else "")
+    # Simulate "there is a .env" without a real password — the old bug path.
+    auth.bootstrap_auth()
+
+    assert auth.verify_password("correct-horse")
+    assert client.post("/api/auth/login", json={"username": "admin", "password": "correct-horse"}).status_code == 200
+
+
+def test_placeholder_env_password_does_not_seed_changeme(client, monkeypatch):
+    monkeypatch.setenv("CLEANARR_USERNAME", "admin")
+    monkeypatch.setenv("CLEANARR_PASSWORD", "changeme")
+    _clear_auth_state()
+    client.cookies.clear()
+    auth.bootstrap_auth()
+
+    status = client.get("/api/auth/status").json()
+    assert status["setup_required"] is True
+    assert not get_setting("auth_password_hash")
 
 
 def test_placeholder_secret_is_replaced_with_random(monkeypatch):

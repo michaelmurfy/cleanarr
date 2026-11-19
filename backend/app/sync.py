@@ -12,7 +12,7 @@ from .db import connect, get_setting, ignore_key, ignored_matches, ignored_unmat
 from .identity import UserDirectory, _clean
 from .actions import Whitelist, delete_item, is_protected, is_stale_unwatched
 from .logs import add_log
-from .match import CatalogIndex, MatchHit, parse_year
+from .match import CatalogIndex, MatchHit, parse_year, year_from_title
 from .services.arr import movie_availability, pick_rating, poster_from, series_availability
 from .services.clients import jellystat, radarr, radarr_4k, seerr, sonarr, tautulli, tracearr
 from .services.jellystat import play_title
@@ -501,14 +501,18 @@ def _run_sync(auto_delete: bool = False) -> None:
                 return row
 
             def seerr_attach(hit: MatchHit | None, bucket: dict[str, Any]) -> tuple[str, int, int] | None:
-                """Honor ignored Seerr↔*arr pairs so a rejected title match stays rejected."""
+                """Honor ignored Seerr↔*arr pairs so a rejected title match stays rejected.
+
+                Seerr is TMDB-keyed; seerr_tvdb is always 0 so the key matches what
+                unlink/keep store (media never keeps a Seerr tvdb id).
+                """
                 if not hit:
                     return None
                 media_type, lib_tmdb, lib_tvdb = hit.key
                 pair = match_ignore_key(
                     media_type,
                     bucket.get("tmdb_id") or 0,
-                    bucket.get("tvdb_id") or 0,
+                    0,
                     lib_tmdb,
                     lib_tvdb,
                 )
@@ -830,6 +834,8 @@ def _run_sync(auto_delete: bool = False) -> None:
                 _progress(f"Fetching Tautulli history… {fetched}", step="tautulli", current=fetched, total=0)
 
             rows = client.history(on_progress=tautulli_progress)
+            if getattr(client, "history_truncated", False):
+                history_health["degraded"].append("tautulli")
             history_health["rows"] += len(rows)
             total = len(rows)
             matched = 0
@@ -854,7 +860,7 @@ def _run_sync(auto_delete: bool = False) -> None:
                     row.get("grandparent_title") or "",
                     mapped.get("title") or "",
                 ]
-                year = ids.get("year") or mapped.get("year") or row.get("year") or parse_year(row.get("full_title") or "")
+                year = ids.get("year") or mapped.get("year") or row.get("year") or year_from_title(row.get("full_title") or "")
                 key = index.resolve(
                     media_type,
                     int(ids.get("tmdb_id") or mapped.get("tmdb_id") or 0),
@@ -917,6 +923,8 @@ def _run_sync(auto_delete: bool = False) -> None:
                 _progress(f"Fetching Tracearr history… {fetched}", step="tracearr", current=fetched, total=0)
 
             rows = client.history(on_progress=tracearr_progress)
+            if getattr(client, "history_truncated", False):
+                history_health["degraded"].append("tracearr")
             history_health["rows"] += len(rows)
             total = len(rows)
             matched = 0
@@ -1010,9 +1018,9 @@ def _run_sync(auto_delete: bool = False) -> None:
                 mapped_type = _media_type(meta.get("media_type"), "movie")
                 key = index.resolve(
                     mapped_type,
-                    0,
-                    0,
-                    "",
+                    int(meta.get("tmdb_id") or 0),
+                    int(meta.get("tvdb_id") or 0),
+                    str(meta.get("imdb_id") or ""),
                     [meta.get("title") or ""],
                     meta.get("year"),
                 )
@@ -1023,6 +1031,8 @@ def _run_sync(auto_delete: bool = False) -> None:
                 _progress(f"Fetching Jellystat history… {fetched}", step="jellystat", current=fetched, total=0)
 
             rows = client.history(on_progress=jellystat_progress)
+            if getattr(client, "history_truncated", False):
+                history_health["degraded"].append("jellystat")
             history_health["rows"] += len(rows)
             total = len(rows)
             matched = 0
@@ -1041,9 +1051,9 @@ def _run_sync(auto_delete: bool = False) -> None:
                 directory.ingest_jellystat(row)
                 key = index.resolve(
                     media_type,
-                    0,
-                    0,
-                    "",
+                    int(mapped.get("tmdb_id") or 0),
+                    int(mapped.get("tvdb_id") or 0),
+                    str(mapped.get("imdb_id") or ""),
                     [
                         title,
                         row.get("SeriesName") or "",

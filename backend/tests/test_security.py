@@ -42,8 +42,25 @@ def test_api_responses_carry_hardening_headers(client):
 def test_cross_site_writes_are_rejected(auth_client):
     blocked = auth_client.post("/api/sync", headers={"Sec-Fetch-Site": "cross-site"})
     assert blocked.status_code == 403
+    same_site = auth_client.post("/api/sync", headers={"Sec-Fetch-Site": "same-site"})
+    assert same_site.status_code == 403
+    bad_origin = auth_client.post(
+        "/api/sync",
+        headers={"Origin": "http://evil.example", "Host": "localhost"},
+    )
+    assert bad_origin.status_code == 403
     same_origin = auth_client.get("/api/sync", headers={"Sec-Fetch-Site": "same-origin"})
     assert same_origin.status_code == 200
+
+
+def test_cleanup_rejects_non_json_bodies(auth_client):
+    # Form posts cannot satisfy the JSON body, which is what keeps CSRF deletes inert.
+    response = auth_client.post(
+        "/api/cleanup",
+        content=b"items=1",
+        headers={"Content-Type": "text/plain", "Sec-Fetch-Site": "same-origin"},
+    )
+    assert response.status_code in {400, 422}
 
 
 def test_repeated_bad_passwords_lock_the_account_out(client):
@@ -52,8 +69,12 @@ def test_repeated_bad_passwords_lock_the_account_out(client):
     login_throttle.reset()
     client.cookies.clear()
     try:
-        for _ in range(login_throttle.max_attempts):
-            assert client.post("/api/auth/login", json={"username": "tester", "password": "nope"}).status_code == 401
+        for i in range(login_throttle.max_attempts):
+            # Varying the username must not dodge the IP lockout.
+            assert client.post(
+                "/api/auth/login",
+                json={"username": f"guess-{i}", "password": "nope"},
+            ).status_code == 401
         locked = client.post("/api/auth/login", json={"username": "tester", "password": "nope"})
         assert locked.status_code == 429
         assert locked.headers["retry-after"]
@@ -107,6 +128,21 @@ def test_changing_the_password_invalidates_old_sessions(client):
         assert auth.read_session(token) is None
     finally:
         auth.bootstrap_auth()
+
+
+def test_logout_invalidates_the_session_token(auth_client):
+    from app import auth
+
+    token = auth_client.cookies.get("cleanarr_session")
+    assert auth.read_session(token) == "tester"
+    assert auth_client.post("/api/auth/logout").status_code == 200
+    assert auth.read_session(token) is None
+
+
+def test_openapi_docs_are_disabled(client):
+    assert client.get("/docs").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
+    assert client.get("/redoc").status_code == 404
 
 
 def test_short_passwords_are_refused(auth_client):

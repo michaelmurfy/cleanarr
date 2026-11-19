@@ -7,21 +7,52 @@ from typing import Any, Iterable
 
 ARTICLES = ("the", "a", "an")
 YEAR_RE = re.compile(r"\((\d{4})\)")
+# Trailing year in a longer title ("1917 2019"), never a title that is only digits.
+TRAILING_YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*$")
+# Letters (any script) and digits; strips punctuation without wiping CJK titles.
+_NON_WORD_RE = re.compile(r"[^\w]+", re.UNICODE)
+_UNDERSCORE_RE = re.compile(r"_+")
 
 
 def parse_year(value: Any) -> int | None:
+    """Year from an explicit year field, or from a `(YYYY)` / trailing year in a title.
+
+    A value that is only digits is treated as a year when it comes from a year
+    field (int/float/"2014"). Title strings that are only digits ("1917") are
+    not years — that is the movie title.
+    """
     if value in (None, "", 0, "0"):
         return None
     if isinstance(value, (int, float)):
         year = int(value)
         return year if 1800 < year < 2100 else None
     text = str(value).strip()
-    if text.isdigit():
-        year = int(text)
-        return year if 1800 < year < 2100 else None
     found = YEAR_RE.search(text)
     if found:
         return int(found.group(1))
+    if text.isdigit():
+        # Bare numeric string from a year column ("2014"), not from a title.
+        year = int(text)
+        return year if 1800 < year < 2100 else None
+    trailing = TRAILING_YEAR_RE.search(text)
+    if trailing and not text.isdigit():
+        year = int(trailing.group(1))
+        return year if 1800 < year < 2100 else None
+    return None
+
+
+def year_from_title(title: str) -> int | None:
+    """Year embedded in a title string. Digit-only titles are never years."""
+    text = (title or "").strip()
+    if not text or text.isdigit():
+        return None
+    found = YEAR_RE.search(text)
+    if found:
+        return int(found.group(1))
+    trailing = TRAILING_YEAR_RE.search(text)
+    if trailing:
+        year = int(trailing.group(1))
+        return year if 1800 < year < 2100 else None
     return None
 
 
@@ -29,7 +60,8 @@ def normalize(title: str) -> str:
     value = (title or "").lower().replace("&", " and ")
     value = YEAR_RE.sub(" ", value)
     value = re.sub(r",\s+(the|a|an)\s*$", " ", value)
-    value = re.sub(r"[^a-z0-9]+", " ", value)
+    value = _NON_WORD_RE.sub(" ", value)
+    value = _UNDERSCORE_RE.sub(" ", value)
     return re.sub(r"\s+", " ", value).strip()
 
 
@@ -139,7 +171,7 @@ class CatalogIndex:
         parsed_year = parse_year(year)
         title_list = [t for t in titles if t]
         for title in title_list:
-            extracted = parse_year(title)
+            extracted = year_from_title(title)
             if extracted and not parsed_year:
                 parsed_year = extracted
 

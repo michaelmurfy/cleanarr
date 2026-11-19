@@ -4,6 +4,7 @@ import re
 import threading
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -20,12 +21,15 @@ _SECRET_PARAM_RE = re.compile(
 
 # Methods that change state and therefore need cross-site protection.
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# Browsers send these for first-party navigation and same-origin fetches.
+SAFE_FETCH_SITES = frozenset({"same-origin", "none"})
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
     "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
     "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()",
 }
 
@@ -79,11 +83,12 @@ def redact(value: Any) -> str:
 
 
 class LoginThrottle:
-    """Fixed-window lockout for failed sign-ins, keyed on client IP and username.
+    """Fixed-window lockout for failed sign-ins, keyed on client IP.
 
     Cleanarr is a single-admin app with one password, so an unthrottled login form
-    is the whole attack surface. State is in memory: a restart clears it, which is
-    acceptable for a single-process self-hosted service.
+    is the whole attack surface. Keying on IP alone stops a caller from dodging
+    the lockout by changing the username on every attempt. State is in memory: a
+    restart clears it, which is acceptable for a single-process self-hosted service.
     """
 
     def __init__(self, max_attempts: int = 8, window_seconds: int = 300, lockout_seconds: int = 300):
@@ -139,21 +144,54 @@ login_throttle = LoginThrottle()
 
 
 def client_key(request: Request, username: str = "") -> str:
+    # Username is ignored: varying it used to dodge the lockout. Kept as a kwarg
+    # so existing call sites keep working.
+    _ = username
     host = request.client.host if request.client else "unknown"
-    return f"{host}|{(username or '').strip().lower()}"
+    return host
+
+
+def _request_host(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    raw = forwarded or request.headers.get("host") or request.url.netloc or ""
+    return raw.lower()
+
+
+def _origin_host(origin: str) -> str:
+    parsed = urlparse(origin)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return parsed.netloc.lower()
+
+
+def cross_site_write_blocked(request: Request) -> bool:
+    """True when an unsafe method looks like a cross-site write.
+
+    Prefer Sec-Fetch-Site (set by the browser, not forgeable from page script).
+    Fall back to Origin vs Host when the fetch metadata header is absent (older
+    browsers, plain HTTP in some cases). Requests with neither header (curl,
+    scripts) are left alone: SameSite=Lax already blocks the cross-site form
+    post those clients would need, and requiring Origin would break API clients.
+    """
+    if request.method not in UNSAFE_METHODS:
+        return False
+    site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if site:
+        return site not in SAFE_FETCH_SITES
+    origin = (request.headers.get("origin") or "").strip()
+    if not origin:
+        return False
+    origin_host = _origin_host(origin)
+    if not origin_host:
+        return True
+    return origin_host != _request_host(request)
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):
-    """Adds hardening headers and rejects obvious cross-site writes.
-
-    `Sec-Fetch-Site` is sent by every current browser and is set by the browser
-    itself, so it cannot be forged from page script. Requests without it (curl,
-    scripts, old browsers) are left alone: the session cookie is SameSite=Lax,
-    which already blocks the cross-site form post those clients would need.
-    """
+    """Adds hardening headers and rejects obvious cross-site writes."""
 
     async def dispatch(self, request: Request, call_next):
-        if request.method in UNSAFE_METHODS and request.headers.get("sec-fetch-site") == "cross-site":
+        if cross_site_write_blocked(request):
             response: Response = JSONResponse({"detail": "Cross-site request blocked"}, status_code=403)
         else:
             response = await call_next(request)
@@ -163,4 +201,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/api/"):
             # Artwork sets its own long cache; everything else is per-session data.
             response.headers.setdefault("Cache-Control", "no-store")
+        forwarded = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+        if forwarded == "https" or request.url.scheme == "https":
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response

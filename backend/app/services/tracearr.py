@@ -5,10 +5,14 @@ from typing import Any
 from .http import json_get, tidy_url
 
 
+HISTORY_PAGE_CAP = 200
+
+
 class Tracearr:
     def __init__(self, url: str, api_key: str):
         self.url = tidy_url(url)
         self.api_key = api_key
+        self.history_truncated = False
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "X-Api-Key": api_key,
@@ -37,10 +41,11 @@ class Tracearr:
         return "ok" if data is not None else "ok"
 
     def history(self, on_progress=None) -> list[dict[str, Any]]:
+        self.history_truncated = False
         rows: list[dict[str, Any]] = []
         cursor = None
         page = 1
-        for _ in range(200):
+        for page_i in range(HISTORY_PAGE_CAP):
             params: dict[str, Any] = {"page_size": 200, "limit": 200, "page": page}
             if cursor:
                 params["cursor"] = cursor
@@ -56,10 +61,15 @@ class Tracearr:
                 if chunk and isinstance(data, dict) and data.get("page") and data.get("page") < data.get("pages", 0):
                     cursor = None
                     page = data["page"] + 1
+                    if page_i + 1 >= HISTORY_PAGE_CAP:
+                        self.history_truncated = True
+                        break
                     continue
                 break
             cursor = next_cursor
             page += 1
+        else:
+            self.history_truncated = True
         return rows
 
 

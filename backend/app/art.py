@@ -16,7 +16,7 @@ ART_DIR = Path(settings.data_dir) / "art"
 ALLOWED_SCHEMES = {"http", "https"}
 CACHE_HEADERS = {"Cache-Control": "private, max-age=2592000, immutable"}
 MAX_ART_BYTES = 12 * 1024 * 1024
-ALLOWED_ART_TYPES = ("image/",)
+ALLOWED_ART_TYPES = frozenset({"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"})
 _warming = False
 
 
@@ -97,7 +97,7 @@ def _download(url: str, cached: Path) -> tuple[bytes, str]:
             with client.stream("GET", url, headers={"User-Agent": "Cleanarr"}) as response:
                 response.raise_for_status()
                 declared = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
-                if declared and not declared.startswith(ALLOWED_ART_TYPES):
+                if not declared or declared not in ALLOWED_ART_TYPES:
                     raise HTTPException(status_code=502, detail="Artwork URL did not return an image")
                 chunks, total = [], 0
                 for chunk in response.iter_bytes():

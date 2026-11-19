@@ -204,9 +204,17 @@ class Seerr:
         return data if isinstance(data, dict) else {}
 
     def blacklist(self, tmdb_id: int, media_type: str, title: str) -> None:
-        json_request(
-            "POST",
-            f"{self.url}/api/v1/blacklist",
-            headers=self.headers,
-            json={"tmdbId": tmdb_id, "mediaType": media_type, "title": title},
-        )
+        """Blocklist a title. Overseerr and Jellyseerr disagree on the path name."""
+        body = {"tmdbId": tmdb_id, "mediaType": media_type, "title": title}
+        last_error: Exception | None = None
+        for path in ("/api/v1/blocklist", "/api/v1/blacklist"):
+            try:
+                json_request("POST", f"{self.url}{path}", headers=self.headers, json=body)
+                return
+            except Exception as exc:
+                last_error = exc
+                if getattr(exc, "status", None) in {404, 405}:
+                    continue
+                raise
+        if last_error:
+            raise last_error

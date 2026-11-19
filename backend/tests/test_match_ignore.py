@@ -63,6 +63,24 @@ def test_unlink_clears_seerr_and_blocks_the_pair(auth_client, linked_row):
     assert auth_client.get("/api/matches/review").json()["items"] == []
 
 
+def test_tv_unlink_key_ignores_seerr_tvdb(auth_client, linked_row):
+    """Seerr is TMDB-keyed; a real library tvdb must still match the stored ignore row."""
+    item_id = linked_row(
+        media_type="tv",
+        tmdb_id=1396,
+        tvdb_id=81189,
+        title="Breaking Bad",
+        year=2008,
+        seerr_tmdb_id=1396,
+        seerr_title="Breaking Bad",
+        seerr_match_via="title",
+    )
+    assert auth_client.post(f"/api/matches/{item_id}/unlink", json={}).status_code == 200
+    # Sync builds the ignore key with seerr_tvdb=0; this is what must match.
+    assert match_ignore_key("tv", 1396, 0, 1396, 81189) in ignored_matches()
+    assert match_ignore_key("tv", 1396, 81189, 1396, 81189) not in ignored_matches()
+
+
 def test_keep_confirms_without_blocking(auth_client, linked_row):
     item_id = linked_row()
 

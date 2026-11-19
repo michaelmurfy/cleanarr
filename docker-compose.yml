@@ -6,6 +6,17 @@ services:
     pull_policy: always
     container_name: cleanarr
     restart: unless-stopped
+    # Entrypoint needs these briefly to set PUID/PGID ownership, then drops root.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
     ports:
       - "7585:7585"
     env_file:

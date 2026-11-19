@@ -74,6 +74,26 @@ export type LibraryResponse = {
   sync: SyncStatus;
 };
 
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+type AuthListener = (signedIn: boolean) => void;
+const authListeners = new Set<AuthListener>();
+
+export function onAuthChange(listener: AuthListener): () => void {
+  authListeners.add(listener);
+  return () => authListeners.delete(listener);
+}
+
+function notifyAuth(signedIn: boolean) {
+  for (const listener of authListeners) listener(signedIn);
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { ...(options.headers as Record<string, string> | undefined) };
   if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
@@ -85,8 +105,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (response.status === 204) return {} as T;
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/api/auth/")) {
+      notifyAuth(false);
+    }
     const detail = data.detail;
-    throw new Error(typeof detail === "string" ? detail : data.message || response.statusText);
+    throw new ApiError(
+      response.status,
+      typeof detail === "string" ? detail : data.message || response.statusText,
+    );
   }
   return data as T;
 }
@@ -143,7 +169,11 @@ export const api = {
       maintenance: Maintenance;
       sync: SyncStatus;
     }>("/api/settings"),
-  saveSettings: (body: unknown) => request("/api/settings", { method: "PUT", body: JSON.stringify(body) }),
+  saveSettings: (body: unknown) =>
+    request<{ ok?: boolean; username?: string; hide_settings?: boolean }>("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   test: (service: string) =>
     request<ServiceTest>("/api/settings/test", { method: "POST", body: JSON.stringify({ service }) }),
   testAll: () => request<{ results: ServiceTest[]; ok: boolean }>("/api/settings/test-all", { method: "POST" }),

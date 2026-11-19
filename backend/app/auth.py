@@ -5,27 +5,47 @@ import hmac
 import os
 import secrets
 import time
-from urllib.parse import quote, unquote
 from functools import wraps
+from urllib.parse import quote, unquote
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from . import oidc
-
-from .config import env_file_present, env_value, settings
+from .config import env_value, settings
 from .db import get_setting, set_setting
 
 COOKIE = "cleanarr_session"
-PBKDF_ITERS = 120_000
+# Existing installs keep their 120k hashes until the next successful login.
+LEGACY_PBKDF_ITERS = 120_000
+PBKDF_ITERS = 600_000
 PLACEHOLDER_SECRETS = {"", "change-me", "change-this-to-a-long-random-string"}
+PLACEHOLDER_PASSWORDS = {"", "changeme", "change-me", "change-this-to-a-long-random-string"}
 SESSION_MAX_AGE = 60 * 60 * 24 * 14
 MIN_PASSWORD_LENGTH = 8
 
 
-def _hash_password(password: str, salt: str) -> str:
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF_ITERS)
+def _env_username() -> str:
+    return (os.environ.get("CLEANARR_USERNAME") or env_value("CLEANARR_USERNAME") or "").strip()
+
+
+def _env_password() -> str:
+    """Real env password only. Placeholders and empty values do not count."""
+    raw = (os.environ.get("CLEANARR_PASSWORD") or env_value("CLEANARR_PASSWORD") or "").strip()
+    return "" if raw.lower() in PLACEHOLDER_PASSWORDS else raw
+
+
+def _hash_password(password: str, salt: str, iterations: int = PBKDF_ITERS) -> str:
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), iterations)
     return digest.hex()
+
+
+def _stored_iterations() -> int:
+    raw = get_setting("auth_pbkdf_iters")
+    if raw.isdigit():
+        return int(raw)
+    # Hashes written before the iteration count was stored used the legacy floor.
+    return LEGACY_PBKDF_ITERS if get_setting("auth_password_hash") else PBKDF_ITERS
 
 
 def ensure_session_secret() -> str:
@@ -40,42 +60,53 @@ def ensure_session_secret() -> str:
 
 
 def credentials_configured() -> bool:
-    """True once an admin password exists, env/.env supplies credentials, or SSO is set up."""
+    """True once an admin password exists, SSO is set up, or a real CLEANARR_PASSWORD is supplied."""
     if get_setting("auth_password_hash") or oidc.enabled():
         return True
-    env_user = (os.environ.get("CLEANARR_USERNAME") or env_value("CLEANARR_USERNAME") or "").strip()
-    env_pass = (os.environ.get("CLEANARR_PASSWORD") or env_value("CLEANARR_PASSWORD") or "").strip()
-    return bool(env_file_present() or env_user or env_pass)
+    return bool(_env_password())
 
 
 def needs_setup() -> bool:
-    # Never offer setup if credentials are already in place (DB or env).
+    # Never offer setup if credentials are already in place (DB, env, or SSO).
     return not credentials_configured()
+
+
+def _apply_password(password: str, *, default: bool = False) -> None:
+    salt = secrets.token_hex(16)
+    set_setting("auth_salt", salt)
+    set_setting("auth_password_hash", _hash_password(password, salt, PBKDF_ITERS))
+    set_setting("auth_pbkdf_iters", str(PBKDF_ITERS))
+    set_setting("using_default_password", "1" if default else "0")
 
 
 def bootstrap_auth() -> None:
     ensure_session_secret()
 
-    env_user = (os.environ.get("CLEANARR_USERNAME") or env_value("CLEANARR_USERNAME") or "").strip()
-    env_pass = (os.environ.get("CLEANARR_PASSWORD") or env_value("CLEANARR_PASSWORD") or "").strip()
-    from_env = bool(env_file_present() or env_user or env_pass)
+    env_user = _env_username()
+    env_pass = _env_password()
 
-    if from_env:
-        set_setting("auth_username", env_user or settings.cleanarr_username)
-        password = env_pass or settings.cleanarr_password
-        salt = secrets.token_hex(16)
-        set_setting("auth_salt", salt)
-        set_setting("auth_password_hash", _hash_password(password, salt))
-        set_setting("using_default_password", "1" if password == "changeme" else "0")
+    # Only a real CLEANARR_PASSWORD seeds or refreshes the hash. A bare .env file,
+    # username-only env, or the example "changeme" value must not overwrite a
+    # password the user already set in the UI.
+    if env_pass:
+        if env_user:
+            set_setting("auth_username", env_user)
+        elif not get_setting("auth_username"):
+            set_setting("auth_username", settings.cleanarr_username or "admin")
+        if not verify_password(env_pass):
+            _apply_password(env_pass, default=False)
         set_setting("setup_complete", "1")
         return
+
+    if env_user and not get_setting("auth_username"):
+        set_setting("auth_username", env_user)
 
     # Existing install (upgrade): keep credentials, mark setup done.
-    if get_setting("auth_password_hash"):
+    if get_setting("auth_password_hash") or oidc.enabled():
         set_setting("setup_complete", "1")
         return
 
-    # Fresh install with no .env: force account creation before the UI is usable.
+    # Fresh install with no real env password and no SSO: force account creation.
     set_setting("setup_complete", "0")
     set_setting("using_default_password", "0")
     if not get_setting("auth_username"):
@@ -87,8 +118,17 @@ def verify_password(password: str) -> bool:
     stored = get_setting("auth_password_hash")
     if not salt or not stored:
         return False
-    candidate = _hash_password(password, salt)
+    candidate = _hash_password(password, salt, _stored_iterations())
     return hmac.compare_digest(candidate, stored)
+
+
+def rehash_password_if_needed(password: str) -> None:
+    """Upgrade a legacy iteration count after a successful login."""
+    if _stored_iterations() >= PBKDF_ITERS:
+        return
+    if not verify_password(password):
+        return
+    _apply_password(password, default=get_setting("using_default_password") == "1")
 
 
 def set_credentials(username: str, password: str | None) -> None:
@@ -100,10 +140,7 @@ def set_credentials(username: str, password: str | None) -> None:
                 status_code=400,
                 detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters",
             )
-        salt = secrets.token_hex(16)
-        set_setting("auth_salt", salt)
-        set_setting("auth_password_hash", _hash_password(password, salt))
-        set_setting("using_default_password", "0")
+        _apply_password(password, default=False)
 
 
 def complete_setup(username: str, password: str) -> None:
@@ -128,17 +165,32 @@ def session_secret() -> str:
     return ensure_session_secret()
 
 
+def bump_session_epoch() -> None:
+    """Invalidate every outstanding session cookie (used on logout)."""
+    current = get_setting("session_epoch") or "0"
+    try:
+        next_epoch = str(int(current) + 1)
+    except ValueError:
+        next_epoch = "1"
+    set_setting("session_epoch", next_epoch)
+
+
 def _session_key(method: str = "password") -> bytes:
     """Signing key bound to whatever let the session in.
 
-    Password sessions fold in the stored credentials, so changing the password or
-    the username invalidates every cookie handed out before the change. SSO
-    sessions fold in the provider, client, and allow lists instead.
+    Password sessions fold in the stored credentials and a logout epoch, so
+    changing the password/username or signing out invalidates every cookie.
+    SSO sessions fold in the provider, client, and allow lists instead, plus
+    the same logout epoch.
     """
+    epoch = get_setting("session_epoch") or "0"
     if method == "oidc":
-        material = f"{session_secret()}|oidc|{oidc.session_material()}"
+        material = f"{session_secret()}|oidc|{oidc.session_material()}|{epoch}"
     else:
-        material = f"{session_secret()}|{get_setting('auth_username')}|{get_setting('auth_password_hash')}"
+        material = (
+            f"{session_secret()}|{get_setting('auth_username')}|"
+            f"{get_setting('auth_password_hash')}|{epoch}"
+        )
     return hashlib.sha256(material.encode()).digest()
 
 
@@ -214,6 +266,16 @@ def set_session_cookie(response: Response, username: str, request: Request | Non
         secure=_secure_cookie(request),
         max_age=SESSION_MAX_AGE,
         path="/",
+    )
+
+
+def clear_session_cookie(response: Response, request: Request | None = None) -> None:
+    """Delete the session cookie with the same flags it was set with."""
+    response.delete_cookie(
+        COOKIE,
+        path="/",
+        samesite="lax",
+        secure=_secure_cookie(request),
     )
 
 

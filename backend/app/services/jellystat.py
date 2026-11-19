@@ -1,11 +1,46 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .http import json_get, json_request, tidy_url
 
 SKIP_LIBRARIES = {"music", "musicvideos", "books", "photos", "boxsets", "playlists", "homevideos"}
+TMDB_RE = re.compile(r"(?:tmdb|themoviedb)[:\-]?(\d+)", re.I)
+TVDB_RE = re.compile(r"(?:tvdb|thetvdb)[:\-]?(\d+)", re.I)
+IMDB_RE = re.compile(r"(tt\d{5,})", re.I)
+HISTORY_ROW_CAP = 200_000
+
+
+def provider_ids(item: dict[str, Any]) -> dict[str, Any]:
+    """Pull TMDB/TVDB/IMDB out of Jellyfin-style ProviderIds or a guid blob."""
+    providers = _pick(item, "ProviderIds", "providerIds", "provider_ids") or {}
+    if not isinstance(providers, dict):
+        providers = {}
+    lower = {str(key).lower(): value for key, value in providers.items()}
+    tmdb = lower.get("tmdb") or lower.get("themoviedb") or 0
+    tvdb = lower.get("tvdb") or lower.get("thetvdb") or 0
+    imdb = lower.get("imdb") or ""
+    blob = " ".join(str(v) for v in (_pick(item, "Guid", "guid", "ExternalUrls", "Path") or "", *providers.values()))
+    if not tmdb:
+        match = TMDB_RE.search(blob)
+        tmdb = match.group(1) if match else 0
+    if not tvdb:
+        match = TVDB_RE.search(blob)
+        tvdb = match.group(1) if match else 0
+    if not imdb:
+        match = IMDB_RE.search(blob)
+        imdb = match.group(1) if match else ""
+    try:
+        tmdb_i = int(tmdb or 0)
+    except (TypeError, ValueError):
+        tmdb_i = 0
+    try:
+        tvdb_i = int(tvdb or 0)
+    except (TypeError, ValueError):
+        tvdb_i = 0
+    return {"tmdb_id": tmdb_i, "tvdb_id": tvdb_i, "imdb_id": str(imdb or "")}
 
 
 def _pick(row: dict[str, Any], *names: str) -> Any:
@@ -51,6 +86,7 @@ def expand_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 class Jellystat:
     def __init__(self, url: str, api_key: str):
         self.url = tidy_url(url)
+        self.history_truncated = False
         # Only x-api-token: sending it twice trips Jellystat's duplicate-header
         # check (403), and an Authorization header makes it reject the request (401).
         self.headers = {
@@ -115,14 +151,17 @@ class Jellystat:
                 media_type = "tv" if kind in {"series", "show", "tv"} else fallback if kind else fallback
                 if kind == "movie":
                     media_type = "movie"
+                ids = provider_ids(item)
                 mapping[item_id] = {
                     "title": str(_pick(item, "Name", "name") or ""),
                     "year": _pick(item, "ProductionYear", "productionYear", "year"),
                     "media_type": media_type,
+                    **ids,
                 }
         return mapping
 
     def history(self, on_progress=None) -> list[dict[str, Any]]:
+        self.history_truncated = False
         last_error: Exception | None = None
         for path, expand in (
             ("/stats/getPlaybackActivity", False),
@@ -156,7 +195,8 @@ class Jellystat:
             if not chunk or page >= pages or len(chunk) < size:
                 break
             page += 1
-            if len(rows) > 200_000:
+            if len(rows) >= HISTORY_ROW_CAP:
+                self.history_truncated = True
                 break
         return rows
 
@@ -172,7 +212,8 @@ class Jellystat:
             if not chunk or page >= pages or len(chunk) < size:
                 break
             page += 1
-            if len(rows) > 200_000:
+            if len(rows) >= HISTORY_ROW_CAP:
+                self.history_truncated = True
                 break
         return rows
 

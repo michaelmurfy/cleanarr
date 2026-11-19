@@ -10,11 +10,12 @@ Cleanarr does not include analytics or telemetry. It does not phone home, and it
 
 Built in:
 
-- Sessions are signed, `HttpOnly`, and expire after 14 days. The signing key comes from your stored credentials, so changing the password or username signs every other session out.
-- Sign-ins lock out for five minutes after eight failures, counted per client and username.
+- Sessions are signed, `HttpOnly`, and expire after 14 days. The signing key comes from your stored credentials, so changing the password or username signs every other session out. Signing out invalidates every session.
+- Sign-ins lock out for five minutes after eight failures, counted per client IP. Behind a reverse proxy, set `FORWARDED_ALLOW_IPS` so uvicorn sees the real client.
 - Responses carry a content security policy and the usual hardening headers. API replies are `no-store`, and cross-site writes are rejected.
 - API keys are stripped from log entries and connection-test messages, so an upstream error that quotes a URL cannot leak one.
 - The session cookie sets `Secure` by itself over HTTPS. `CLEANARR_SECURE_COOKIE=1` forces it.
+- Leave `CLEANARR_PASSWORD` blank to create the account in the UI. A placeholder like `changeme` is ignored so a copied `.env.example` cannot reset your password.
 
 ## Setup
 

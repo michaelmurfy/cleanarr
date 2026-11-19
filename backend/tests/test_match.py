@@ -2,6 +2,8 @@ from app.match import CatalogIndex, bare, normalize, parse_year, title_keys
 
 
 def test_parse_year_handles_numbers_strings_and_titles():
+    from app.match import year_from_title
+
     assert parse_year(1999) == 1999
     assert parse_year("2014") == 2014
     assert parse_year("Interstellar (2014)") == 2014
@@ -9,12 +11,18 @@ def test_parse_year_handles_numbers_strings_and_titles():
     assert parse_year(0) is None
     assert parse_year(1700) is None
     assert parse_year("not a year") is None
+    # Digit-only titles are movies, not years.
+    assert year_from_title("1917") is None
+    assert year_from_title("1917 (2019)") == 2019
 
 
 def test_normalize_strips_year_punctuation_and_trailing_article():
     assert normalize("The Matrix (1999)") == "the matrix"
     assert normalize("Fast & Furious") == "fast and furious"
     assert normalize("Thing, The") == "thing"
+    # Non-Latin titles must not collapse to an empty key.
+    assert normalize("七人の侍") == "七人の侍"
+    assert normalize("Amélie") == "amélie"
 
 
 def test_bare_drops_leading_article():
@@ -102,3 +110,16 @@ def test_battlestar_years_do_not_cross_match():
     assert index.resolve("tv", titles=["Battlestar Galactica"], year=2004) == ("tv", 1972, 0)
     # Far year does not collapse onto either show.
     assert index.resolve("tv", titles=["Battlestar Galactica"], year=2010) is None
+
+
+def test_numeric_title_matches_without_being_treated_as_a_year():
+    index = CatalogIndex()
+    index.add(("movie", 522938, 0), {"title": "1917", "year": 2019})
+    assert index.resolve("movie", titles=["1917"]) == ("movie", 522938, 0)
+    assert index.resolve("movie", titles=["1917"], year=2019) == ("movie", 522938, 0)
+
+
+def test_cjk_title_normalizes_and_matches():
+    index = CatalogIndex()
+    index.add(("movie", 346, 0), {"title": "七人の侍", "year": 1954})
+    assert index.resolve("movie", titles=["七人の侍"], year=1954) == ("movie", 346, 0)

@@ -62,10 +62,14 @@ def parse_ids(blob: Any) -> dict[str, Any]:
     }
 
 
+HISTORY_ROW_CAP = 100_000
+
+
 class Tautulli:
     def __init__(self, url: str, api_key: str):
         self.url = tidy_url(url)
         self.api_key = api_key
+        self.history_truncated = False
 
     def _cmd(self, cmd: str, **params: Any) -> Any:
         payload = json_get(
@@ -100,6 +104,7 @@ class Tautulli:
         return rows
 
     def history(self, on_progress=None) -> list[dict[str, Any]]:
+        self.history_truncated = False
         rows: list[dict[str, Any]] = []
         start = 0
         length = 1000
@@ -113,7 +118,8 @@ class Tautulli:
             if len(chunk) < length:
                 break
             start += length
-            if start > 100_000:
+            if start >= HISTORY_ROW_CAP:
+                self.history_truncated = True
                 break
         return rows
 

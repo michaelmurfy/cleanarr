@@ -1,5 +1,5 @@
 import { FormEvent, InputHTMLAttributes, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, AuthStatus, IgnoredItem, LogItem, MatchDecision, MediaItem, Person, ServiceTest, ReviewMatch, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
+import { api, onAuthChange, AuthStatus, IgnoredItem, LogItem, MatchDecision, MediaItem, Person, ServiceTest, ReviewMatch, SyncStatus, UnmatchedItem, WhitelistItem } from "./api";
 import { Brand } from "./Logo";
 
 const PAGES = ["library", "unmatched", "users", "whitelist", "logs", "settings"] as const;
@@ -555,6 +555,10 @@ export function App() {
       .finally(() => setBooting(false));
   }, []);
 
+  useEffect(() => onAuthChange((signedIn) => {
+    if (!signedIn) setUser(null);
+  }), []);
+
   if (booting) {
     return (
       <div className="boot" aria-busy="true" />
@@ -1084,6 +1088,8 @@ function Library({
 
   useEffect(() => {
     if (prevSync.current === "running" && sync.status !== "running") {
+      // Sync wipe-and-inserts rows with new ids; keep a stale selection and confirm deletes nothing.
+      setSelected(new Set());
       load().catch(() => undefined);
     }
     prevSync.current = sync.status;
@@ -2463,7 +2469,9 @@ function Settings() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [flags, setFlags] = useState<Record<string, boolean>>({});
   const [username, setUsername] = useState("");
+  const [savedUsername, setSavedUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
   const [usernameLocked, setUsernameLocked] = useState(false);
   const [hideSettings, setHideSettings] = useState(false);
   const [envFile, setEnvFile] = useState(false);
@@ -2555,6 +2563,7 @@ function Settings() {
     setValues(next);
     setFlags(nextFlags);
     setUsername(data.username);
+    setSavedUsername(data.username);
     setUsernameLocked(data.username_locked);
     setHideSettings(Boolean(data.hide_settings));
     setEnvFile(Boolean(data.env_file));
@@ -2634,12 +2643,17 @@ function Settings() {
       }
     }
     try {
+      const changingLogin = Boolean(
+        !hideSettings && !usernameLocked && (password || username !== savedUsername),
+      );
       await api.saveSettings({
         values: outgoing,
         username: hideSettings || usernameLocked ? null : username,
         password: hideSettings || usernameLocked ? null : password || null,
+        current_password: changingLogin ? currentPassword || null : null,
       });
       setPassword("");
+      setCurrentPassword("");
       await loadSettings();
       flashSaved(hideSettings ? "Schedule saved." : "Settings saved.");
     } catch (err) {
@@ -2960,7 +2974,7 @@ function Settings() {
           </SettingsBlock>
         )}
         {!hideSettings && (
-          <SettingsBlock title="Account" copy="The login for this Cleanarr instance.">
+          <SettingsBlock title="Account" copy="The login for this Cleanarr instance. Changing username or password needs the current password.">
             <div className="form-grid">
               <label>
                 Username {usernameLocked && <span className="lock">env</span>}
@@ -2969,6 +2983,10 @@ function Settings() {
               <label>
                 New password
                 <input type="password" value={password} disabled={usernameLocked} autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} placeholder="Leave blank to keep" />
+              </label>
+              <label>
+                Current password
+                <input type="password" value={currentPassword} disabled={usernameLocked} autoComplete="current-password" onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Required to change login" />
               </label>
             </div>
           </SettingsBlock>
@@ -3027,7 +3045,7 @@ function Settings() {
           </span>
           {dirty ? (
             <div className="save-bar-actions">
-              <button className="ghost" type="button" disabled={saving} onClick={() => { setPassword(""); loadSettings().catch(() => undefined); }}>Discard</button>
+              <button className="ghost" type="button" disabled={saving} onClick={() => { setPassword(""); setCurrentPassword(""); loadSettings().catch(() => undefined); }}>Discard</button>
               <button className="primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
             </div>
           ) : null}

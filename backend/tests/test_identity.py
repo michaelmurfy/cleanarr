@@ -36,6 +36,15 @@ def test_jellystat_user_resolves_by_name():
     assert resolved["account"] == "Carol"
 
 
+def test_jellystat_history_prefers_userid_over_activity_id():
+    directory = UserDirectory()
+    directory.ingest_jellystat({"Id": "activity-99", "UserId": "user-carol", "Name": "Carol"})
+    person = directory.people[0]
+    assert person["jellystat_id"] == "user-carol"
+    assert "jellystat:user-carol" in person["aliases"]
+    assert "jellystat:activity-99" not in person["aliases"]
+
+
 def test_seerr_jellyfin_login_merges_with_jellystat():
     directory = UserDirectory()
     directory.ingest_seerr({"id": 4, "jellyfinUsername": "carol", "displayName": "Carol", "email": "carol@example.com"})

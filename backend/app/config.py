@@ -113,7 +113,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     cleanarr_username: str = "admin"
-    cleanarr_password: str = "changeme"
+    # No default password: a real CLEANARR_PASSWORD or the setup form must supply one.
+    cleanarr_password: str = ""
     cleanarr_secret: str = "change-me"
     data_dir: str = os.environ.get("DATA_DIR", str(Path(__file__).resolve().parents[2] / "data"))
     port: int = 7585

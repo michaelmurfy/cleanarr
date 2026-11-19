@@ -17,11 +17,14 @@ from .actions import Whitelist, is_stale_unwatched, matches_to_review, protect_r
 from .art import art_url, cache_stats, clear_cache, serve_art
 from .auth import (
     bootstrap_auth,
+    bump_session_epoch,
+    clear_session_cookie,
     complete_setup,
     current_user,
     get_setting,
     login_response,
     needs_setup,
+    rehash_password_if_needed,
     session_info,
     set_credentials,
     set_session_cookie,
@@ -63,7 +66,14 @@ class _GZip(GZipMiddleware):
         await super().__call__(scope, receive, send)
 
 
-app = FastAPI(title="Cleanarr", version=current_version(), lifespan=lifespan)
+app = FastAPI(
+    title="Cleanarr",
+    version=current_version(),
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(_GZip, minimum_size=1024)
 app.include_router(actions_router, prefix="/api")
@@ -89,11 +99,16 @@ class LoginIn(BaseModel):
     username: str
     password: str
 
+    def capped(self) -> tuple[str, str]:
+        # Cap lengths so a caller cannot inflate the audit log or burn CPU on PBKDF2.
+        return (self.username or "")[:128], (self.password or "")[:256]
+
 
 class SettingsIn(BaseModel):
     values: dict[str, str]
     username: str | None = None
     password: str | None = None
+    current_password: str | None = None
 
 
 class TestIn(BaseModel):
@@ -165,7 +180,8 @@ def sso_callback(request: Request):
 
 @app.post("/api/auth/setup")
 def setup(payload: LoginIn, request: Request):
-    complete_setup(payload.username, payload.password)
+    username, password = payload.capped()
+    complete_setup(username, password)
     return login_response(get_setting("auth_username"), request)
 
 
@@ -175,7 +191,8 @@ def login(payload: LoginIn, request: Request):
         raise HTTPException(status_code=403, detail="Create an admin account first")
     if not oidc.password_login_enabled():
         raise HTTPException(status_code=403, detail="Password sign-in is turned off. Use single sign-on.")
-    throttle_key = client_key(request, payload.username)
+    username_in, password_in = payload.capped()
+    throttle_key = client_key(request)
     wait = login_throttle.retry_after(throttle_key)
     if wait:
         raise HTTPException(
@@ -185,12 +202,12 @@ def login(payload: LoginIn, request: Request):
         )
     username = get_setting("auth_username")
     # Both checks always run so a wrong username is not faster than a wrong password.
-    name_ok = hmac.compare_digest(payload.username or "", username or "")
-    password_ok = verify_password(payload.password)
+    name_ok = hmac.compare_digest(username_in, username or "")
+    password_ok = verify_password(password_in)
     if not (name_ok and password_ok):
         locked = login_throttle.record_failure(throttle_key)
         add_log(
-            f"Failed sign-in for '{payload.username}'" + (", temporarily locked out" if locked else ""),
+            f"Failed sign-in for '{username_in}'" + (", temporarily locked out" if locked else ""),
             level="warn",
             category="audit",
             action="login_failed",
@@ -198,15 +215,17 @@ def login(payload: LoginIn, request: Request):
         )
         raise HTTPException(status_code=401, detail="Invalid username or password")
     login_throttle.record_success(throttle_key)
+    rehash_password_if_needed(password_in)
     return login_response(username, request)
 
 
 @app.post("/api/auth/logout")
-def logout():
+def logout(request: Request):
     from fastapi.responses import JSONResponse
 
+    bump_session_epoch()
     response = JSONResponse({"ok": True})
-    response.delete_cookie(COOKIE, path="/")
+    clear_session_cookie(response, request)
     return response
 
 
@@ -299,7 +318,7 @@ def _normalize_app_setting(key: str, value: str) -> str:
 
 @app.put("/api/settings")
 def put_settings(payload: SettingsIn, request: Request):
-    current_user(request)
+    user = current_user(request)
     locked = locked_setting_keys()
     hide_settings = hide_env_settings()
     for key, value in payload.values.items():
@@ -315,8 +334,24 @@ def put_settings(payload: SettingsIn, request: Request):
             set_setting(key, cleaned)
             continue
         set_setting(key, value.strip())
-    if not hide_settings and "auth_username" not in locked and (payload.username or payload.password):
-        set_credentials(payload.username or "", payload.password)
+    new_username = (payload.username or "").strip()
+    new_password = payload.password or ""
+    username_changing = bool(new_username) and new_username != (get_setting("auth_username") or "")
+    password_changing = bool(new_password)
+    changing_login = (
+        not hide_settings
+        and "auth_username" not in locked
+        and (username_changing or password_changing)
+    )
+    if changing_login:
+        # Require the current password so a stolen session cannot take the account over.
+        if not payload.current_password or not verify_password(payload.current_password):
+            raise HTTPException(status_code=400, detail="Current password is required to change login details")
+        set_credentials(new_username if username_changing else "", new_password or None)
+        prune_env_overridden_settings()
+        oidc.clear_cache()
+        # Password/username change rotates the session key; hand back a fresh cookie.
+        return login_response(get_setting("auth_username") or user, request)
     prune_env_overridden_settings()
     oidc.clear_cache()
     return {"ok": True, "hide_settings": hide_settings}
@@ -894,6 +929,10 @@ def spa(full_path: str):
         raise HTTPException(status_code=404, detail="Not found")
     candidate = _static_file(full_path)
     if candidate:
-        return FileResponse(candidate, headers={"Cache-Control": "public, max-age=86400"})
+        headers = {"Cache-Control": "public, max-age=86400"}
+        # Pin .ico so scrapers see a stable type across Starlette versions.
+        if candidate.suffix.lower() == ".ico":
+            return FileResponse(candidate, media_type="image/vnd.microsoft.icon", headers=headers)
+        return FileResponse(candidate, headers=headers)
     # The shell names the hashed bundles, so caching it strands clients on an old build.
     return FileResponse(index, headers={"Cache-Control": "no-cache"})
