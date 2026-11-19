@@ -17,6 +17,11 @@
   <ExtraSearchTerms>radarr sonarr seerr overseerr jellyseerr tautulli jellyfin plex emby tracearr jellystat disk cleanup unwatched</ExtraSearchTerms>
   <Requires>A Radarr or Sonarr library, plus Tautulli, Tracearr, or Jellystat for watch history. Seerr is optional.</Requires>
   <Changes><![CDATA[
+## 2026.1119.8
+- Merge pull request #40 from michaelmurfy/dependabot/pip/backend/python-multipart-0.0.34 (9a2d6ea)
+- Merge main into python-multipart bump; keep httpx2 2.16.2. (b7e0d91)
+- Bump python-multipart from 0.0.33 to 0.0.34 in /backend (c9d6c14)
+
 ## 2026.1119.7
 - Merge pull request #39 from michaelmurfy/dependabot/pip/backend/httpx2-2.16.2 (6053c5e)
 - Bump httpx2 from 2.16.0 to 2.16.2 in /backend (cc782af)
